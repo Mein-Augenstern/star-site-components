@@ -32,21 +32,17 @@ import java.time.LocalDateTime;
  */
 public class AsyncCommand {
 
-    /** 状态-初始态：待执行。到期（nextRunAt ≤ 当前时间）后可被调度器令牌认领，迁移到 RUNNING。 */
-    public static final String PENDING = "PENDING";
+    /** 状态-初始态（兼容常量，指向 {@link CommandStatus#PENDING} 的存储码） */
+    public static final String PENDING = CommandStatus.PENDING.getCode();
 
-    /**
-     * 状态-执行中：已被某实例以 claimToken 认领，正在执行。
-     * 出口：成功→SUCCESS；失败→PENDING（指数退避后重试）；重试超限→DEAD；
-     * 认领实例死亡且超过悬挂阈值→被回收迁回 PENDING 重新调度。
-     */
-    public static final String RUNNING = "RUNNING";
+    /** 状态-执行中（兼容常量，指向 {@link CommandStatus#RUNNING} 的存储码） */
+    public static final String RUNNING = CommandStatus.RUNNING.getCode();
 
-    /** 状态-终态：执行成功。不再参与调度，仅保留用于排查与统计。 */
-    public static final String SUCCESS = "SUCCESS";
+    /** 状态-终态：成功（兼容常量，指向 {@link CommandStatus#SUCCESS} 的存储码） */
+    public static final String SUCCESS = CommandStatus.SUCCESS.getCode();
 
-    /** 状态-终态：死信（重试超限自动进入，或人工 kill）。不再被调度，可经管控处置 retry 复活回 PENDING。 */
-    public static final String DEAD = "DEAD";
+    /** 状态-终态：死信（兼容常量，指向 {@link CommandStatus#DEAD} 的存储码） */
+    public static final String DEAD = CommandStatus.DEAD.getCode();
 
     /** 主键 id（由存储分配，insert 后回填；未落库时为 null） */
     private Long id;
@@ -56,8 +52,8 @@ public class AsyncCommand {
     private String bizKey;
     /** 载荷 JSON */
     private String payload;
-    /** 当前状态，取值限于 PENDING/RUNNING/SUCCESS/DEAD 四个常量 */
-    private String status;
+    /** 当前状态（枚举，迁移规则见 {@link CommandStatus#canAutoTransitionTo}） */
+    private CommandStatus status;
     /** 最大重试次数上限（失败重试达到该值仍失败则进 DEAD；为 null 时按配置默认值处理） */
     private Integer maxRetry;
     /** 已重试次数（0 起算，每失败一次加 1） */
@@ -132,18 +128,36 @@ public class AsyncCommand {
     public void setPayload(String payload) { this.payload = payload; }
 
     /**
-     * 获取当前状态。
+     * 获取当前状态（枚举形态，迁移判断用）。
      *
-     * @return 当前状态（PENDING/RUNNING/SUCCESS/DEAD 四常量之一）
+     * @return 当前状态枚举
      */
-    public String getStatus() { return status; }
+    public CommandStatus getStatusEnum() { return status; }
 
     /**
-     * 设置当前状态。
+     * 设置当前状态（枚举形态——迁移前建议经
+     * {@link CommandStatus#canAutoTransitionTo} 守卫）。
      *
-     * @param status 目标状态（PENDING/RUNNING/SUCCESS/DEAD 四常量之一）
+     * @param status 目标状态枚举
      */
-    public void setStatus(String status) { this.status = status; }
+    public void setStatusEnum(CommandStatus status) { this.status = status; }
+
+    /**
+     * 获取当前状态的存储码（String 兼容形态——行映射/JSON 序列化用；
+     * 与 {@code getStatusEnum().getCode()} 等价）。
+     *
+     * @return 存储码（PENDING/RUNNING/SUCCESS/DEAD）
+     */
+    public String getStatus() { return status == null ? null : status.getCode(); }
+
+    /**
+     * 按存储码设置状态（String 兼容形态——行映射/外部数据装载用；
+     * 未知码 fail-fast 抛 IllegalArgumentException）。
+     *
+     * @param code 状态存储码
+     * @throws IllegalArgumentException 未知状态码
+     */
+    public void setStatus(String code) { this.status = CommandStatus.fromCode(code); }
 
     /**
      * 获取最大重试次数上限。
