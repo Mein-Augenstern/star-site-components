@@ -207,6 +207,8 @@ mvn spotless:apply  # 规范自动修复（许可头/未用导入/空白）；ve
 
 - IT 需要 docker 与 mysql:8.0 镜像；macOS Docker Desktop 若 socket 非标准路径，
   先 `sudo ln -sf ~/.docker/run/docker.sock /var/run/docker.sock`
+- 无 docker 环境：设 `TEST_MYSQL_URL`（配 `TEST_MYSQL_USER`/`TEST_MYSQL_PASSWORD`，默认 root/root）
+  直接对外部库跑 IT——例如 `TEST_MYSQL_URL=jdbc:mysql://127.0.0.1:3306/test mvn verify -Pit`
 
 ## 后续规划
 

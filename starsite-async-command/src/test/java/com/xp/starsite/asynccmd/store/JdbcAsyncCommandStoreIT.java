@@ -18,37 +18,90 @@ package com.xp.starsite.asynccmd.store;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.AsyncCommand;
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * JDBC 存储集成测试（Testcontainers 真库）：建表/提交/令牌认领/悬挂回收/幂等/分页。
+ * JDBC 存储集成测试：真库验证建表/提交/令牌认领/悬挂回收/幂等/分页。
+ * <ul>
+ *   <li>默认：Testcontainers 拉起一次性 mysql:8.0（需要 docker）</li>
+ *   <li>设置 {@code TEST_MYSQL_URL}（配 TEST_MYSQL_USER/TEST_MYSQL_PASSWORD，默认 root/root）
+ *       时直接用外部库——无 docker 环境也能跑 IT 的标准逃生口</li>
+ * </ul>
  *
  * @author muyi
  * @since 2026-10
  */
-@Testcontainers
 class JdbcAsyncCommandStoreIT {
 
-    @Container
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0")
-            .withDatabaseName("starsite")
-            .withUsername("test")
-            .withPassword("test");
+    private static final String EXT_URL = System.getenv("TEST_MYSQL_URL");
 
-    private JdbcAsyncCommandStore store(String table) throws java.sql.SQLException {
+    private static MySQLContainer<?> container;
+
+    @BeforeAll
+    static void startDb() {
+        if (EXT_URL == null) {
+            container = new MySQLContainer<>("mysql:8.0")
+                    .withDatabaseName("starsite").withUsername("test").withPassword("test");
+            container.start();
+        }
+    }
+
+    @AfterAll
+    static void stopDb() {
+        if (container != null) {
+            container.stop();
+        }
+    }
+
+    private static String jdbcUrl() {
+        return EXT_URL != null ? EXT_URL : container.getJdbcUrl();
+    }
+
+    private static String dbUser() {
+        return EXT_URL != null ? env("TEST_MYSQL_USER", "root") : container.getUsername();
+    }
+
+    private static String dbPassword() {
+        return EXT_URL != null ? env("TEST_MYSQL_PASSWORD", "root") : container.getPassword();
+    }
+
+    private static String env(String key, String def) {
+        String v = System.getenv(key);
+        return v == null ? def : v;
+    }
+
+    private JdbcAsyncCommandStore store(String table) throws SQLException {
+        // 外部库模式下表会跨运行残留（testcontainers 每次新容器无此问题），先落为敬
+        rawJdbc().execute("DROP TABLE IF EXISTS " + table);
+        return directStore(table);
+    }
+
+    /** 无自清理的直构通道（非法表名用例专用：不能把非法名拼进任何要执行的 SQL） */
+    private JdbcAsyncCommandStore directStore(String table) throws SQLException {
         SimpleDriverDataSource ds = new SimpleDriverDataSource();
         ds.setDriver(new com.mysql.cj.jdbc.Driver());
-        ds.setUrl(MYSQL.getJdbcUrl());
-        ds.setUsername(MYSQL.getUsername());
-        ds.setPassword(MYSQL.getPassword());
+        ds.setUrl(jdbcUrl());
+        ds.setUsername(dbUser());
+        ds.setPassword(dbPassword());
         return new JdbcAsyncCommandStore(new JdbcTemplate(ds), table, true);
+    }
+
+    /** 测试内直连 SQL 通道（回拨 updated_at 等确定性构造用） */
+    private JdbcTemplate rawJdbc() throws SQLException {
+        SimpleDriverDataSource ds = new SimpleDriverDataSource();
+        ds.setDriver(new com.mysql.cj.jdbc.Driver());
+        ds.setUrl(jdbcUrl());
+        ds.setUsername(dbUser());
+        ds.setPassword(dbPassword());
+        return new JdbcTemplate(ds);
     }
 
     private AsyncCommand submit(JdbcAsyncCommandStore store, String type, String key) {
@@ -69,7 +122,7 @@ class JdbcAsyncCommandStoreIT {
     void 建表与提交_自增id回填() throws Exception {
         JdbcAsyncCommandStore store = store("async_cmd_t1");
         AsyncCommand cmd = submit(store, "create", "k1");
-        assertThat(cmd.getId()).isPositive();
+        assertThat(cmd.getId()).as("insert 后 id 必须回填").isPositive();
         assertThat(store.findById(cmd.getId())).isNotNull();
         assertThat(store.findById(cmd.getId()).getCmdType()).isEqualTo("create");
     }
@@ -110,11 +163,16 @@ class JdbcAsyncCommandStoreIT {
     @Test
     void 悬挂回收_超时RUNNING回PENDING() throws Exception {
         JdbcAsyncCommandStore store = store("async_cmd_t4");
-        submit(store, "stale", "k1");
+        AsyncCommand cmd = submit(store, "stale", "k1");
         store.claim("dead", 5, LocalDateTime.now());
         assertThat(store.countByStatus(AsyncCommand.RUNNING)).isEqualTo(1);
 
-        int reclaimed = store.reclaimStale(0, 10); // 立即视为悬挂
+        // 确定性构造"超时"：claim 的 NOW() 是秒精度，同秒内 updated_at == NOW() 不会被判悬挂，
+        // 直接把 updated_at 回拨到一分钟前（模拟执行器死亡后已经过了一个悬挂周期）
+        rawJdbc().update("UPDATE async_cmd_t4 SET updated_at = NOW() - INTERVAL 1 MINUTE WHERE id = ?",
+                cmd.getId());
+
+        int reclaimed = store.reclaimStale(30, 10);
         assertThat(reclaimed).isEqualTo(1);
         assertThat(store.countByStatus(AsyncCommand.PENDING)).isEqualTo(1);
         assertThat(store.findByToken("dead")).isEmpty();
@@ -156,23 +214,44 @@ class JdbcAsyncCommandStoreIT {
         AsyncCommand a = submit(store, "page", "k1");
         AsyncCommand b = submit(store, "page", "k2");
         AsyncCommand c = submit(store, "other", "k3");
-        a.setStatus(AsyncCommand.DEAD); a.setClaimToken(null); store.updateState(a);
-        b.setStatus(AsyncCommand.SUCCESS); b.setClaimToken(null); store.updateState(b);
-        c.setStatus(AsyncCommand.SUCCESS); c.setClaimToken(null); store.updateState(c);
+        assertThat(a.getId()).isPositive();
+        assertThat(b.getId()).isPositive();
+        assertThat(c.getId()).isPositive();
+
+        updateTo(store, a, AsyncCommand.DEAD);
+        updateTo(store, b, AsyncCommand.SUCCESS);
+        updateTo(store, c, AsyncCommand.SUCCESS);
+        // 逐步诊断：先确认每行落库状态，再查聚合（失败时能定位到具体行而非只看到 size 不符）
+        assertThat(store.findById(a.getId()).getStatus()).isEqualTo(AsyncCommand.DEAD);
+        assertThat(store.findById(b.getId()).getStatus()).isEqualTo(AsyncCommand.SUCCESS);
+        assertThat(store.findById(c.getId()).getStatus()).isEqualTo(AsyncCommand.SUCCESS);
 
         assertThat(store.countPage(null, null)).isEqualTo(3);
         assertThat(store.countPage(AsyncCommand.DEAD, null)).isEqualTo(1);
         assertThat(store.countPage(AsyncCommand.SUCCESS, "page")).isEqualTo(1);
-        List<AsyncCommand> page = store.selectPage(AsyncCommand.SUCCESS, null, 1, 10);
+        assertThat(store.countPage(AsyncCommand.SUCCESS, null)).isEqualTo(2);
+        // 注意：第 3 参是 offset 不是页码（页码→offset 的换算在 AdminService.page）。
+        // 此前这里误传 1 当"第 1 页"，实际是跳过最新 1 行——CI 真库一跑即现形
+        List<AsyncCommand> page = store.selectPage(AsyncCommand.SUCCESS, null, 0, 10);
         assertThat(page).hasSize(2);
         assertThat(page.get(0).getId()).isGreaterThan(page.get(1).getId()); // id 倒序
+        // 翻页边界：offset=1 + size=1 = 第二页第一条
+        List<AsyncCommand> second = store.selectPage(AsyncCommand.SUCCESS, null, 1, 1);
+        assertThat(second).hasSize(1);
+        assertThat(second.get(0).getId()).isEqualTo(page.get(1).getId());
     }
 
     @Test
-    void 非法表名_拒绝防注入() {
+    void 非法表名_拒绝防注入() throws Exception {
         org.assertj.core.api.Assertions.assertThatThrownBy(
-                        () -> store("async; drop table x"))
+                        () -> directStore("async; drop table x"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("字母数字下划线");
+    }
+
+    private int updateTo(JdbcAsyncCommandStore store, AsyncCommand cmd, String status) {
+        cmd.setStatus(status);
+        cmd.setClaimToken(null);
+        return store.updateState(cmd);
     }
 }
