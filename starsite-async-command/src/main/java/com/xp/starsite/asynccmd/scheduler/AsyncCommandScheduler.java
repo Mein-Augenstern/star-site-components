@@ -255,20 +255,40 @@ public class AsyncCommandScheduler {
 
     /**
      * tick 的异常兜底：scheduleWithFixedDelay 任务抛未捕获异常会被静默取消，调度永久停摆。
+     * LEADER 争锁经 {@link #tryScheduleLock()}：锁存储故障降级为竞争模式继续本轮
+     * （令牌认领本身行级原子，多实例并发认领安全），绝不让锁故障停摆调度。
+     * 包级可见：同包测试确定性驱动 LEADER 门控（外部消费方入口是 start/tick）。
      */
-    private void safeTick() {
-        if (scheduleMode == ScheduleMode.LEADER && scheduleLock != null) {
-            if (!scheduleLock.tryLock("async-cmd-scheduler")) {
-                // 非 leader 实例：他方持锁中，跳过本轮（TTL 过期后自动接管）
-                return;
-            }
-            holdingLock = true;
-        }
+    void safeTick() {
         try {
+            if (scheduleMode == ScheduleMode.LEADER && scheduleLock != null) {
+                if (!tryScheduleLock()) {
+                    // 非 leader 实例：他方持锁中，跳过本轮（TTL 过期后自动接管）
+                    return;
+                }
+            }
             tick();
         } catch (Exception e) {
             // 调度异常不致命（下一轮继续），但必须可见
             log.error("async scheduler tick error: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 争调度锁（LEADER 模式）。锁存储异常按 fail-open 放行本轮：
+     * 宁可多实例竞争认领（认领是行级原子操作，竞争安全）也不停摆调度。
+     *
+     * @return true = 本实例持锁（或锁故障降级放行）；false = 他方持锁，跳过本轮
+     */
+    private boolean tryScheduleLock() {
+        try {
+            boolean locked = scheduleLock.tryLock("async-cmd-scheduler");
+            holdingLock = locked;
+            return locked;
+        } catch (Exception e) {
+            log.warn("[starsite-async-command] 调度锁异常（fail-open 降级竞争模式本轮）: {}", e.getMessage());
+            holdingLock = false;
+            return true;
         }
     }
 

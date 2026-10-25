@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * DB 分布式锁实现（MyBatis Mapper 版，ShedLock 模式）：
  * 争锁是单条原子 UPDATE，TTL 过期自动释放，不阻塞未获锁实例。
  * <p>
- * 全部 SQL 落在 {@link ScheduleLockMapper} 的注解里——本类零硬编码 SQL。
+ * 全部 SQL 落在与 {@link ScheduleLockMapper} 同包的 Mapper XML——本类零硬编码 SQL。
  *
  * @author muyi
  * @date 2026/10/25
@@ -55,8 +55,11 @@ public class DbLockClient implements LockClient {
     /** 主键 id 生成器（starsite-sequence 组件——锁行种子 id 标准来源） */
     private final java.util.function.LongSupplier idGenerator;
 
+    /** 时钟（TTL 到期判定；测试注入假时钟确定性构造过期场景） */
+    private final java.time.Clock clock;
+
     /**
-     * 全参构造。
+     * 全参构造（系统时钟）。
      *
      * @param mapper    MyBatis Mapper
      * @param tableName 锁表名（仅字母数字下划线）
@@ -67,6 +70,22 @@ public class DbLockClient implements LockClient {
      */
     public DbLockClient(ScheduleLockMapper mapper, String tableName, String ownerId, long ttlMs,
                         java.util.function.LongSupplier idGenerator) {
+        this(mapper, tableName, ownerId, ttlMs, idGenerator, java.time.Clock.systemDefaultZone());
+    }
+
+    /**
+     * 全参构造（显式时钟）。
+     *
+     * @param mapper      MyBatis Mapper
+     * @param tableName   锁表名（仅字母数字下划线）
+     * @param ownerId     持锁者标识
+     * @param ttlMs       锁 TTL 毫秒
+     * @param idGenerator 主键 id 生成器（starsite-sequence 组件）
+     * @param clock       时钟（TTL 到期判定；测试注入假时钟构造过期场景）
+     * @throws IllegalArgumentException 表名非法
+     */
+    public DbLockClient(ScheduleLockMapper mapper, String tableName, String ownerId, long ttlMs,
+                        java.util.function.LongSupplier idGenerator, java.time.Clock clock) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
@@ -75,6 +94,7 @@ public class DbLockClient implements LockClient {
         this.ownerId = ownerId;
         this.ttlMs = ttlMs;
         this.idGenerator = idGenerator;
+        this.clock = clock;
     }
 
     /**
@@ -97,11 +117,13 @@ public class DbLockClient implements LockClient {
     @Override
     public boolean tryLock(String lockName) {
         try {
-            // 首次争锁时先补种子行（只插不覆盖；id 由 sequence 组件生成）
-            mapper.seedLockRow(tableName, idGenerator.getAsLong(), lockName);
-            LocalDateTime until = LocalDateTime.now().plusNanos(ttlMs * 1_000_000);
+            // 首次争锁时先补种子行（尽力而为——见 seedLockRowQuietly 的并发语义说明）
+            seedLockRowQuietly(lockName);
+            // 单次取钟：until 与 now 同基准（两次 now() 会有毫秒级漂移，到期判定失真）
+            LocalDateTime now = LocalDateTime.now(clock);
+            LocalDateTime until = now.plusNanos(ttlMs * 1_000_000);
             boolean acquired = mapper.tryAcquire(tableName, lockName,
-                    ownerId, until, LocalDateTime.now()) > 0;
+                    ownerId, until, now) > 0;
             if (acquired) {
                 log.trace("[starsite-lock] 获得锁: lock={}, owner={}", lockName, ownerId);
             }
@@ -110,6 +132,23 @@ public class DbLockClient implements LockClient {
             // 锁不可用不阻断调用方（fail-open——宁可多实例竞争也别停摆）
             log.warn("[starsite-lock] 争锁异常（fail-open 继续）: lock={}, err={}", lockName, e.getMessage());
             return true;
+        }
+    }
+
+    /**
+     * 补种子行（尽力而为）：并发首抢时多实例同时播种，输家撞 lock_name 唯一键——
+     * 这是正常并发结局而非故障（行已存在正是期望终态），吞掉继续争锁；
+     * 真实库故障也会在此抛出，但紧随的 tryAcquire 会以同样方式失败并走 fail-open，语义不变。
+     * 互斥权威只在 tryAcquire 的单条 UPDATE——种子不参与判定。
+     *
+     * @param lockName 锁名
+     */
+    private void seedLockRowQuietly(String lockName) {
+        try {
+            mapper.seedLockRow(tableName, idGenerator.getAsLong(), lockName);
+        } catch (RuntimeException e) {
+            log.debug("[starsite-lock] 种子行已存在或播种失败（继续争锁）: lock={}, err={}",
+                    lockName, e.getMessage());
         }
     }
 

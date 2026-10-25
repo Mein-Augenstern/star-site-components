@@ -19,7 +19,6 @@ import com.xp.starsite.lock.client.LockClient;
 import com.xp.starsite.lock.model.LockCoreConfig;
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -47,6 +46,15 @@ public class RedisLockClient implements LockClient {
             "if redis.call('GET', KEYS[1]) == ARGV[1] then "
             + "return redis.call('DEL', KEYS[1]) else return 0 end";
 
+    /**
+     * 续期锁 Lua 脚本：CAS 比较 locked_by 后 EXPIRE（原子续期）。
+     * 绝不能拆成 GET + EXPIRE 两步——两步之间 key 过期被他方抢占时，
+     * EXPIRE 会延长他方锁且本方误判持锁（互斥破坏）。
+     */
+    private static final String RENEW_LUA =
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+            + "return redis.call('PEXPIRE', KEYS[1], ARGV[2]) else return 0 end";
+
     /** Redis 模板 */
     private final StringRedisTemplate redisTemplate;
 
@@ -73,11 +81,12 @@ public class RedisLockClient implements LockClient {
     }
 
     /**
-     * 非阻塞争锁：SET key value NX EX ttl（原子）。
-     * 同一持有者重复调用 = 续期（重设 TTL）。
+     * 非阻塞争锁：SET key value NX PX ttl（原子）。
+     * 同一持有者重复调用 = 续期（Lua CAS 原子重设 TTL——GET+EXPIRE 两步在 key 过期瞬间
+     * 会误延他方锁并误判持锁，不可拆）。
      *
      * @param lockName 锁名
-     * @return true 获得锁
+     * @return true 获得锁（或续期成功——仍是本方持有）
      */
     @Override
     public boolean tryLock(String lockName) {
@@ -87,10 +96,12 @@ public class RedisLockClient implements LockClient {
             log.trace("[starsite-lock] Redis 获得锁: key={}, owner={}", key, ownerId);
             return true;
         }
-        // 已存在：如果是自己持的锁，续期（重设 TTL）
-        String current = redisTemplate.opsForValue().get(key);
-        if (ownerId.equals(current)) {
-            redisTemplate.expire(key, ttl);
+        // 已存在：仅当仍是自己持有时原子续期（脚本返回 0 = 已易主/已过期，争锁失败）
+        Long renewed = redisTemplate.execute(
+                new DefaultRedisScript<>(RENEW_LUA, Long.class),
+                List.of(key), ownerId, String.valueOf(ttl.toMillis()));
+        if (renewed != null && renewed > 0) {
+            log.trace("[starsite-lock] Redis 锁续期: key={}, owner={}", key, ownerId);
             return true;
         }
         return false;
@@ -114,16 +125,5 @@ public class RedisLockClient implements LockClient {
         } catch (RuntimeException e) {
             log.warn("[starsite-lock] Redis 释放异常（等 TTL 自动过期）: key={}, err={}", key, e.getMessage());
         }
-    }
-
-    /** 确保序列化可比较（防 IDE 警告） */
-    @Override
-    public boolean equals(Object o) {
-        return this == o;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(keyPrefix, ownerId);
     }
 }
