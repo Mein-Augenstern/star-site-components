@@ -26,13 +26,19 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  * jdbc 缺 DataSource 快速失败、关开关不装配、owner 默认取应用名。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 class AsyncCommandAutoConfigurationTest {
 
+    /** 上下文测试运行器：以自动装配方式拉起 AsyncCommandAutoConfiguration 并逐用例断言容器状态 */
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(AsyncCommandAutoConfiguration.class));
 
+    /**
+     * 用例：memory 形态零依赖完整装配 + 生命周期容器托管 + 提交到执行全链路。
+     * <p>验证点：无 DataSource 时 memory 形态可完整装配（Client/Scheduler/Lifecycle 齐备）；
+     * SmartLifecycle 随容器 refresh 自动拉起调度器；提交命令并手动 tick 后执行成功（SUCCESS）。
+     */
     @Test
     void memory形态_无DataSource完整装配_生命周期容器托管() {
         runner.withPropertyValues("starsite.async-command.store=memory")
@@ -50,12 +56,17 @@ class AsyncCommandAutoConfigurationTest {
                     AsyncCommandClient client = ctx.getBean(AsyncCommandClient.class);
                     AsyncCommand submitted = client.submit("demo", "k1", "{}");
                     assertThat(submitted.getId()).isPositive();
+                    // 手动驱动一次调度循环，验证提交→认领→执行→终态回写全链路
                     ctx.getBean(AsyncCommandScheduler.class).tick();
                     assertThat(client.findById(submitted.getId()).getStatus())
                             .isEqualTo(AsyncCommand.SUCCESS);
                 });
     }
 
+    /**
+     * 用例：jdbc 形态缺 DataSource 快速失败。
+     * <p>验证点：store=jdbc 且容器中无 JdbcTemplate 时装配失败，且异常信息明确提示改用 store=memory。
+     */
     @Test
     void jdbc形态_缺DataSource_快速失败提示memory() {
         runner.withPropertyValues("starsite.async-command.store=jdbc")
@@ -64,6 +75,10 @@ class AsyncCommandAutoConfigurationTest {
                         .hasMessageContaining("store=memory"));
     }
 
+    /**
+     * 用例：总开关关闭时不装配。
+     * <p>验证点：enabled=false 时 Client/Scheduler 等核心 Bean 均不创建。
+     */
     @Test
     void 关开关_不装配() {
         runner.withPropertyValues(
@@ -75,6 +90,10 @@ class AsyncCommandAutoConfigurationTest {
                 });
     }
 
+    /**
+     * 用例：owner 未配置时默认取应用名。
+     * <p>验证点：未显式配置 owner 时，提交的命令其 owner 回填为 spring.application.name。
+     */
     @Test
     void owner默认取应用名() {
         runner.withPropertyValues(

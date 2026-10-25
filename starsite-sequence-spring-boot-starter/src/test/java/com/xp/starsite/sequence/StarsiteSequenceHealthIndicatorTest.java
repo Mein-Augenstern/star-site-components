@@ -25,13 +25,20 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
  * 健康端点装配与语义测试：UP + workerId/形态明细（被动上报，不消耗号段）。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 class StarsiteSequenceHealthIndicatorTest {
 
+    /** 上下文测试运行器：仅装载被测自动装配，模拟应用引入 starter 后的最小容器 */
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(StarsiteSequenceAutoConfiguration.class));
 
+    /**
+     * 验证健康端点的装配与被动上报语义（默认配置场景）：
+     * 端点随主装配就绪且状态为 UP，明细含 workerId 与 allocator（形态描述）；
+     * 明细不含发号产物（lastId），且重复调用 health() 前后业务发号严格递增——
+     * 结构上证明健康检查只读不上报 id、不消耗号段。
+     */
     @Test
     void 默认装配_UP_明细含workerId与形态_被动上报不消耗号段() {
         runner.run(ctx -> {
@@ -48,7 +55,8 @@ class StarsiteSequenceHealthIndicatorTest {
             assertThat(String.valueOf(health.getDetails().get("allocator"))).contains("standalone");
             // 被动上报的结构性证明：明细不含发号产物，且重复调用 health 后 id 仅随业务调用前进
             assertThat(health.getDetails()).doesNotContainKey("lastId");
-            indicator.health(); // 再调一次 health
+            // 再调一次 health，验证高频探活不影响号段
+            indicator.health();
             long idAfter = generator.next();
             assertThat(idAfter).isGreaterThan(idBefore);
         });

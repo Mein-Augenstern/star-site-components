@@ -30,41 +30,128 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * </ul>
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 @ConfigurationProperties(prefix = "starsite.async-command")
 public class AsyncCommandProperties extends AsyncCommandConfig {
 
-    /** 组件总开关（false 时完全不装配） */
+    /** 组件总开关（默认 true；false 时 starter 完全不装配任何 Bean） */
     private boolean enabled = true;
 
-    /** 存储形态：jdbc / memory */
+    /** 存储形态（默认 JDBC；取值语义见 {@link Store} 各常量说明） */
     private Store store = Store.JDBC;
 
-    /** 命令表名（jdbc 形态；每服务独立库/独立表名即可多服务共存） */
+    /** 命令表名（仅 jdbc 形态生效；默认 async_command；每服务独立库/独立表名即可多服务共存） */
     private String tableName = "async_command";
 
-    /** 自动建表（IF NOT EXISTS，增量安全；false = 交由迁移脚本管理） */
+    /** 自动建表开关（仅 jdbc 形态生效；默认 true，CREATE TABLE IF NOT EXISTS 增量安全；false = 交由迁移脚本管理） */
     private boolean initDdl = true;
 
-    /** 管控端点开关（默认关；开启需 Web 应用，建议仅内网/网关白名单可达） */
+    /** 管控端点开关（默认 false；true 且 Web 应用时才装配管控端点，建议仅内网/网关白名单可达） */
     private boolean adminEnabled = false;
 
-    /** 管控端点基路径 */
+    /** 管控端点基路径（默认 /api/admin/async，Controller @RequestMapping 直接引用） */
     private String adminBasePath = "/api/admin/async";
 
-    public enum Store { JDBC, MEMORY }
+    /**
+     * 存储形态枚举：决定命令落库方式与可用部署拓扑。
+     */
+    public enum Store {
 
+        /**
+         * 表存储 + 令牌认领：需容器中存在 DataSource/JdbcTemplate；
+         * 单机单实例与分布式多实例同语义，多实例并发认领靠 UPDATE claim_token 互斥，谁写入算谁。
+         */
+        JDBC,
+
+        /**
+         * 进程内存队列：无需任何 DB，适用于本地开发/小型工具/单机服务；
+         * 重启即丢失全部未完成命令，不适用于有可靠性要求的链路。
+         */
+        MEMORY
+    }
+
+    /**
+     * 读取组件总开关。
+     *
+     * @return true 表示启用装配；false 表示完全不装配
+     */
     public boolean isEnabled() { return enabled; }
+
+    /**
+     * 设置组件总开关。
+     *
+     * @param enabled true 启用（默认）；false 完全不装配
+     */
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    /**
+     * 读取存储形态。
+     *
+     * @return 当前存储形态（默认 {@link Store#JDBC}）
+     */
     public Store getStore() { return store; }
+
+    /**
+     * 设置存储形态。
+     *
+     * @param store 存储形态：JDBC（需 DataSource）或 MEMORY（无 DB、重启丢命令）
+     */
     public void setStore(Store store) { this.store = store; }
+
+    /**
+     * 读取命令表名。
+     *
+     * @return 命令表名（仅 jdbc 形态生效；默认 async_command）
+     */
     public String getTableName() { return tableName; }
+
+    /**
+     * 设置命令表名。
+     *
+     * @param tableName 命令表名（仅 jdbc 形态生效；多服务共存时每服务配独立库/独立表名）
+     */
     public void setTableName(String tableName) { this.tableName = tableName; }
+
+    /**
+     * 读取自动建表开关。
+     *
+     * @return true 表示启动时 CREATE TABLE IF NOT EXISTS（默认）；false 表示交由迁移脚本管理
+     */
     public boolean isInitDdl() { return initDdl; }
+
+    /**
+     * 设置自动建表开关。
+     *
+     * @param initDdl true 自动建表（增量安全）；false 不自动建表（表结构由迁移脚本负责）
+     */
     public void setInitDdl(boolean initDdl) { this.initDdl = initDdl; }
+
+    /**
+     * 读取管控端点开关。
+     *
+     * @return true 表示装配管控服务与端点；false 表示不装配（默认）
+     */
     public boolean isAdminEnabled() { return adminEnabled; }
+
+    /**
+     * 设置管控端点开关。
+     *
+     * @param adminEnabled true 开启（还需 Web 应用才暴露 HTTP 端点）；false 关闭（默认）
+     */
     public void setAdminEnabled(boolean adminEnabled) { this.adminEnabled = adminEnabled; }
+
+    /**
+     * 读取管控端点基路径。
+     *
+     * @return 管控端点基路径（默认 /api/admin/async）
+     */
     public String getAdminBasePath() { return adminBasePath; }
+
+    /**
+     * 设置管控端点基路径。
+     *
+     * @param adminBasePath 管控端点基路径（所有管控端点挂在该路径之下）
+     */
     public void setAdminBasePath(String adminBasePath) { this.adminBasePath = adminBasePath; }
 }

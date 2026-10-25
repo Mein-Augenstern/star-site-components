@@ -20,7 +20,7 @@ package com.xp.starsite.sequence;
  * 参数含义见 README「全量配置」表。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 public class SequenceConfig {
 
@@ -52,22 +52,40 @@ public class SequenceConfig {
     private MysqlWorkerIdAllocator.WraparoundPolicy wraparoundPolicy =
             MysqlWorkerIdAllocator.WraparoundPolicy.RESET;
 
+    /** 获取固定机器位（仅 standalone 形态生效）。 */
     public long getWorkerId() { return workerId; }
+    /** 设置固定机器位（仅 standalone 形态生效）。 */
     public void setWorkerId(long workerId) { this.workerId = workerId; }
+    /** 获取服务名（mysql 形态审计行 key）。 */
     public String getServiceName() { return serviceName; }
+    /** 设置服务名（mysql 形态审计行 key）。 */
     public void setServiceName(String serviceName) { this.serviceName = serviceName; }
+    /** 获取实例标识（空串 = 自动生成 服务@pid@启动戳）。 */
     public String getInstanceTag() { return instanceTag; }
+    /** 设置实例标识（传空串则自动生成）。 */
     public void setInstanceTag(String instanceTag) { this.instanceTag = instanceTag; }
+    /** 获取起始时间戳毫秒。 */
     public long getEpoch() { return epoch; }
+    /** 设置起始时间戳毫秒（须为过去的固定时刻）。 */
     public void setEpoch(long epoch) { this.epoch = epoch; }
+    /** 获取机器位宽度（位）。 */
     public int getWorkerIdBits() { return workerIdBits; }
+    /** 设置机器位宽度（位），与序列位之和不超过 22。 */
     public void setWorkerIdBits(int workerIdBits) { this.workerIdBits = workerIdBits; }
+    /** 获取序列位宽度（位）。 */
     public int getSequenceBits() { return sequenceBits; }
+    /** 设置序列位宽度（位），与机器位之和不超过 22。 */
     public void setSequenceBits(int sequenceBits) { this.sequenceBits = sequenceBits; }
+    /** 获取时钟回拨容忍上限毫秒。 */
     public long getMaxBackwardMillis() { return maxBackwardMillis; }
+    /** 设置时钟回拨容忍上限毫秒（超限按回拨策略处置）。 */
     public void setMaxBackwardMillis(long maxBackwardMillis) { this.maxBackwardMillis = maxBackwardMillis; }
+    /** 获取时钟回拨超限策略。 */
     public SnowflakeIdGenerator.BackwardPolicy getBackwardPolicy() { return backwardPolicy; }
+    /** 设置时钟回拨超限策略（CLAMP 钳制 / FAIL 拒绝）。 */
     public void setBackwardPolicy(SnowflakeIdGenerator.BackwardPolicy backwardPolicy) { this.backwardPolicy = backwardPolicy; }
+    /** 获取全局池回绕策略（mysql 形态）。 */
     public MysqlWorkerIdAllocator.WraparoundPolicy getWraparoundPolicy() { return wraparoundPolicy; }
+    /** 设置全局池回绕策略（RESET 重置重取 / FAIL 拒绝）。 */
     public void setWraparoundPolicy(MysqlWorkerIdAllocator.WraparoundPolicy wraparoundPolicy) { this.wraparoundPolicy = wraparoundPolicy; }
 }

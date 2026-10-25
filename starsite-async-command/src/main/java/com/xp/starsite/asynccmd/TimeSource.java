@@ -17,16 +17,29 @@ package com.xp.starsite.asynccmd;
 
 /**
  * 时间源抽象（async-command 模块自持，与 sequence 模块解耦）。
+ * 为什么存在：把"取当前时间"抽象出来，测试可注入假时钟，确定性构造延迟到期/悬挂超时场景（不依赖真实等待）。
  * 生产用 {@link #system()}；测试注入假时钟确定性构造延迟/超时场景。
+ * <p>
+ * 线程安全性：实现应为无状态或线程安全（system 实现无状态，任意并发安全）。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 @FunctionalInterface
 public interface TimeSource {
 
+    /**
+     * 返回当前时间。
+     *
+     * @return 当前时间；system 实现为 {@code LocalDateTime.now()}，测试实现由假时钟推进
+     */
     java.time.LocalDateTime now();
 
+    /**
+     * 系统时钟实现。
+     *
+     * @return 委托 {@code LocalDateTime.now()} 的时间源（无状态，线程安全）
+     */
     static TimeSource system() {
         return java.time.LocalDateTime::now;
     }

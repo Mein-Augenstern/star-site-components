@@ -25,28 +25,51 @@ import org.junit.jupiter.api.Test;
 
 /**
  * 调度流程单测（memory 存储 + 直接驱动 tick）：成功/重试/死信/幂等/延迟/双实例认领互斥/悬挂回收。
+ * 确定性策略：不走内部调度线程，用例内手工调用 tick() 逐轮驱动；退避配 0 秒使重试立即到期，无需真实等待。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 class AsyncCommandSchedulerTest {
 
-    /** 记录调用并可编程决定成败的假执行器 */
+    /**
+     * 测试设施：可编程成败的假执行器——按执行顺序记录命令 id，前 failFirstN 次抛异常模拟失败，之后成功。
+     */
     static class FakeExecutor implements AsyncCommandExecutor {
+        /** 路由键（type() 返回值） */
         final String typeName;
+        /** 已执行命令 id（按执行顺序记录）；CopyOnWriteArrayList：写少读多，且可能被调度线程与测试线程并发读 */
         final List<Long> executed = new CopyOnWriteArrayList<>();
+        /** 前 N 次执行抛异常模拟失败（0 = 每次都成功） */
         int failFirstN;
 
+        /**
+         * 构造假执行器。
+         *
+         * @param typeName    路由键
+         * @param failFirstN 前 N 次执行失败（0 = 永不失败；Integer.MAX_VALUE = 永远失败）
+         */
         FakeExecutor(String typeName, int failFirstN) {
             this.typeName = typeName;
             this.failFirstN = failFirstN;
         }
 
+        /**
+         * 返回构造时指定的路由键。
+         *
+         * @return 路由键
+         */
         @Override
         public String type() {
             return typeName;
         }
 
+        /**
+         * 模拟执行：失败额度未用完时抛 IllegalStateException("boom#n")（失败信息供死信 lastError 断言），
+         * 否则记录 id 后正常返回（成功）。
+         *
+         * @param cmd 被执行的命令
+         */
         @Override
         public void execute(AsyncCommand cmd) {
             if (executed.size() < failFirstN) {
@@ -57,10 +80,16 @@ class AsyncCommandSchedulerTest {
         }
     }
 
+    /**
+     * 测试统一参数：maxRetry=2（三步即可走完死信路径）；退避 0 秒使重试命令立即到期，tick 可连续驱动。
+     *
+     * @return 测试用调度参数
+     */
     private static AsyncCommandConfig config() {
         AsyncCommandConfig c = new AsyncCommandConfig();
         c.setDefaultMaxRetry(2);
-        c.setBackoffBaseSeconds(0);   // 测试立即到期
+        // 退避 0 秒：重试命令立即到期，tick 可连续驱动无需真实等待
+        c.setBackoffBaseSeconds(0);
         c.setBackoffMaxSeconds(0);
         c.setBatchSize(10);
         c.setStaleAfterSeconds(300);
@@ -68,6 +97,9 @@ class AsyncCommandSchedulerTest {
         return c;
     }
 
+    /**
+     * 验证成功路径：提交后单轮 tick 即路由执行，命令落 SUCCESS。
+     */
     @Test
     void 成功路径_执行一次落SUCCESS() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
@@ -84,46 +116,65 @@ class AsyncCommandSchedulerTest {
         assertThat(store.countByStatus(AsyncCommand.SUCCESS)).isEqualTo(1);
     }
 
+    /**
+     * 验证失败重试：执行失败回 PENDING 指数退避，重试后成功，retryCount 终值与执行次数正确。
+     */
     @Test
     void 失败重试_指数退避后成功() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
         AsyncCommandConfig c = config();
         AsyncCommandClient client = new AsyncCommandClient(store, c);
-        FakeExecutor exec = new FakeExecutor("flaky", 2); // 前 2 次失败
+        // 前 2 次执行失败，第 3 次成功
+        FakeExecutor exec = new FakeExecutor("flaky", 2);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
                 new ExecutorRegistry(() -> List.of(exec)));
 
         client.submit("flaky", "k1", "{}");
-        scheduler.tick(); // 第 1 次失败 → retry#1
+        // 第 1 次失败 → retry#1
+        scheduler.tick();
         assertThat(store.countByStatus(AsyncCommand.PENDING)).isEqualTo(1);
-        scheduler.tick(); // 第 2 次失败 → retry#2
+        // 第 2 次失败 → retry#2
+        scheduler.tick();
         assertThat(store.countByStatus(AsyncCommand.PENDING)).isEqualTo(1);
-        scheduler.tick(); // 第 3 次成功
+        // 第 3 次成功
+        scheduler.tick();
         assertThat(store.countByStatus(AsyncCommand.SUCCESS)).isEqualTo(1);
         assertThat(exec.executed).hasSize(3);
         // 重试计数终值 = 2
         assertThat(store.selectRecent(1).get(0).getRetryCount()).isEqualTo(2);
     }
 
+    /**
+     * 验证重试超限：达 maxRetry 后进 DEAD 死信，DEAD 不再被认领执行。
+     */
     @Test
     void 超限重试_进DEAD死信() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
-        AsyncCommandConfig c = config(); // maxRetry=2
+        // maxRetry=2：两次重试用完即进 DEAD
+        AsyncCommandConfig c = config();
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("always-fail", Integer.MAX_VALUE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
                 new ExecutorRegistry(() -> List.of(exec)));
 
         client.submit("always-fail", "k1", "{}");
-        scheduler.tick(); // 失败 → retry#1
-        scheduler.tick(); // 失败 → retry#2
-        scheduler.tick(); // 失败 → 已达 maxRetry → DEAD
+        // 失败 → retry#1
+        scheduler.tick();
+        // 失败 → retry#2
+        scheduler.tick();
+        // 失败 → 已达 maxRetry → DEAD
+        scheduler.tick();
         assertThat(store.countByStatus(AsyncCommand.DEAD)).isEqualTo(1);
-        assertThat(exec.executed).hasSize(3); // 共执行 3 次（1 首次 + 2 重试）
-        scheduler.tick(); // DEAD 不再被认领
+        // 共执行 3 次（1 首次 + 2 重试）
+        assertThat(exec.executed).hasSize(3);
+        // DEAD 不再被认领
+        scheduler.tick();
         assertThat(exec.executed).hasSize(3);
     }
 
+    /**
+     * 验证死信可排查性：进 DEAD 时 lastError 保留最后一次失败原因。
+     */
     @Test
     void 死信带最后错误信息() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
@@ -138,6 +189,9 @@ class AsyncCommandSchedulerTest {
         assertThat(store.selectRecent(1).get(0).getLastError()).contains("boom");
     }
 
+    /**
+     * 验证幂等提交：同 type+bizKey 存在未完成命令时二次提交跳过（返回 null）；落终态后可再次提交。
+     */
     @Test
     void 幂等提交_未完成时跳过() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
@@ -156,6 +210,9 @@ class AsyncCommandSchedulerTest {
         assertThat(third).as("完成后可再次提交").isNotNull();
     }
 
+    /**
+     * 验证延迟队列语义：nextRunAt 未到期不认领不执行；到期即认领执行。
+     */
     @Test
     void 延迟命令_未到期不认领_到期执行() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
@@ -175,9 +232,13 @@ class AsyncCommandSchedulerTest {
         assertThat(exec.executed).as("到期即执行").hasSize(1);
     }
 
+    /**
+     * 验证多实例认领互斥：两调度器共享存储、各批量 2 条认领，认领集合不相交，4 条全部落 SUCCESS。
+     */
     @Test
     void 双实例认领互斥_同一命令只被一个实例执行() {
-        InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore(); // 两实例共享同一存储
+        // 两实例共享同一存储（模拟共表部署）
+        InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
         AsyncCommandConfig c = config();
         c.setBatchSize(2);
         AsyncCommandClient clientA = new AsyncCommandClient(store, c);
@@ -192,8 +253,10 @@ class AsyncCommandSchedulerTest {
         for (int i = 0; i < 4; i++) {
             clientA.submit("race", "k" + i, "{}");
         }
-        schA.tick(); // 批量 2
-        schB.tick(); // 批量 2
+        // 实例 A 先批量认领 2 条
+        schA.tick();
+        // 实例 B 只能认领剩余 2 条（A 已置 RUNNING，不会重叠）
+        schB.tick();
         assertThat(execA.executed).hasSize(2);
         assertThat(execB.executed).hasSize(2);
         // 两实例认领的命令 id 完全不相交
@@ -201,11 +264,15 @@ class AsyncCommandSchedulerTest {
         assertThat(store.countByStatus(AsyncCommand.SUCCESS)).isEqualTo(4);
     }
 
+    /**
+     * 验证悬挂回收：进程死亡残留的 RUNNING 命令，在恢复实例的下一轮先被回收回 PENDING 再重跑成功。
+     */
     @Test
     void 悬挂RUNNING_超时回收后重跑() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
         AsyncCommandConfig c = config();
-        c.setStaleAfterSeconds(0); // 立即视为悬挂
+        // 阈值 0：立即视为悬挂
+        c.setStaleAfterSeconds(0);
         AsyncCommandClient client = new AsyncCommandClient(store, c);
 
         // 模拟进程死亡：认领后滞留 RUNNING（死亡进程没有机会回写终态）
@@ -222,13 +289,17 @@ class AsyncCommandSchedulerTest {
         assertThat(recovered.executed).hasSize(1);
     }
 
+    /**
+     * 验证无执行器路由的命令按失败重试处理（回 PENDING、记 lastError），而不是被无声跳过。
+     */
     @Test
     void 无注册执行器_按失败重试() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
         AsyncCommandConfig c = config();
         AsyncCommandClient client = new AsyncCommandClient(store, c);
+        // 注册表为空：任何类型都无执行器
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of())); // 无执行器
+                new ExecutorRegistry(() -> List.of()));
 
         client.submit("no-executor", "k1", "{}");
         scheduler.tick();
@@ -237,6 +308,9 @@ class AsyncCommandSchedulerTest {
         assertThat(cmd.getLastError()).contains("无注册执行器");
     }
 
+    /**
+     * 验证手工生命周期：start 幂等（重复调用无副作用）；stop 后 tick 静默（不认领不执行）。
+     */
     @Test
     void 手工生命周期_start幂等_stop后tick静默() {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
@@ -248,12 +322,14 @@ class AsyncCommandSchedulerTest {
 
         scheduler.start();
         assertThat(scheduler.isStarted()).isTrue();
-        scheduler.start(); // 幂等
+        // 重复 start 应幂等，无异常无重复任务
+        scheduler.start();
         scheduler.stop();
         assertThat(scheduler.isStarted()).isFalse();
 
         client.submit("lifecycle", "k1", "{}");
-        scheduler.tick(); // 停止后 tick 静默：不认领不执行
+        // 停止后 tick 静默：不认领不执行
+        scheduler.tick();
         assertThat(exec.executed).isEmpty();
         assertThat(store.countByStatus(AsyncCommand.PENDING)).isEqualTo(1);
     }

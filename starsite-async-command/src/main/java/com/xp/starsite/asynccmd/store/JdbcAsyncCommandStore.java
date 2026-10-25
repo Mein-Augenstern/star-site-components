@@ -36,19 +36,26 @@ import org.springframework.jdbc.support.KeyHolder;
  * 表名可配（仅允许字母数字下划线，防注入）。init-ddl=true 时自动建表（增量安全）。
  * 方言：MySQL（UPDATE 子查询认领 / INTERVAL 回收），其他库需自行适配 SQL。
  * 存储技术选型为 spring-jdbc（JdbcTemplate）——core 不引 Spring Boot，仅依赖 spring-jdbc。
+ * <p>
+ * 线程安全性：JdbcTemplate 无状态、每次调用独立取连接，方法可多线程并发调用。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 public class JdbcAsyncCommandStore implements AsyncCommandStore {
 
+    /** 日志（slf4j） */
     private static final Logger log = LoggerFactory.getLogger(JdbcAsyncCommandStore.class);
 
+    /** 表名白名单（仅字母数字下划线）：表名须拼接进 SQL 无法参数化，白名单校验是防注入的唯一手段 */
     private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
+    /** JDBC 操作模板（无状态，线程安全） */
     private final JdbcTemplate jdbc;
+    /** 命令表名（构造期已通过白名单校验，可安全拼接） */
     private final String table;
 
+    /** 行映射器：结果集 → AsyncCommand（无状态 lambda，静态复用） */
     private static final RowMapper<AsyncCommand> MAPPER = (rs, i) -> {
         AsyncCommand c = new AsyncCommand();
         c.setId(rs.getLong("id"));
@@ -67,6 +74,14 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return c;
     };
 
+    /**
+     * 构造表存储。
+     *
+     * @param jdbc      JDBC 模板（无状态，线程安全）
+     * @param tableName 命令表名（仅允许字母数字下划线——表名要拼接进 SQL，白名单防注入）
+     * @param initDdl   true 时自动建表（CREATE TABLE IF NOT EXISTS，增量安全，表已存在则跳过）
+     * @throws IllegalArgumentException 表名为 null 或含白名单外字符
+     */
     public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, boolean initDdl) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
@@ -78,6 +93,10 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         }
     }
 
+    /**
+     * 自动建表（幂等：IF NOT EXISTS，表已存在则跳过）。
+     * 建表失败只记 warn 不抛出：表可能由 DBA/迁移脚本统一管理，真有问题会在首条命令提交时暴露。
+     */
     private void ensureTable() {
         try {
             jdbc.execute(("""
@@ -106,6 +125,11 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         }
     }
 
+    /**
+     * 新建命令：INSERT 后以 GeneratedKeyHolder 回填自增 id。
+     *
+     * @param cmd 待落库命令（id 由数据库自增分配并回填）
+     */
     @Override
     public void insert(AsyncCommand cmd) {
         KeyHolder kh = new GeneratedKeyHolder();
@@ -129,6 +153,12 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         }
     }
 
+    /**
+     * 按主键查询命令。
+     *
+     * @param id 命令主键
+     * @return 命令；不存在返回 null
+     */
     @Override
     public AsyncCommand findById(long id) {
         List<AsyncCommand> out = jdbc.query(
@@ -136,6 +166,13 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return out.isEmpty() ? null : out.get(0);
     }
 
+    /**
+     * 幂等检查：统计同 type+bizKey 下状态为 PENDING/RUNNING 的命令数（命中 idx_type_biz 索引）。
+     *
+     * @param cmdType 命令类型（精确匹配）
+     * @param bizKey  业务键（精确匹配）
+     * @return 未完成命令条数
+     */
     @Override
     public long countUnfinished(String cmdType, String bizKey) {
         Long n = jdbc.queryForObject(
@@ -145,6 +182,15 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return n == null ? 0 : n;
     }
 
+    /**
+     * 乐观认领（两步令牌法第一步）：单条 UPDATE 原子完成"选出到期 PENDING + 打令牌置 RUNNING"，
+     * 并发实例互斥靠该语句的行锁保证。子查询套一层派生表：MySQL 不允许 UPDATE 直接子查询目标表。
+     *
+     * @param token 本轮认领令牌
+     * @param limit 单轮认领上限（条）
+     * @param now   到期判定基准时间
+     * @return 实际认领条数（即 UPDATE 影响行数）
+     */
     @Override
     public int claim(String token, int limit, LocalDateTime now) {
         // 到期判定用参数时间（与调用方/测试时钟一致），updated_at 仍取库时间
@@ -155,11 +201,26 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
                 token, now, now, limit);
     }
 
+    /**
+     * 按令牌取回本轮认领的命令。
+     *
+     * @param token 认领时使用的令牌
+     * @return 命令列表（id 升序）；无命中返回空列表
+     */
     @Override
     public List<AsyncCommand> findByToken(String token) {
         return jdbc.query("SELECT * FROM " + table + " WHERE claim_token = ? ORDER BY id", MAPPER, token);
     }
 
+    /**
+     * 崩溃回收：RUNNING 且 updated_at 早于库时钟 NOW() - staleAfterSeconds 的行回 PENDING 清令牌。
+     * 悬挂判定刻意用数据库时钟——updated_at 由 DB 维护，多机应用时钟有偏差时用应用时钟会误判
+     * （与 claim 的参数时间语义不同：claim 判业务到期，这里判"DB 眼里多久没动静"）。
+     *
+     * @param staleAfterSeconds 悬挂判定阈值（秒）
+     * @param limit             单轮回收上限（条）
+     * @return 实际回收条数
+     */
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
         // 悬挂判定与回写都用数据库时钟：updated_at 由 DB 维护（ON UPDATE CURRENT_TIMESTAMP），
@@ -170,6 +231,12 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
                 staleAfterSeconds, limit);
     }
 
+    /**
+     * 状态回写：按 id 更新 status/claimToken/retryCount/nextRunAt/lastError 五个字段。
+     *
+     * @param cmd 携带最新状态字段的命令
+     * @return 影响行数：1 成功；0 命令行不存在
+     */
     @Override
     public int updateState(AsyncCommand cmd) {
         return jdbc.update("UPDATE " + table + " SET status = ?, claim_token = ?, retry_count = ?, "
@@ -178,6 +245,12 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
                 cmd.getNextRunAt(), cmd.getLastError(), cmd.getId());
     }
 
+    /**
+     * 按状态计数。
+     *
+     * @param status 状态（四常量之一）
+     * @return 该状态命令条数
+     */
     @Override
     public long countByStatus(String status) {
         Long n = jdbc.queryForObject(
@@ -185,6 +258,12 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return n == null ? 0 : n;
     }
 
+    /**
+     * 积压统计：已到期（next_run_at ≤ now）的 PENDING 条数。
+     *
+     * @param now 到期判定基准时间
+     * @return 到期待执行条数
+     */
     @Override
     public long countBacklogDue(LocalDateTime now) {
         Long n = jdbc.queryForObject(
@@ -193,11 +272,24 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return n == null ? 0 : n;
     }
 
+    /**
+     * 最近命令查询。
+     *
+     * @param limit 返回条数上限（条）
+     * @return 命令列表（id 倒序，最新在前）
+     */
     @Override
     public List<AsyncCommand> selectRecent(int limit) {
         return jdbc.query("SELECT * FROM " + table + " ORDER BY id DESC LIMIT ?", MAPPER, limit);
     }
 
+    /**
+     * 分页计数（与 selectPage 同口径过滤）。
+     *
+     * @param status  状态过滤（null 或空白 = 不过滤）
+     * @param cmdType 命令类型过滤（null 或空白 = 不过滤）
+     * @return 满足过滤条件的总条数
+     */
     @Override
     public long countPage(String status, String cmdType) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM ").append(table).append(" WHERE 1 = 1");
@@ -206,6 +298,15 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return n == null ? 0 : n;
     }
 
+    /**
+     * 分页查询（与 countPage 同口径过滤）。
+     *
+     * @param status  状态过滤（null 或空白 = 不过滤）
+     * @param cmdType 命令类型过滤（null 或空白 = 不过滤）
+     * @param offset  行偏移（0 起，非页码）
+     * @param size    页大小（条）
+     * @return 当前页命令（id 倒序）
+     */
     @Override
     public List<AsyncCommand> selectPage(String status, String cmdType, long offset, int size) {
         StringBuilder sql = new StringBuilder("SELECT * FROM ").append(table).append(" WHERE 1 = 1");
@@ -218,6 +319,15 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return jdbc.query(sql.toString(), MAPPER, args);
     }
 
+    /**
+     * 拼接可选过滤条件并收集绑定参数（status/cmdType 为 null 或空白时跳过对应条件）。
+     * 过滤值一律走 ? 占位符参数绑定，绝不拼进 SQL 文本。
+     *
+     * @param sql     待追加条件的 SQL 前缀（"WHERE 1 = 1" 已就位，本方法只追加 AND 子句）
+     * @param status  状态过滤（可 null）
+     * @param cmdType 命令类型过滤（可 null）
+     * @return 与追加的占位符一一对应的参数数组（可能为空数组）
+     */
     private Object[] pageArgs(StringBuilder sql, String status, String cmdType) {
         List<Object> args = new ArrayList<>();
         if (status != null && !status.isBlank()) {

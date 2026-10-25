@@ -44,33 +44,62 @@ import org.slf4j.LoggerFactory;
  * 全部 SQL 参数绑定；表名校验防注入（仅允许字母数字下划线）。
  *
  * @author muyi
- * @since 2026-10
+ * @date 2026/10/25
  */
 public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
 
     /** 全局池计数行 key（workerId 从这一行原子自增取出，全平台唯一） */
     public static final String GLOBAL_POOL_KEY = "__global__";
 
+    /** 组件日志器（回绕告警用） */
     private static final Logger log = LoggerFactory.getLogger(MysqlWorkerIdAllocator.class);
 
+    /** 合法表名白名单（仅字母数字下划线）：表名以拼接方式进 SQL，靠该校验防注入 */
     private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
-    /** 回绕策略 */
+    /**
+     * 回绕策略：全局池分配值超过机器位上限（2^workerIdBits - 1）时的处置方式。
+     */
     public enum WraparoundPolicy {
-        /** 重置全局池为 0 重新取号（默认；告警可见） */
+        /** 重置全局池为 0 重新取号并告警（默认；回绕窗口理论撞号概率可忽略但告警保证可见） */
         RESET,
-        /** 超上限直接抛异常拒绝启动（保守） */
+        /** 超上限直接抛异常拒绝启动（保守场景，宁可起不来也不冒撞号风险） */
         FAIL
     }
 
+    /** 目标库连接池，allocate 时借用连接执行租约 SQL */
     private final DataSource dataSource;
+
+    /** sequence 表表名（构造时已通过白名单校验） */
     private final String tableName;
+
+    /** 本服务名：审计行的 service_name 主键，区分"哪个服务占了哪个号" */
     private final String serviceName;
+
+    /** 本实例标识：写入占用记录，用于审计定位到具体进程 */
     private final String instanceTag;
+
+    /** 是否在分配前自动执行幂等建表 DDL（false = 表交由 DBA 迁移脚本管理） */
     private final boolean initDdl;
+
+    /** 机器位上限 = 2^workerIdBits - 1，分配值超过即触发回绕策略 */
     private final long maxWorkerId;
+
+    /** 回绕策略：RESET 重置全局池重取 / FAIL 抛异常拒绝 */
     private final WraparoundPolicy wraparoundPolicy;
 
+    /**
+     * 构造 MySQL 租约分配器。
+     *
+     * @param dataSource        目标库连接池，不可为 null
+     * @param tableName         sequence 表表名，仅允许字母数字下划线（防 SQL 注入）
+     * @param serviceName       服务名（审计行 key），各服务互不相同
+     * @param instanceTag       实例标识（审计可见），建议含主机/pid 等可定位信息
+     * @param initDdl           true 时分配前自动 CREATE TABLE IF NOT EXISTS 并播种全局池行
+     * @param workerIdBits      机器位宽度（位），决定本分配器可分配的 workerId 上限
+     * @param wraparoundPolicy  分配值超上限时的回绕策略
+     * @throws IllegalArgumentException dataSource 为 null，或 tableName 为 null / 含白名单外字符
+     */
     public MysqlWorkerIdAllocator(DataSource dataSource, String tableName, String serviceName,
                                   String instanceTag, boolean initDdl, int workerIdBits,
                                   WraparoundPolicy wraparoundPolicy) {
@@ -89,6 +118,15 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         this.wraparoundPolicy = wraparoundPolicy;
     }
 
+    /**
+     * 从 MySQL sequence 表的全局池原子租约一个 workerId，并落本实例的审计行。
+     * <p>
+     * 流程：可选幂等建表 → 全局池行原子自增取号 → 记录服务占用 →
+     * 取号值超过机器位上限时按回绕策略重置重取（RESET）或抛错拒绝（FAIL）。
+     *
+     * @return 全局唯一的机器位（正常为全局池顺序递增值；RESET 回绕后为重置后重新取出的值）
+     * @throws SQLException 数据库不可达或 SQL 执行失败；或取号超上限且策略为 {@link WraparoundPolicy#FAIL} 时以 SQLException 拒绝
+     */
     @Override
     public long allocate() throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
@@ -114,11 +152,23 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         }
     }
 
+    /**
+     * 分配器形态描述。
+     *
+     * @return 形如 "mysql-lease(table=sys_sequence, service=svc, tag=tag)" 的描述，用于启动日志
+     */
     @Override
     public String describe() {
         return "mysql-lease(table=%s, service=%s, tag=%s)".formatted(tableName, serviceName, instanceTag);
     }
 
+    /**
+     * 幂等建表并播种全局池种子行：CREATE TABLE IF NOT EXISTS 后
+     * INSERT IGNORE 一条 service_name = __global__、worker_id = 0 的计数行（已存在则忽略）。
+     *
+     * @param conn 目标库连接
+     * @throws SQLException DDL 或种子行写入失败
+     */
     private void ensureTable(Connection conn) throws SQLException {
         String ddl = """
                 CREATE TABLE IF NOT EXISTS %s (
@@ -139,7 +189,17 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         }
     }
 
-    /** 原子自增取出全局唯一机器位：LAST_INSERT_ID(expr) 在 UPDATE 命中时把自增结果带回会话 */
+    /**
+     * 原子自增取出全局唯一机器位。
+     * <p>
+     * 原理：LAST_INSERT_ID(expr) 在 UPDATE 命中时把自增结果带回当前会话，
+     * 随后同连接的 SELECT LAST_INSERT_ID() 读回——UPDATE 与 SELECT 必须同一连接；
+     * 单条 UPDATE 原子完成"读改写"，多实例并发取号天然互不重复。
+     *
+     * @param conn 目标库连接（须保持到 SELECT LAST_INSERT_ID() 执行完，不能提前归还）
+     * @return 本次取到的机器位（全局池上一值 + 1）
+     * @throws SQLException UPDATE 执行失败，或 SELECT LAST_INSERT_ID() 无返回行（异常态）
+     */
     private long takeFromGlobalPool(Connection conn) throws SQLException {
         try (PreparedStatement update = conn.prepareStatement(
                 "UPDATE " + tableName + " SET worker_id = LAST_INSERT_ID(worker_id + 1), "
@@ -157,7 +217,14 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         }
     }
 
-    /** 记录服务实例的占用（各自 sequence 行，审计可见；不影响分配语义） */
+    /**
+     * 记录服务实例的占用：upsert 各自服务的 sequence 行（不存在则插入，存在则覆盖更新）。
+     * 仅作审计可见（谁在何时占用哪个号），不参与分配语义。
+     *
+     * @param conn     目标库连接
+     * @param workerId 刚刚取到的机器位
+     * @throws SQLException 审计行写入失败
+     */
     private void recordOwnership(Connection conn, long workerId) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement(
                 "INSERT INTO " + tableName + " (service_name, worker_id, instance, updated_at) "
@@ -171,6 +238,12 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         }
     }
 
+    /**
+     * 将全局池计数行重置为 0（RESET 回绕策略用），instance 追加 "(wraparound-reset)" 标记留痕。
+     *
+     * @param conn 目标库连接
+     * @throws SQLException 重置 UPDATE 执行失败
+     */
     private void resetGlobalPool(Connection conn) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement(
                 "UPDATE " + tableName + " SET worker_id = 0, instance = ? WHERE service_name = ?")) {
