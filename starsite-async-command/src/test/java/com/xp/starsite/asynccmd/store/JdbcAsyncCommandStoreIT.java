@@ -17,7 +17,7 @@ package com.xp.starsite.asynccmd.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.xp.starsite.asynccmd.AsyncCommand;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;

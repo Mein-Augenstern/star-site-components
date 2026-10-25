@@ -15,7 +15,6 @@
  */
 package com.xp.starsite.asynccmd.metrics;
 
-import com.xp.starsite.asynccmd.AsyncCommandMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;

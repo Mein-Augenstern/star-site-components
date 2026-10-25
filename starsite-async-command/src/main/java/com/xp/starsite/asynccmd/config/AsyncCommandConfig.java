@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.asynccmd;
+package com.xp.starsite.asynccmd.config;
 
 /**
  * 异步命令参数（纯配置载体，无框架依赖——starter 的 @ConfigurationProperties 继承本类完成绑定）。
@@ -47,6 +47,15 @@ public class AsyncCommandConfig {
 
     /** 提交方标识（starter 默认取 spring.application.name 填充；多服务共表时区分来源）。 */
     private String owner = "";
+
+    /** 共享池核心线程数（ASYNC_POOL/IMMEDIATE 未隔离执行器的兜底池）。 */
+    private int sharedPoolCoreSize = 4;
+
+    /** 共享池最大线程数。 */
+    private int sharedPoolMaxSize = 16;
+
+    /** 共享池队列容量（满后 CallerRuns 反压到提交/调度线程，不丢任务）。 */
+    private int sharedPoolQueueCapacity = 1000;
 
     /**
      * 获取调度轮询间隔。
@@ -145,4 +154,46 @@ public class AsyncCommandConfig {
      * @param owner 提交方服务名（写入命令的 owner 字段，用于多服务共表时区分来源）
      */
     public void setOwner(String owner) { this.owner = owner; }
+
+    /**
+     * 获取共享池核心线程数。
+     *
+     * @return 核心线程数（默认 4）
+     */
+    public int getSharedPoolCoreSize() { return sharedPoolCoreSize; }
+
+    /**
+     * 设置共享池核心线程数。
+     *
+     * @param sharedPoolCoreSize 核心线程数（正数）
+     */
+    public void setSharedPoolCoreSize(int sharedPoolCoreSize) { this.sharedPoolCoreSize = sharedPoolCoreSize; }
+
+    /**
+     * 获取共享池最大线程数。
+     *
+     * @return 最大线程数（默认 16）
+     */
+    public int getSharedPoolMaxSize() { return sharedPoolMaxSize; }
+
+    /**
+     * 设置共享池最大线程数。
+     *
+     * @param sharedPoolMaxSize 最大线程数（不小于核心数）
+     */
+    public void setSharedPoolMaxSize(int sharedPoolMaxSize) { this.sharedPoolMaxSize = sharedPoolMaxSize; }
+
+    /**
+     * 获取共享池队列容量。
+     *
+     * @return 队列容量（默认 1000）
+     */
+    public int getSharedPoolQueueCapacity() { return sharedPoolQueueCapacity; }
+
+    /**
+     * 设置共享池队列容量。
+     *
+     * @param sharedPoolQueueCapacity 队列容量（正数；满后 CallerRuns 反压）
+     */
+    public void setSharedPoolQueueCapacity(int sharedPoolQueueCapacity) { this.sharedPoolQueueCapacity = sharedPoolQueueCapacity; }
 }

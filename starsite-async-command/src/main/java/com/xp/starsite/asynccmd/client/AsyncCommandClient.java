@@ -13,10 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.asynccmd;
+package com.xp.starsite.asynccmd.client;
 
+import com.xp.starsite.asynccmd.clock.TimeSource;
+import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
+import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import java.time.LocalDateTime;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,7 +30,11 @@ import org.slf4j.LoggerFactory;
  * （表形态的立身之本），提交方只管写，调度器负责可靠执行与重试。
  * 同时承担调度器一侧的状态回写（成功/重试/死信）。
  * <p>
- * 线程安全性：自身无可变状态，方法可多线程并发调用；可靠性依赖底层 store 实现的线程安全。
+ * IMMEDIATE 模式联动：落库成功后回调 {@code submitHook}（由装配层回填为调度器的
+ * 即时派发入口），实现"提交即执行"；回调异常被吞掉并降级为等下一轮调度（可靠性不降级）。
+ * <p>
+ * 线程安全性：除 volatile 的 submitHook 外无可变状态，方法可多线程并发调用；
+ * 可靠性依赖底层 store 实现的线程安全。
  *
  * @author muyi
  * @date 2026/10/25
@@ -45,13 +54,20 @@ public class AsyncCommandClient {
     private final AsyncCommandMetrics metrics;
 
     /**
+     * 提交钩子（IMMEDIATE 模式派发入口）：落库成功后回调，调度器据此立即认领并投池；
+     * volatile——由装配层在两个 Bean 就绪后 set，业务线程与调度线程都需要可见。
+     * 为 null（core 纯手工形态）时 IMMEDIATE 退化为"落库等下一轮调度"（可靠性不降级）。
+     */
+    private volatile Consumer<AsyncCommand> submitHook;
+
+    /**
      * 便捷构造（时间源取系统时钟，指标取 NOOP）。
      *
      * @param store  命令存储
      * @param config 运行参数
      */
     public AsyncCommandClient(AsyncCommandStore store, AsyncCommandConfig config) {
-        this(store, config, TimeSource.system());
+        this(store, config, TimeSource.system(), AsyncCommandMetrics.NOOP);
     }
 
     /**
@@ -82,7 +98,8 @@ public class AsyncCommandClient {
     }
 
     /**
-     * 提交立即执行的命令：到期时间取当前时间，下一轮调度即认领。
+     * 提交立即执行的命令：到期时间取当前时间，下一轮调度即认领；
+     * 执行器 mode 为 IMMEDIATE 时经提交钩子立即派发（不等轮询）。
      *
      * @param cmdType     命令类型（执行器路由键，须与某个执行器 type() 一致，否则按无执行器重试直至 DEAD）
      * @param bizKey      业务键（幂等去重/追踪用；null 归一为空串）
@@ -95,6 +112,7 @@ public class AsyncCommandClient {
 
     /**
      * 提交延迟执行的命令（延迟队列场景，如"30 分钟未支付取消订单"）：到期前不会被认领。
+     * 注意：延迟命令与 IMMEDIATE 模式组合时，未到期不会被即时派发（钩子按到期判定）。
      *
      * @param cmdType     命令类型（执行器路由键）
      * @param bizKey      业务键（幂等去重/追踪用；null 归一为空串）
@@ -115,6 +133,15 @@ public class AsyncCommandClient {
         store.insert(cmd);
         metrics.recordSubmitted(cmdType);
         log.info("async cmd submitted: type={}, key={}, id={}, runAt={}", cmdType, bizKey, cmd.getId(), runAt);
+        if (submitHook != null) {
+            // IMMEDIATE 模式的即时派发；钩子内部自行容错，异常不影响提交语义
+            try {
+                submitHook.accept(cmd);
+            } catch (RuntimeException e) {
+                log.warn("async cmd submit-hook error (fallback to scheduled): id={}, err={}",
+                        cmd.getId(), e.getMessage());
+            }
+        }
         return cmd;
     }
 
@@ -200,5 +227,14 @@ public class AsyncCommandClient {
     private String truncate(String s) {
         if (s == null) return null;
         return s.length() > 480 ? s.substring(0, 480) : s;
+    }
+
+    /**
+     * 设置提交钩子（装配层在调度器就绪后回填；重复设置后者覆盖）。
+     *
+     * @param hook 提交后回调（通常为调度器的 IMMEDIATE 派发入口；null 清除）
+     */
+    public void setSubmitHook(Consumer<AsyncCommand> hook) {
+        this.submitHook = hook;
     }
 }

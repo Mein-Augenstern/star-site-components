@@ -15,7 +15,7 @@
  */
 package com.xp.starsite.asynccmd.admin;
 
-import com.xp.starsite.asynccmd.AsyncCommand;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import java.time.LocalDateTime;
 import java.util.List;

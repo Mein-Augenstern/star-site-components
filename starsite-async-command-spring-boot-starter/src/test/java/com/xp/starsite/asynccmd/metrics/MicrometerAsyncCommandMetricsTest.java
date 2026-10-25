@@ -17,7 +17,6 @@ package com.xp.starsite.asynccmd.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.xp.starsite.asynccmd.AsyncCommandMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;

@@ -15,7 +15,7 @@
  */
 package com.xp.starsite.asynccmd.store;
 
-import com.xp.starsite.asynccmd.AsyncCommand;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -85,6 +85,18 @@ public interface AsyncCommandStore {
      * @throws RuntimeException 存储访问失败时（异常约定见类注释）
      */
     List<AsyncCommand> findByToken(String token);
+
+    /**
+     * 按 id 原子认领（IMMEDIATE 模式即时派发用）：仅当命令仍为到期 PENDING 时置 RUNNING 并打令牌。
+     * 与批量 claim 的差别：作用于指定 id（提交线程立即认领自己的命令），
+     * 多实例并发下谁先写入算谁，认领失败返回 false（他方已认领，跳过执行）。
+     *
+     * @param id    命令主键
+     * @param token 本实例认领令牌（执行完成后清空）
+     * @return true 认领成功（可执行）；false 命令不存在/非 PENDING/未到期/他方已认领
+     */
+    boolean claimById(long id, String token);
+
 
     /**
      * 崩溃回收：RUNNING 超过阈值秒未完成（执行进程死亡的悬挂残留）→ 回 PENDING 并清令牌，等待重新调度。

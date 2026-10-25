@@ -17,6 +17,8 @@ package com.xp.starsite.asynccmd;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.xp.starsite.asynccmd.client.AsyncCommandClient;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.AutoConfigurations;

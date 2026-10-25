@@ -19,8 +19,14 @@ import com.xp.starsite.asynccmd.admin.AsyncCommandAdminController;
 import com.xp.starsite.asynccmd.admin.AsyncCommandAdminGuard;
 import com.xp.starsite.asynccmd.admin.AsyncCommandAdminService;
 import com.xp.starsite.asynccmd.admin.StaticTokenAdminGuard;
+import com.xp.starsite.asynccmd.client.AsyncCommandClient;
+import com.xp.starsite.asynccmd.clock.TimeSource;
+import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
+import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
 import com.xp.starsite.asynccmd.health.AsyncCommandHealthIndicator;
+import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
 import com.xp.starsite.asynccmd.metrics.MicrometerAsyncCommandMetrics;
+import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
@@ -147,7 +153,11 @@ public class AsyncCommandAutoConfiguration {
                                                        ExecutorRegistry registry,
                                                        AsyncCommandMetrics metrics) {
         // start/stop 由下方 SmartLifecycle 包装托管（容器最后启动、最先停止）
-        return new AsyncCommandScheduler(store, client, props, registry, TimeSource.system(), metrics);
+        AsyncCommandScheduler scheduler =
+                new AsyncCommandScheduler(store, client, props, registry, TimeSource.system(), metrics);
+        // IMMEDIATE 模式联动：把调度器的即时派发入口回填给 client（提交即执行；钩子内部容错降级）
+        client.setSubmitHook(scheduler::onSubmit);
+        return scheduler;
     }
 
     /**

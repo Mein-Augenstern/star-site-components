@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.asynccmd;
+package com.xp.starsite.asynccmd.clock;
 
 /**
  * 时间源抽象（async-command 模块自持，与 sequence 模块解耦）。

@@ -15,7 +15,7 @@
  */
 package com.xp.starsite.asynccmd.health;
 
-import com.xp.starsite.asynccmd.AsyncCommand;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import java.time.LocalDateTime;
 import org.springframework.boot.actuate.health.Health;

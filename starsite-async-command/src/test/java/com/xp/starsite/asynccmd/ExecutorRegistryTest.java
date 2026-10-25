@@ -18,6 +18,9 @@ package com.xp.starsite.asynccmd;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
+import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 

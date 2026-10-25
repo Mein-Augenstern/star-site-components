@@ -15,6 +15,7 @@
  */
 package com.xp.starsite.asynccmd;
 
+import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**

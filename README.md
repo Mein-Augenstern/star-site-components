@@ -10,7 +10,7 @@ star-site 系列通用组件库：**core（纯库）+ spring-boot-starter（装�
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
   雪花序列核心库              自动装配 + 健康端点
 starsite-async-command ─► starsite-async-command-spring-boot-starter
-  异步命令核心库              自动装配 + SmartLifecycle + 健康/管控端点
+  异步命令核心库（分包）       自动装配 + SmartLifecycle + 健康/管控端点
 ```
 
 | 组件 | 单机形态 | 分布式形态 |
@@ -158,6 +158,28 @@ class ReportGenerateExecutor implements AsyncCommandExecutor {
     }
 }
 ```
+
+### 执行模式（三选一，执行器声明）
+
+```java
+@Component
+class NotifyExecutor implements AsyncCommandExecutor {
+    @Override public String type() { return "notify"; }
+    @Override public ExecutionMode mode() { return ExecutionMode.ASYNC_POOL; } // 默认 SCHEDULED
+    @Override public void execute(AsyncCommand cmd) { /* ... */ }
+}
+```
+
+| 模式 | 语义 | 适用 |
+|---|---|---|
+| `SCHEDULED`（默认） | 落库 → 调度线程认领 → **内联执行**（同轮串行） | 轻快任务，顺序敏感 |
+| `ASYNC_POOL` | 落库 → 调度只认领分发 → **转交线程池**执行 | 重/慢任务，不阻塞调度与其他类型 |
+| `IMMEDIATE` | 落库 → 提交线程立即按 id 认领 → **直投线程池**，不等轮询（默认 5s） | 时效敏感任务；投递前崩溃由调度兜底，可靠性不降级 |
+
+**线程池隔离**（不同任务类型互不争抢）：执行器实现 `PoolIsolatedExecutor.pool()` 返回自持线程池
+（bean 注入或自建，应用管理生命周期），该类型命令跑在自己的池；未隔离的池化命令用组件共享池
+（`starsite.async-command.shared-pool.core-size/max-size/queue-capacity` 可配，队列满 CallerRuns 反压不丢任务）。
+三种模式失败语义一致：指数退避重试，超限进 DEAD。
 
 ### 批量执行器（攒批更高效的场景）
 

@@ -15,7 +15,7 @@
  */
 package com.xp.starsite.asynccmd.store;
 
-import com.xp.starsite.asynccmd.AsyncCommand;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
@@ -210,6 +210,21 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     @Override
     public List<AsyncCommand> findByToken(String token) {
         return jdbc.query("SELECT * FROM " + table + " WHERE claim_token = ? ORDER BY id", MAPPER, token);
+    }
+
+    /**
+     * 按 id 原子认领（IMMEDIATE 即时派发用）：仅当命令仍为到期 PENDING 时置 RUNNING 打令牌。
+     *
+     * @param id    命令主键
+     * @param token 本实例认领令牌
+     * @return true 认领成功；false 命令不存在/非 PENDING/未到期/他方已认领
+     */
+    @Override
+    public boolean claimById(long id, String token) {
+        // 到期判定用库时钟 NOW()：IMMEDIATE 提交线程与库视图一致
+        return jdbc.update("UPDATE " + table + " SET status = 'RUNNING', claim_token = ?, updated_at = NOW() "
+                        + "WHERE id = ? AND status = 'PENDING' AND next_run_at <= NOW()",
+                token, id) > 0;
     }
 
     /**

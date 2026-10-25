@@ -17,6 +17,10 @@ package com.xp.starsite.asynccmd;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.xp.starsite.asynccmd.client.AsyncCommandClient;
+import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
+import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

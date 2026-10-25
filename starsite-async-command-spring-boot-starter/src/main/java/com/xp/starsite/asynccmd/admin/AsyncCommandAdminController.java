@@ -94,7 +94,7 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝时上抛（401/403）
      */
     @GetMapping("/recent")
-    public List<com.xp.starsite.asynccmd.AsyncCommand> recent(
+    public List<com.xp.starsite.asynccmd.model.AsyncCommand> recent(
             HttpServletRequest request,
             @RequestParam(defaultValue = "20") int limit) throws Exception {
         guard(request);

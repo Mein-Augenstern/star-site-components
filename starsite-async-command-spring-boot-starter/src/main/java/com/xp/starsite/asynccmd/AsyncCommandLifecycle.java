@@ -15,6 +15,7 @@
  */
 package com.xp.starsite.asynccmd;
 
+import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import org.springframework.context.SmartLifecycle;
 
 /**

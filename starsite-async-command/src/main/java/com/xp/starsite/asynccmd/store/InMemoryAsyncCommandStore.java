@@ -15,8 +15,8 @@
  */
 package com.xp.starsite.asynccmd.store;
 
-import com.xp.starsite.asynccmd.AsyncCommand;
-import com.xp.starsite.asynccmd.TimeSource;
+import com.xp.starsite.asynccmd.clock.TimeSource;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -153,6 +153,21 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
      * @param limit             单轮回收上限（条）
      * @return 实际回收条数
      */
+    @Override
+    public synchronized boolean claimById(long id, String token) {
+        AsyncCommand c = rows.get(id);
+        if (c == null || !AsyncCommand.PENDING.equals(c.getStatus())) {
+            return false;
+        }
+        if (c.getNextRunAt() != null && c.getNextRunAt().isAfter(time.now())) {
+            return false;
+        }
+        c.setStatus(AsyncCommand.RUNNING);
+        c.setClaimToken(token);
+        c.setUpdatedAt(time.now());
+        return true;
+    }
+
     @Override
     public synchronized int reclaimStale(int staleAfterSeconds, int limit) {
         LocalDateTime threshold = time.now().minusSeconds(staleAfterSeconds);

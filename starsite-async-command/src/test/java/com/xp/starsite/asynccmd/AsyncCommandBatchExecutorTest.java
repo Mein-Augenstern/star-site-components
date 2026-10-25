@@ -17,6 +17,14 @@ package com.xp.starsite.asynccmd;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.xp.starsite.asynccmd.client.AsyncCommandClient;
+import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
+import com.xp.starsite.asynccmd.executor.AsyncCommandBatchExecutor;
+import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
+import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
+import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
+import com.xp.starsite.asynccmd.model.AsyncCommand;
+import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import java.util.ArrayList;
 import java.util.List;
@@ -86,7 +94,7 @@ class AsyncCommandBatchExecutorTest {
         InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
         AsyncCommandConfig c = config();
         CountingMetrics metrics = new CountingMetrics();
-        AsyncCommandClient client = new AsyncCommandClient(store, c, com.xp.starsite.asynccmd.TimeSource.system(), metrics);
+        AsyncCommandClient client = new AsyncCommandClient(store, c, com.xp.starsite.asynccmd.clock.TimeSource.system(), metrics);
         RecordingBatchExecutor batchExec = new RecordingBatchExecutor("notify", 0);
         AsyncCommandExecutor singleExec = new AsyncCommandExecutor() {
             @Override public String type() { return "audit"; }
@@ -94,7 +102,7 @@ class AsyncCommandBatchExecutorTest {
         };
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
                 new ExecutorRegistry(() -> List.of(batchExec, singleExec)),
-                com.xp.starsite.asynccmd.TimeSource.system(), metrics);
+                com.xp.starsite.asynccmd.clock.TimeSource.system(), metrics);
 
         for (int i = 0; i < 3; i++) {
             client.submit("notify", "n" + i, "{}");
