@@ -34,8 +34,12 @@
     <!-- DB 模式需要 mybatis-spring（@MapperScan 注册 Mapper 用；provided 不传递） -->
     <dependency>
       <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
       <artifactId>mybatis-spring</artifactId>
-      <version>3.0.3</version>
       <scope>provided</scope>
     </dependency>
     <dependency>

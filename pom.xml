@@ -16,10 +16,8 @@
     <module>starsite-sequence-spring-boot-starter</module>
     <module>starsite-async-command</module>
     <module>starsite-async-command-spring-boot-starter</module>
-    <module>starsite-async-command-mybatis</module>
     <module>starsite-lock</module>
     <module>starsite-lock-spring-boot-starter</module>
-    <module>starsite-sequence-mybatis</module>
   </modules>
 
   <properties>
@@ -56,6 +54,17 @@
         <version>${testcontainers.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <!-- MyBatis 生态版本统一管理（lock/sequence/async 三组件共用；消费方 classpath 自带亦可） -->
+      <dependency>
+        <groupId>org.mybatis</groupId>
+        <artifactId>mybatis</artifactId>
+        <version>3.5.14</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mybatis</groupId>
+        <artifactId>mybatis-spring</artifactId>
+        <version>3.0.3</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

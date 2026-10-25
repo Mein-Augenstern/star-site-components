@@ -12,7 +12,7 @@
 
   <artifactId>starsite-async-command</artifactId>
   <name>starsite-async-command</name>
-  <description>异步命令核心库：提交/令牌认领调度/指数退避重试/死信 + jdbc(MySQL)/memory 双存储（零 Spring Boot 依赖，可脱离 starter 独立使用）</description>
+  <description>异步命令核心库：提交/令牌认领调度/指数退避重试/死信 + jdbc(MySQL)/mybatis/memory 三存储（MyBatis 为 provided 可选路径，零 Spring Boot 依赖可脱离 starter 独立使用）</description>
 
   <dependencies>
     <dependency>
@@ -23,6 +23,13 @@
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-jdbc</artifactId>
+    </dependency>
+
+    <!-- MyBatis 存储路径（与 lock 组件同形态：Mapper+XML 在 core，mybatis 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
     </dependency>
 
     <!-- 分布式锁组件（LEADER 模式用） -->
@@ -36,6 +43,12 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- MyBatis 存储测试装配（SqlSessionFactoryBean/MapperFactoryBean） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

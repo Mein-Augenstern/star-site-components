@@ -151,7 +151,7 @@ class MyBatisMysqlWorkerIdAllocatorTest {
         assertThat(allocator.allocate()).isEqualTo(1); // 回绕：池重置后从 1 重取
     }
 
-    /** 直通事务管理器（H2 autocompit 单语句原子，无需真实边界） */
+    /** 直通事务管理器（H2 autocommit 单语句原子，无需真实边界） */
     static class PassThroughTxManager implements PlatformTransactionManager {
 
         @Override

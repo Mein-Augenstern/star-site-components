@@ -24,7 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * MyBatis 版 workerId 分配器：租约语义与 raw JDBC 版完全等价（__global__ 池 + LAST_INSERT_ID 原子取号），
- * SQL 落在 {@link SequenceMapper} 的 MyBatis 注解里。
+ * SQL 落在与 {@link SequenceMapper} 同包的 {@code SequenceMapper.xml}。
  * <p>
  * 事务保证：LAST_INSERT_ID 是 MySQL 连接级会话变量——takeFromGlobalPool + selectLastInsertId
  * 必须在同一连接内执行。编程式事务（TransactionTemplate.execute）把两步锁在同一个连接，

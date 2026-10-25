@@ -31,6 +31,17 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-autoconfigure</artifactId>
     </dependency>
+    <!-- MyBatis 适配装配（SqlSessionFactory/@MapperScan；provided 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <!-- actuator 存在时装配健康端点（可选依赖，不强制引入） -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

@@ -21,6 +21,8 @@ import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * MyBatis 版命令存储：语义与 JdbcAsyncCommandStore 完全等价（同一套认领/回收/退避/分页），
@@ -38,6 +40,9 @@ import java.util.regex.Pattern;
  */
 public class MyBatisAsyncCommandStore implements AsyncCommandStore {
 
+    /** 日志（slf4j） */
+    private static final Logger log = LoggerFactory.getLogger(MyBatisAsyncCommandStore.class);
+
     /** 表名白名单（仅字母数字下划线）：${table} 字符串替换的唯一防注入手段 */
     private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
@@ -47,7 +52,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** 命令表名（已过白名单校验） */
     private final String table;
 
-    /** 是否构造期自动建表（H2 兼容 DDL；生产建议迁移脚本管理） */
+    /** 是否构造期自动建表（MySQL 方言 DDL；生产建议迁移脚本管理） */
     private final boolean initDdl;
 
     /** 主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
@@ -58,7 +63,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
      *
      * @param mapper  MyBatis Mapper
      * @param tableName 命令表名（仅字母数字下划线）
-     * @param initDdl     true 时构造期自动建表
+     * @param initDdl     true 时构造期自动建表（失败只记 warn 不阻断——表可能由 DBA/迁移脚本管理）
      * @param idGenerator 主键 id 生成器（sequence 组件的 next()；insert 前为命令分配物理主键）
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
@@ -72,7 +77,22 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
         this.initDdl = initDdl;
         this.idGenerator = idGenerator;
         if (initDdl) {
+            ensureTable();
+        }
+    }
+
+    /**
+     * 幂等建表（IF NOT EXISTS）。建表失败只记 warn 不抛出——与 JdbcAsyncCommandStore.ensureTable
+     * 同语义：表可能由 DBA/迁移脚本统一管理（或测试环境 H2 不认 MySQL 方言 DDL），
+     * 真有问题会在首条命令提交时暴露。
+     */
+    private void ensureTable() {
+        try {
             mapper.createTable(table);
+            log.info("[starsite-async-command] 表 {} 就绪（IF NOT EXISTS）", table);
+        } catch (RuntimeException e) {
+            // 建表失败不阻断启动（表可能由 DBA/迁移脚本管理），首条命令提交时即会暴露
+            log.warn("[starsite-async-command] 建表检查失败（不阻断启动）: {}", e.getMessage());
         }
     }
 

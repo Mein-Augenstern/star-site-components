@@ -3,21 +3,20 @@
 [![CI](https://github.com/Mein-Augenstern/star-site-components/actions/workflows/ci.yml/badge.svg)](https://github.com/Mein-Augenstern/star-site-components/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
-star-site 系列通用组件库：**core（纯库）+ spring-boot-starter（装配）+ mybatis（生态适配）**的开源标准结构，
+star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spring-boot-starter（装配）**的开源标准结构，
 三个组件（sequence / async-command / lock）均同时考虑**单机与分布式**两种运行形态。
 引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
-  雪花序列核心库              自动装配 + 健康端点
-       │
-       └────────────────► starsite-sequence-mybatis（租约分配器 MyBatis 适配）
+  雪花序列核心库              自动装配 + MyBatis 租约装配 + 健康端点
+  （raw JDBC + MyBatis 双租约路径，Mapper XML 在 core）
 starsite-async-command ─► starsite-async-command-spring-boot-starter
-  异步命令核心库（分包）       自动装配 + SmartLifecycle + 健康/管控端点
-       │
-       └────────────────► starsite-async-command-mybatis（命令存储 MyBatis 适配）
+  异步命令核心库（分包）       自动装配 + MyBatis 存储装配 + SmartLifecycle + 健康/管控端点
+  （jdbc/mybatis/memory 三存储，Mapper XML 在 core）
 starsite-lock ──────────► starsite-lock-spring-boot-starter
-  分布式锁核心库              自动装配（db/redis 双模式）
+  分布式锁核心库              自动装配（db/redis 双模式）+ MyBatis 扫描装配
+  （Mapper XML 在 core）
 ```
 
 | 组件 | 单机形态 | 分布式形态 |
@@ -26,7 +25,7 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 | **async-command**（异步命令） | memory 进程队列（无 DB） | MySQL 表令牌认领（多实例并发互斥） |
 | **lock**（分布式锁） | —（锁天然面向多实例） | DB 唯一键互斥 / Redis SETNX+TTL |
 
-- JDK 21 · Spring Boot 3.2.x · **core 零 Lombok / 零 MyBatis**（sequence-core 仅依赖 slf4j；async-core 仅多 spring-jdbc；MyBatis 适配模块的 mybatis 依赖为 provided，由消费方 classpath 提供）
+- JDK 21 · Spring Boot 3.2.x · **core 零 Lombok**（sequence-core 仅依赖 slf4j + 可选 MyBatis 路径；async-core 仅多 spring-jdbc；MyBatis 为 provided——由消费方 classpath 提供，不传递强制依赖）
 - 设计对齐生产实践复盘：[分布式 ID：从雪花算法到生产实现](https://github.com/Mein-Augenstern/MUYI/blob/master/C-%E6%9E%B6%E6%9E%84/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/%E5%88%86%E5%B8%83%E5%BC%8FID/%E5%88%86%E5%B8%83%E5%BC%8FID-%E4%BB%8E%E9%9B%AA%E8%8A%B1%E7%AE%97%E6%B3%95%E5%88%B0%E7%94%9F%E4%BA%A7%E5%AE%9E%E7%8E%B0.md)（star-site-backend 实战回写）
 - 已在 star-site-backend 生产接入（发号 + AI 解读异步命令 + workerId 租约）
 
@@ -82,8 +81,10 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 **注意**：async-command 的 `store=jdbc` 与 lock 的 `mode=db` 需要容器中有 `StarsiteIdGenerator`
 （即引入 sequence starter），缺失时启动快速失败——组件表物理主键无来源不可降级。
 
-消费方用 MyBatis 生态时，追加对应适配模块（`starsite-sequence-mybatis` / `starsite-async-command-mybatis`，
-均提供不传递）：SQL 走与接口同包的 Mapper XML，命令表/租约表对消费方的拦截器、分页插件、SQL 日志原生生效。
+消费方 classpath 有 MyBatis（引了 mybatis-spring-boot-starter，容器中存在 `SqlSessionFactory` Bean）时**零配置自动切换**：
+命令存储换 MyBatis 版、workerId 租约换 MyBatis 版、锁表 Mapper 自动扫描注册——SQL 走与接口同包的
+Mapper XML，命令表/租约表对消费方的拦截器、分页插件、SQL 日志原生生效；无 MyBatis 的消费方零感知
+（自动装配不命中，回退 raw JDBC / 显式提示）。
 
 ## ① sequence：雪花 ID
 

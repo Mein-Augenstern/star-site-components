@@ -166,7 +166,7 @@ public interface AsyncCommandMapper {
                                   @Param("offset") long offset, @Param("size") int size);
 
     /**
-     * 建表（H2 测试便捷；生产用迁移脚本）。
+     * 建表（MySQL 方言 DDL；生产用迁移脚本）。
      *
      * @param table 表名
      * @return 影响行数

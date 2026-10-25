@@ -13,9 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence.mybatis;
+package com.xp.starsite.sequence;
 
 import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import com.xp.starsite.sequence.mybatis.MyBatisMysqlWorkerIdAllocator;
+import com.xp.starsite.sequence.mybatis.SequenceMapper;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.mybatis.spring.annotation.MapperScan;
@@ -23,6 +25,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigureAfter;
+import org.springframework.boot.autoconfigure.AutoConfigureBefore;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -32,17 +37,24 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * MyBatis 适配自动装配：classpath 存在 MyBatis（SqlSessionFactory）且 mode=mysql 时，
- * workerId 分配器优先装配 MyBatis 版（SQL 在 Mapper 注解里，消费方 MyBatis 生态原生生效）。
+ * MyBatis 适配自动装配：容器中存在 MyBatis 会话工厂（消费方引了 mybatis-spring-boot-starter）
+ * 且 mode=mysql 时，workerId 分配器优先装配 MyBatis 版（SQL 在与 SequenceMapper 同包的 XML 里，
+ * 消费方 MyBatis 生态原生生效）。
  * <p>
  * 事务模板不可少：LAST_INSERT_ID 是 MySQL 连接级会话变量，
  * takeFromGlobalPool + selectLastInsertId 必须同一连接——编程式事务保证连接不归还。
+ * <p>
+ * 排序链：@AutoConfigureAfter MybatisAutoConfiguration（会话工厂就绪后再判 @ConditionalOnBean）→
+ * @AutoConfigureBefore 默认装配（先注册 MyBatis 版分配器，默认装配的让位）。
  *
  * @author muyi
  * @date 2026/10/25
  */
 @AutoConfiguration
+@AutoConfigureAfter(name = "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration")
+@AutoConfigureBefore(StarsiteSequenceAutoConfiguration.class)
 @ConditionalOnClass(SqlSessionFactory.class)
+@ConditionalOnBean(SqlSessionFactory.class)
 @ConditionalOnProperty(prefix = "starsite.sequence", name = "enabled", havingValue = "true", matchIfMissing = true)
 @MapperScan(basePackages = "com.xp.starsite.sequence.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
 public class SequenceMyBatisAutoConfiguration {
@@ -59,6 +71,7 @@ public class SequenceMyBatisAutoConfiguration {
      * @param env                  Spring 环境（服务名/pid）
      * @param sqlSessionFactory    MyBatis 会话工厂（连接管理）
      * @param transactionManager   事务管理器（保证 LAST_INSERT_ID 同连接两步）
+     * @param idGenProvider        id 生成器提供者（审计行主键；缺省回自举雪花）
      * @return MyBatis 版 workerId 分配器
      */
     @Bean
@@ -66,7 +79,7 @@ public class SequenceMyBatisAutoConfiguration {
     @ConditionalOnProperty(prefix = "starsite.sequence", name = "mode", havingValue = "mysql")
     public WorkerIdAllocator myBatisMysqlWorkerIdAllocator(
             SequenceMapper mapper,
-            com.xp.starsite.sequence.SequenceProperties props,
+            SequenceProperties props,
             Environment env,
             SqlSessionFactory sqlSessionFactory,
             ObjectProvider<PlatformTransactionManager> transactionManager,

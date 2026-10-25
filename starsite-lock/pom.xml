@@ -19,16 +19,11 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>
-    <!-- DB 模式：MyBatis（核心路径，SQL 全在 Mapper 注解） -->
+    <!-- DB 模式：MyBatis（核心路径，SQL 全在与 Mapper 同包的 XML；provided 由消费方 classpath 提供） -->
     <dependency>
       <groupId>org.mybatis</groupId>
       <artifactId>mybatis</artifactId>
-      <version>3.5.14</version>
-    </dependency>
-    <dependency>
-      <groupId>org.mybatis</groupId>
-      <artifactId>mybatis-spring</artifactId>
-      <version>3.0.3</version>
+      <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>

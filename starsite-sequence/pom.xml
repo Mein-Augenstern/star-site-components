@@ -12,12 +12,30 @@
 
   <artifactId>starsite-sequence</artifactId>
   <name>starsite-sequence</name>
-  <description>雪花序列核心库：生成器 + 单机/MySQL 租约机器位分配 + 时钟回拨钳制（零 Spring Boot 依赖，可脱离 starter 独立使用）</description>
+  <description>雪花序列核心库：生成器 + 单机/MySQL 租约机器位分配（raw JDBC 与 MyBatis 双租约路径）+ 时钟回拨钳制（零 Spring Boot 依赖，可脱离 starter 独立使用）</description>
 
   <dependencies>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
+    </dependency>
+
+    <!-- MyBatis 租约路径（与 lock/async 同形态：Mapper+XML 在 core，mybatis 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <!-- 分配器的编程式事务（LAST_INSERT_ID 两步同连接） -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-tx</artifactId>
+      <scope>provided</scope>
     </dependency>
 
     <!-- 测试 -->
@@ -30,6 +48,11 @@
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
