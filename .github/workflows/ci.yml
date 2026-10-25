@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # spotless 规范检查（许可头/未用导入/空白）+ 全量单测；ubuntu 自带 docker，真库 IT 一并跑
+      - name: Build, check style, unit & integration tests
+        run: mvn -B verify -Pit

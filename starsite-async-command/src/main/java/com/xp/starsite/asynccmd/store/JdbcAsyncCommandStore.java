@@ -1,19 +1,33 @@
+/*
+ * Copyright 2026 muyi
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.xp.starsite.asynccmd.store;
 
 import com.xp.starsite.asynccmd.AsyncCommand;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
-
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 
 /**
  * MySQL 表存储（单机/分布式通用形态）：两步令牌法认领，多实例并发互斥。
@@ -148,6 +162,9 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
 
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
+        // 悬挂判定与回写都用数据库时钟：updated_at 由 DB 维护（ON UPDATE CURRENT_TIMESTAMP），
+        // 用应用时钟对比会因两机时差误判（claim 的到期判定用参数时间，两者语义不同——
+        // claim 判的是业务到期，这里判的是"DB 眼里多久没动静"）
         return jdbc.update("UPDATE " + table + " SET status = 'PENDING', claim_token = NULL, updated_at = NOW() "
                         + "WHERE status = 'RUNNING' AND updated_at < NOW() - INTERVAL ? SECOND LIMIT ?",
                 staleAfterSeconds, limit);

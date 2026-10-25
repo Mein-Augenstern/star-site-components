@@ -1,5 +1,8 @@
 # star-site-components
 
+[![CI](https://github.com/Mein-Augenstern/star-site-components/actions/workflows/ci.yml/badge.svg)](https://github.com/Mein-Augenstern/star-site-components/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 star-site 系列通用组件库：**core（纯库）+ spring-boot-starter（装配）双模块**的开源标准结构，
 所有组件同时考虑**单机与分布式**两种运行形态。引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
 
@@ -189,13 +192,21 @@ starsite:
 ## 构建与测试
 
 ```bash
-mvn verify          # 单测全量（37 个用例：唯一性/回拨/回绕/重试/死信/幂等/认领互斥/悬挂回收/装配/生命周期）
+mvn verify          # 规范检查 + 单测全量（唯一性/回拨/回绕/重试/死信/幂等/认领互斥/悬挂回收/装配/生命周期）
 mvn verify -Pit     # 真库 IT（Testcontainers MySQL）：LAST_INSERT_ID 原子租约、令牌认领并发、悬挂回收
+mvn spotless:apply  # 规范自动修复（许可头/未用导入/空白）；verify 阶段做 check 门禁
 ```
+
+## 代码规范（机器把关，不靠自觉）
+
+- **Spotless 门禁**（`mvn verify` 强制）：Apache-2.0 许可头、未用导入清理、行尾空白、文件末换行
+- **Javadoc 约定**：公开类/接口必带职责说明与 `@author`/`@since`；注释写"为什么"（时钟为何钳制、悬挂为何用库时钟），不复述代码
+- **可维护性铁律**：魔数必须提常量并注释语义（如停机排空上限/轮询下限）；测试钩子（假时钟）只存在于 `src/test`；测试确定性优先——不 sleep、不碰运气
+- **CI**（GitHub Actions，ubuntu 自带 docker）：push/PR 自动跑规范检查 + 单测 + 真库 IT，红了不许合
+- License：[Apache-2.0](LICENSE)；`.editorconfig` 统一跨编辑器基础格式
 
 - IT 需要 docker 与 mysql:8.0 镜像；macOS Docker Desktop 若 socket 非标准路径，
   先 `sudo ln -sf ~/.docker/run/docker.sock /var/run/docker.sock`
-- 测试铁律：全部位于 `src/test`；确定性优先（假时钟驱动回拨/延迟，不 sleep 不碰运气）
 
 ## 后续规划
 
