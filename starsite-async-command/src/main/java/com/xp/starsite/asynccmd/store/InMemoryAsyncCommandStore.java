@@ -159,12 +159,14 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         if (c == null || !AsyncCommand.PENDING.equals(c.getStatus())) {
             return false;
         }
-        if (c.getNextRunAt() != null && c.getNextRunAt().isAfter(time.now())) {
+        // 单次取钟：到期判定与认领回写同基准（两次 now() 有毫秒级漂移）
+        LocalDateTime now = time.now();
+        if (c.getNextRunAt() != null && c.getNextRunAt().isAfter(now)) {
             return false;
         }
         c.setStatus(AsyncCommand.RUNNING);
         c.setClaimToken(token);
-        c.setGmtModified(time.now());
+        c.setGmtModified(now);
         return true;
     }
 
