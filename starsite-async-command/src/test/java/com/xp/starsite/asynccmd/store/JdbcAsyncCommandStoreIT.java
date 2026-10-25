@@ -141,7 +141,7 @@ class JdbcAsyncCommandStoreIT {
     }
 
     /**
-     * 测试内直连 SQL 通道（回拨 updated_at 等确定性构造用）。
+     * 测试内直连 SQL 通道（回拨 gmt_modified 等确定性构造用）。
      *
      * @return 直连目标库的 JdbcTemplate
      * @throws SQLException 直连构造失败
@@ -229,7 +229,7 @@ class JdbcAsyncCommandStoreIT {
     }
 
     /**
-     * 验证悬挂回收：RUNNING 超时（回拨 updated_at 确定性构造"已死亡一个周期"）被打回 PENDING 并清令牌。
+     * 验证悬挂回收：RUNNING 超时（回拨 gmt_modified 确定性构造"已死亡一个周期"）被打回 PENDING 并清令牌。
      */
     @Test
     void 悬挂回收_超时RUNNING回PENDING() throws Exception {
@@ -238,9 +238,9 @@ class JdbcAsyncCommandStoreIT {
         store.claim("dead", 5, LocalDateTime.now());
         assertThat(store.countByStatus(AsyncCommand.RUNNING)).isEqualTo(1);
 
-        // 确定性构造"超时"：claim 的 NOW() 是秒精度，同秒内 updated_at == NOW() 不会被判悬挂，
-        // 直接把 updated_at 回拨到一分钟前（模拟执行器死亡后已经过了一个悬挂周期）
-        rawJdbc().update("UPDATE async_cmd_t4 SET updated_at = NOW() - INTERVAL 1 MINUTE WHERE id = ?",
+        // 确定性构造"超时"：claim 的 NOW() 是秒精度，同秒内 gmt_modified == NOW() 不会被判悬挂，
+        // 直接把 gmt_modified 回拨到一分钟前（模拟执行器死亡后已经过了一个悬挂周期）
+        rawJdbc().update("UPDATE async_cmd_t4 SET gmt_modified = NOW() - INTERVAL 1 MINUTE WHERE id = ?",
                 cmd.getId());
 
         int reclaimed = store.reclaimStale(30, 10);

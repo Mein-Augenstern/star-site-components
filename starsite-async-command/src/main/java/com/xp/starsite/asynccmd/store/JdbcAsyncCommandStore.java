@@ -176,7 +176,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return n == null ? 0 : n;
     }
 
-    /** {@inheritDoc} 到期判定用参数时间（与调用方/测试时钟一致），updated_at 仍取库时间 */
+    /** {@inheritDoc} 到期判定用参数时间（与调用方/测试时钟一致），gmt_modified 仍取库时间 */
     @Override
     public int claim(String token, int limit, LocalDateTime now) {
         return jdbc.update(render(sql.claim()), token, now, now, limit);

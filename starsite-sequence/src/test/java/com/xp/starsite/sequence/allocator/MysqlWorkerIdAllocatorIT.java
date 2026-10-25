@@ -146,13 +146,15 @@ class MysqlWorkerIdAllocatorIT {
      */
     private void seedPool(String table, int workerId) throws SQLException {
         try (Connection conn = dataSource().getConnection(); Statement stmt = conn.createStatement()) {
+            // 表形态与 SequenceSql.MySql 方言一致：id 主键（__global__ 行固定 1）+ uk_service_name + gmt_*
             stmt.execute("CREATE TABLE IF NOT EXISTS " + table + " ("
-                    + "service_name VARCHAR(64) NOT NULL, worker_id INT NOT NULL DEFAULT 0,"
-                    + "instance VARCHAR(128) DEFAULT NULL,"
-                    + "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
-                    + "PRIMARY KEY (service_name)) ENGINE=InnoDB");
-            stmt.execute("INSERT IGNORE INTO " + table + " (service_name, worker_id, instance) "
-                    + "VALUES ('__global__', " + workerId + ", 'pool')");
+                    + "id BIGINT NOT NULL, service_name VARCHAR(64) NOT NULL,"
+                    + "worker_id INT NOT NULL DEFAULT 0, instance VARCHAR(128) DEFAULT NULL,"
+                    + "gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    + "gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+                    + "PRIMARY KEY (id), UNIQUE KEY uk_" + table + "_service_name (service_name)) ENGINE=InnoDB");
+            stmt.execute("INSERT IGNORE INTO " + table + " (id, service_name, worker_id, instance) "
+                    + "VALUES (1, '__global__', " + workerId + ", 'pool')");
         }
     }
 
