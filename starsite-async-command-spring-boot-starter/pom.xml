@@ -20,6 +20,13 @@
       <artifactId>starsite-async-command</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <!-- 命令表物理主键来源（provided：宿主按需引入 sequence starter，本模块不传递强制依赖） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-sequence-spring-boot-starter</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-autoconfigure</artifactId>

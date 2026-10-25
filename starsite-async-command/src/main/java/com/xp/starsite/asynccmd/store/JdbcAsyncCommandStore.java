@@ -16,8 +16,6 @@
 package com.xp.starsite.asynccmd.store;
 
 import com.xp.starsite.asynccmd.model.AsyncCommand;
-import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,8 +23,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
-import org.springframework.jdbc.support.KeyHolder;
 
 /**
  * MySQL 表存储（单机/分布式通用形态）：两步令牌法认领，多实例并发互斥。
@@ -62,6 +58,9 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** SQL 方言（语句全部来自这里，本类零硬编码 SQL） */
     private final AsyncCommandSql sql;
 
+    /** 主键 id 生成器（starsite-sequence 组件的 next()——组件表物理主键标准来源） */
+    private final java.util.function.LongSupplier idGenerator;
+
     /** 行映射器：下划线列名 → 驼峰字段（静态复用） */
     private static final RowMapper<AsyncCommand> MAPPER = (rs, i) -> {
         AsyncCommand c = new AsyncCommand();
@@ -77,10 +76,10 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         c.setLastError(rs.getString("last_error"));
         c.setOwner(rs.getString("owner"));
         c.setClaimToken(rs.getString("claim_token"));
-        c.setCreatedAt(rs.getTimestamp("created_at") == null
-                ? null : rs.getTimestamp("created_at").toLocalDateTime());
-        c.setUpdatedAt(rs.getTimestamp("updated_at") == null
-                ? null : rs.getTimestamp("updated_at").toLocalDateTime());
+        c.setGmtCreate(rs.getTimestamp("gmt_create") == null
+                ? null : rs.getTimestamp("gmt_create").toLocalDateTime());
+        c.setGmtModified(rs.getTimestamp("gmt_modified") == null
+                ? null : rs.getTimestamp("gmt_modified").toLocalDateTime());
         return c;
     };
 
@@ -90,8 +89,8 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
      * @param jdbc      JDBC 模板
      * @param tableName 命令表名（仅字母数字下划线）
      */
-    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName) {
-        this(jdbc, tableName, new AsyncCommandSql.MySql(), true);
+    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, java.util.function.LongSupplier idGenerator) {
+        this(jdbc, tableName, new AsyncCommandSql.MySql(), true, idGenerator);
     }
 
     /**
@@ -101,15 +100,18 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
      * @param tableName 命令表名（仅字母数字下划线）
      * @param sql       SQL 方言（语句来源；自定义方言实现其他数据库/ORM 适配）
      * @param initDdl   true 时构造期自动建表（IF NOT EXISTS 增量安全）；false 交由迁移脚本管理
+     * @param idGenerator 主键 id 生成器（sequence 组件的 next()；insert 前为命令分配物理主键）
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
-    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, AsyncCommandSql sql, boolean initDdl) {
+    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, AsyncCommandSql sql, boolean initDdl,
+                                 java.util.function.LongSupplier idGenerator) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
         this.jdbc = jdbc;
         this.table = tableName;
         this.sql = sql;
+        this.idGenerator = idGenerator;
         if (initDdl) {
             ensureTable();
         }
@@ -142,23 +144,22 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} 自增 id 经 GeneratedKeyHolder 回填 */
     @Override
     public void insert(AsyncCommand cmd) {
-        KeyHolder kh = new GeneratedKeyHolder();
-        String stmt = render(sql.insert());
-        jdbc.update(conn -> {
-            PreparedStatement ps = conn.prepareStatement(stmt, Statement.RETURN_GENERATED_KEYS);
-            ps.setString(1, cmd.getCmdType());
-            ps.setString(2, cmd.getBizKey() == null ? "" : cmd.getBizKey());
-            ps.setString(3, cmd.getPayload());
-            ps.setString(4, cmd.getStatus());
-            ps.setInt(5, cmd.getMaxRetry());
-            ps.setInt(6, cmd.getRetryCount());
-            ps.setObject(7, cmd.getNextRunAt());
-            ps.setString(8, cmd.getOwner());
-            return ps;
-        }, kh);
-        if (!kh.getKeyList().isEmpty() && kh.getKeyList().get(0) != null) {
-            cmd.setId(((Number) kh.getKeyList().get(0).values().iterator().next()).longValue());
+        // 组件表物理主键标准来源：starsite-sequence 组件（去 AUTO_INCREMENT）
+        if (cmd.getId() == null) {
+            cmd.setId(idGenerator.getAsLong());
         }
+        String stmt = render(sql.insert());
+        jdbc.update(stmt, ps -> {
+            ps.setLong(1, cmd.getId());
+            ps.setString(2, cmd.getCmdType());
+            ps.setString(3, cmd.getBizKey() == null ? "" : cmd.getBizKey());
+            ps.setString(4, cmd.getPayload());
+            ps.setString(5, cmd.getStatus());
+            ps.setInt(6, cmd.getMaxRetry());
+            ps.setInt(7, cmd.getRetryCount());
+            ps.setObject(8, cmd.getNextRunAt());
+            ps.setString(9, cmd.getOwner());
+        });
     }
 
     /** {@inheritDoc} */
@@ -196,7 +197,9 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} 悬挂判定与回写都用库时钟（claim 判业务到期，这里判"DB 眼里多久没动静"） */
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
-        return jdbc.update(render(sql.reclaimStale()), staleAfterSeconds, limit);
+        // 阈值时刻由应用时钟计算后参数绑定（消 INTERVAL 方言差异）
+        return jdbc.update(render(sql.reclaimStale()),
+                java.time.LocalDateTime.now().minusSeconds(staleAfterSeconds), limit);
     }
 
     /** {@inheritDoc} */

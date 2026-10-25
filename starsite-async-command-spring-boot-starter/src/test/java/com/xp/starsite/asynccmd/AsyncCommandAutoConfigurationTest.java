@@ -80,6 +80,23 @@ class AsyncCommandAutoConfigurationTest {
     }
 
     /**
+     * 用例：jdbc 形态缺 StarsiteIdGenerator 快速失败。
+     * <p>验证点：store=jdbc、JdbcTemplate 在容器中，但未引入 starsite-sequence 组件时装配失败，
+     * 异常信息明确提示引入 starsite-sequence-spring-boot-starter（物理主键无来源不可降级）。
+     */
+    @Test
+    void jdbc形态_缺IdGenerator_快速失败提示sequence() {
+        // 占位 DataSource：JdbcTemplate 仅需存在（装配在 idGen 检查前不会真正连库）
+        runner.withPropertyValues("starsite.async-command.store=jdbc")
+                .withBean(org.springframework.jdbc.core.JdbcTemplate.class, () ->
+                        new org.springframework.jdbc.core.JdbcTemplate(
+                                new org.springframework.jdbc.datasource.SimpleDriverDataSource()))
+                .run(ctx -> assertThat(ctx).hasFailed()
+                        .getFailure()
+                        .hasMessageContaining("StarsiteIdGenerator"));
+    }
+
+    /**
      * 用例：总开关关闭时不装配。
      * <p>验证点：enabled=false 时 Client/Scheduler 等核心 Bean 均不创建。
      */

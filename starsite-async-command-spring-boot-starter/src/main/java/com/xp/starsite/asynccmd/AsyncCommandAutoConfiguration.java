@@ -79,14 +79,16 @@ public class AsyncCommandAutoConfiguration {
      *
      * @param props 异步命令配置（读取 store/tableName/initDdl 三项）
      * @param jdbcTemplateProvider JdbcTemplate 惰性提供者（仅 jdbc 形态使用，容器中可能不存在）
+     * @param idGenProvider id 生成器提供者（jdbc 形态必填——命令表物理主键标准来源）
      * @return 命令存储实例（jdbc 形态返回 {@link JdbcAsyncCommandStore}，memory 形态返回 {@link InMemoryAsyncCommandStore}）
-     * @throws IllegalStateException store=jdbc 但容器中无 JdbcTemplate（缺 DataSource）时快速失败，
-     *                               异常信息提示改用 store=memory
+     * @throws IllegalStateException store=jdbc 但容器中无 JdbcTemplate（缺 DataSource）或缺
+     *                               StarsiteIdGenerator（主键无来源）时快速失败
      */
     @Bean
     @ConditionalOnMissingBean
     public AsyncCommandStore asyncCommandStore(AsyncCommandProperties props,
                                                ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
+                                               ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider,
                                                AsyncCommandSql sql) {
         // 枚举 switch 表达式：MEMORY/JDBC 两分支穷尽且均以 yield 终止，无需 default
         return switch (props.getStore()) {
@@ -101,9 +103,17 @@ public class AsyncCommandAutoConfiguration {
                             "starsite.async-command.store=jdbc 需要 JdbcTemplate（DataSource）；"
                                     + "无 DB 单机场景请配置 starsite.async-command.store=memory");
                 }
+                // 组件表规范：物理主键一律由 sequence 组件生成（无 AUTO_INCREMENT）
+                com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+                if (idGen == null) {
+                    throw new IllegalStateException(
+                            "starsite.async-command.store=jdbc 需要 StarsiteIdGenerator"
+                                    + "（starsite-sequence 组件）生成命令表物理主键；请引入"
+                                    + " starsite-sequence-spring-boot-starter");
+                }
                 log.info("[starsite-async-command] 存储形态：jdbc（table={}，单机/分布式通用令牌认领）",
                         props.getTableName());
-                yield new JdbcAsyncCommandStore(jdbc, props.getTableName(), sql, props.isInitDdl());
+                yield new JdbcAsyncCommandStore(jdbc, props.getTableName(), sql, props.isInitDdl(), idGen::next);
             }
         };
     }

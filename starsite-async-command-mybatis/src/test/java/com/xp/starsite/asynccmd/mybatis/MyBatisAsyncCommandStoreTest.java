@@ -53,6 +53,10 @@ class MyBatisAsyncCommandStoreTest {
     /** MyBatis SqlSessionFactory（手工装配） */
     private static SqlSessionFactory sqlSessionFactory;
 
+    /** 测试 id 生成序列（模拟 sequence 组件发号——物理主键来源语义等价） */
+    private static final java.util.concurrent.atomic.AtomicLong TEST_ID_SEQ =
+            new java.util.concurrent.atomic.AtomicLong(0);
+
     /**
      * 建库与 MyBatis 装配：EmbeddedH2 → SqlSessionFactory（驼峰映射开启）→ 注册 Mapper。
      */
@@ -88,7 +92,7 @@ class MyBatisAsyncCommandStoreTest {
     void 提交认领执行_全链路经MyBatis() throws Exception {
         AsyncCommandMapper mapper = mapper();
         mapper.createTable("async_cmd_t1");
-        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t1", false);
+        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t1", false, TEST_ID_SEQ::incrementAndGet);
 
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("mybatis-test");
@@ -111,7 +115,7 @@ class MyBatisAsyncCommandStoreTest {
     void 双实例认领互斥() throws Exception {
         AsyncCommandMapper mapper = mapper();
         mapper.createTable("async_cmd_t2");
-        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t2", false);
+        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t2", false, TEST_ID_SEQ::incrementAndGet);
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("t");
         AsyncCommandClient client = new AsyncCommandClient(store, config);
@@ -130,7 +134,7 @@ class MyBatisAsyncCommandStoreTest {
     void 悬挂回收() throws Exception {
         AsyncCommandMapper mapper = mapper();
         mapper.createTable("async_cmd_t3");
-        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t3", false);
+        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t3", false, TEST_ID_SEQ::incrementAndGet);
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("t");
         AsyncCommandClient client = new AsyncCommandClient(store, config);
@@ -146,7 +150,7 @@ class MyBatisAsyncCommandStoreTest {
     void 管控分页过滤() throws Exception {
         AsyncCommandMapper mapper = mapper();
         mapper.createTable("async_cmd_t4");
-        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t4", false);
+        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t4", false, TEST_ID_SEQ::incrementAndGet);
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("t");
         AsyncCommandClient client = new AsyncCommandClient(store, config);

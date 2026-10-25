@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  workerId 租约 MyBatis Mapper XML（与 SequenceMapper 接口同包放置——addMapper 自动发现）。
+  约定：${table} 为白名单校验后的表名；业务值一律 #{} 参数绑定。
+  表主键 id 由 starsite-sequence 组件生成；__global__ 种子行 id=1 为组件自举保留值。
+-->
+<mapper namespace="com.xp.starsite.sequence.mybatis.SequenceMapper">
+
+    <!-- 自举例外：sys_sequence 是 id 生成体系自身的锚点表，种子行 id=1 固定保留 -->
+    <insert id="seedGlobalPool">
+        INSERT IGNORE INTO ${table} (id, service_name, worker_id, instance)
+        VALUES (1, #{poolKey}, 0, #{instanceTag})
+    </insert>
+
+    <update id="takeFromGlobalPool">
+        UPDATE ${table} SET worker_id = LAST_INSERT_ID(worker_id + 1),
+                            instance = #{instanceTag},
+                            gmt_modified = NOW()
+        WHERE service_name = #{poolKey}
+    </update>
+
+    <select id="selectLastInsertId" resultType="long">
+        SELECT LAST_INSERT_ID()
+    </select>
+
+    <insert id="recordOwnership">
+        INSERT INTO ${table} (id, service_name, worker_id, instance)
+        VALUES (#{id}, #{serviceName}, #{workerId}, #{instanceTag})
+        ON DUPLICATE KEY UPDATE worker_id = #{workerId},
+                                instance = #{instanceTag},
+                                gmt_modified = NOW()
+    </insert>
+
+    <update id="resetGlobalPool">
+        UPDATE ${table} SET worker_id = 0, instance = #{instanceTag}, gmt_modified = NOW()
+        WHERE service_name = #{poolKey}
+    </update>
+
+    <update id="createTable">
+        CREATE TABLE IF NOT EXISTS ${table} (
+            service_name VARCHAR(64) NOT NULL,
+            worker_id INT NOT NULL DEFAULT 0,
+            instance VARCHAR(128),
+            gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    </update>
+</mapper>

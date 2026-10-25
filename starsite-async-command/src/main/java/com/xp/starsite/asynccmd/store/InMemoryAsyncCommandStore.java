@@ -42,7 +42,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     private final Map<Long, AsyncCommand> rows = new ConcurrentHashMap<>();
     /** 主键发号器：CAS 自增，insert 时分配 id */
     private final AtomicLong idSeq = new AtomicLong(0);
-    /** 时间源：createdAt/updatedAt 时间戳与到期判定使用（测试可注入假时钟） */
+    /** 时间源：gmtCreate/gmtModified 时间戳与到期判定使用（测试可注入假时钟） */
     private final TimeSource time;
 
     /**
@@ -62,7 +62,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
-     * 新建命令：发号器分配 id 回填；createdAt 未设置时取当前时间，updatedAt 刷新；
+     * 新建命令：发号器分配 id 回填；gmtCreate 未设置时取当前时间，gmtModified 刷新；
      * 存放的是入参的快照拷贝，与调用方持有的对象互不影响。
      *
      * @param cmd 待落库命令
@@ -71,8 +71,8 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     public synchronized void insert(AsyncCommand cmd) {
         cmd.setId(idSeq.incrementAndGet());
         LocalDateTime now = time.now();
-        if (cmd.getCreatedAt() == null) cmd.setCreatedAt(now);
-        cmd.setUpdatedAt(now);
+        if (cmd.getGmtCreate() == null) cmd.setGmtCreate(now);
+        cmd.setGmtModified(now);
         rows.put(cmd.getId(), copy(cmd));
     }
 
@@ -125,7 +125,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
             AsyncCommand c = rows.get(id);
             c.setStatus(AsyncCommand.RUNNING);
             c.setClaimToken(token);
-            c.setUpdatedAt(now);
+            c.setGmtModified(now);
         }
         return due.size();
     }
@@ -146,7 +146,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
-     * 崩溃回收：以 updatedAt（认领时刷新）判定悬挂——RUNNING 且 updatedAt 早于
+     * 崩溃回收：以 gmtModified（认领时刷新）判定悬挂——RUNNING 且 gmtModified 早于
      * now - staleAfterSeconds 的行回 PENDING 并清令牌（与 jdbc 实现以库时钟判定的语义对齐）。
      *
      * @param staleAfterSeconds 悬挂判定阈值（秒）
@@ -164,7 +164,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         }
         c.setStatus(AsyncCommand.RUNNING);
         c.setClaimToken(token);
-        c.setUpdatedAt(time.now());
+        c.setGmtModified(time.now());
         return true;
     }
 
@@ -174,11 +174,11 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         int n = 0;
         for (AsyncCommand c : rows.values()) {
             if (n >= limit) break;
-            if (AsyncCommand.RUNNING.equals(c.getStatus()) && c.getUpdatedAt() != null
-                    && c.getUpdatedAt().isBefore(threshold)) {
+            if (AsyncCommand.RUNNING.equals(c.getStatus()) && c.getGmtModified() != null
+                    && c.getGmtModified().isBefore(threshold)) {
                 c.setStatus(AsyncCommand.PENDING);
                 c.setClaimToken(null);
-                c.setUpdatedAt(time.now());
+                c.setGmtModified(time.now());
                 n++;
             }
         }
@@ -186,7 +186,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
-     * 状态回写：按 id 覆盖五个状态字段并刷新 updatedAt。
+     * 状态回写：按 id 覆盖五个状态字段并刷新 gmtModified。
      *
      * @param cmd 携带最新状态字段的命令
      * @return 1 回写成功；0 命令不存在
@@ -200,7 +200,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         row.setRetryCount(cmd.getRetryCount());
         row.setNextRunAt(cmd.getNextRunAt());
         row.setLastError(cmd.getLastError());
-        row.setUpdatedAt(time.now());
+        row.setGmtModified(time.now());
         return 1;
     }
 
@@ -312,8 +312,8 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         c.setLastError(src.getLastError());
         c.setOwner(src.getOwner());
         c.setClaimToken(src.getClaimToken());
-        c.setCreatedAt(src.getCreatedAt());
-        c.setUpdatedAt(src.getUpdatedAt());
+        c.setGmtCreate(src.getGmtCreate());
+        c.setGmtModified(src.getGmtModified());
         return c;
     }
 }

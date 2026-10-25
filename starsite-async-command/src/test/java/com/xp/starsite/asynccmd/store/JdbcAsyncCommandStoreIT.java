@@ -134,7 +134,10 @@ class JdbcAsyncCommandStoreIT {
         ds.setUrl(jdbcUrl());
         ds.setUsername(dbUser());
         ds.setPassword(dbPassword());
-        return new JdbcAsyncCommandStore(new JdbcTemplate(ds), table, new AsyncCommandSql.MySql(), true);
+        // IT 用递增计数器模拟 sequence 组件发号（物理主键来源语义等价）
+        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        return new JdbcAsyncCommandStore(new JdbcTemplate(ds), table,
+                new AsyncCommandSql.MySql(), true, seq::incrementAndGet);
     }
 
     /**

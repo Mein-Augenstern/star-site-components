@@ -65,6 +65,9 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
     /** 机器位上限 */
     private final long maxWorkerId;
 
+    /** 审计行主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
+    private final java.util.function.LongSupplier idGenerator;
+
     /** 回绕策略名（RESET / FAIL） */
     private final String wraparoundPolicy;
 
@@ -79,11 +82,13 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @param instanceTag       实例标记
      * @param workerIdBits      机器位宽
      * @param wraparoundPolicy  回绕策略名
+     * @param idGenerator       审计行主键 id 生成器（sequence 组件的 next()）
      */
     public MyBatisMysqlWorkerIdAllocator(SequenceMapper mapper, SqlSessionTemplate sessionTemplate,
                                          TransactionTemplate txTemplate, String tableName,
                                          String serviceName, String instanceTag,
-                                         int workerIdBits, String wraparoundPolicy) {
+                                         int workerIdBits, String wraparoundPolicy,
+                                         java.util.function.LongSupplier idGenerator) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
@@ -95,6 +100,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
         this.instanceTag = instanceTag;
         this.maxWorkerId = ~(-1L << workerIdBits);
         this.wraparoundPolicy = wraparoundPolicy;
+        this.idGenerator = idGenerator;
     }
 
     /**
@@ -115,7 +121,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
         if (workerId == null) {
             throw new IllegalStateException("事务内取号失败（返回 null）");
         }
-        mapper.recordOwnership(tableName, serviceName, workerId, instanceTag);
+        mapper.recordOwnership(tableName, idGenerator.getAsLong(), serviceName, workerId, instanceTag);
 
         if (workerId > maxWorkerId) {
             if ("FAIL".equals(wraparoundPolicy)) {
@@ -130,7 +136,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
                 return mapper.selectLastInsertId();
             });
             workerId = reTaken == null ? 1 : reTaken;
-            mapper.recordOwnership(tableName, serviceName, workerId, instanceTag);
+            mapper.recordOwnership(tableName, idGenerator.getAsLong(), serviceName, workerId, instanceTag);
         }
         return workerId;
     }

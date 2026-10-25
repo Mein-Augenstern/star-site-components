@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 
 /**
  * MyBatis 版命令存储：语义与 JdbcAsyncCommandStore 完全等价（同一套认领/回收/退避/分页），
- * SQL 落在 {@link AsyncCommandMapper} 的 MyBatis 注解里——消费方的 MyBatis 生态
+ * SQL 落在与 Mapper 接口同包的 {@code AsyncCommandMapper.xml}（MyBatis 命名空间自动发现）——消费方的 MyBatis 生态
  * （拦截器、分页插件、SQL 日志）原生生效。
  * <p>
  * 表名经白名单校验后以 {@code ${table}} 字符串替换传入 Mapper（MyBatis 的 ${} 语义），
@@ -50,21 +50,27 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** 是否构造期自动建表（H2 兼容 DDL；生产建议迁移脚本管理） */
     private final boolean initDdl;
 
+    /** 主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
+    private final java.util.function.LongSupplier idGenerator;
+
     /**
      * 全参构造。
      *
      * @param mapper  MyBatis Mapper
      * @param tableName 命令表名（仅字母数字下划线）
-     * @param initDdl true 时构造期自动建表
+     * @param initDdl     true 时构造期自动建表
+     * @param idGenerator 主键 id 生成器（sequence 组件的 next()；insert 前为命令分配物理主键）
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
-    public MyBatisAsyncCommandStore(AsyncCommandMapper mapper, String tableName, boolean initDdl) {
+    public MyBatisAsyncCommandStore(AsyncCommandMapper mapper, String tableName, boolean initDdl,
+                                    java.util.function.LongSupplier idGenerator) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
         this.mapper = mapper;
         this.table = tableName;
         this.initDdl = initDdl;
+        this.idGenerator = idGenerator;
         if (initDdl) {
             mapper.createTable(table);
         }
@@ -73,8 +79,11 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} */
     @Override
     public void insert(AsyncCommand cmd) {
-        mapper.insert(table, cmd, cmd.getStatusEnum() == null
-                ? CommandStatus.PENDING.getCode() : cmd.getStatusEnum().getCode());
+        // 组件表物理主键标准来源：starsite-sequence 组件（表无 AUTO_INCREMENT）
+        if (cmd.getId() == null) {
+            cmd.setId(idGenerator.getAsLong());
+        }
+        mapper.insert(table, cmd);
     }
 
     /** {@inheritDoc} 状态 code 经 {@link CommandStatus#fromCode} 解析为枚举 */
@@ -116,7 +125,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} */
     @Override
     public int updateState(AsyncCommand cmd) {
-        return mapper.updateState(table, cmd, cmd.getStatusEnum().getCode());
+        return mapper.updateState(table, cmd);
     }
 
     /** {@inheritDoc} */

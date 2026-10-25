@@ -52,16 +52,21 @@ public class DbLockClient implements LockClient {
     /** 锁 TTL 毫秒 */
     private final long ttlMs;
 
+    /** 主键 id 生成器（starsite-sequence 组件——锁行种子 id 标准来源） */
+    private final java.util.function.LongSupplier idGenerator;
+
     /**
      * 全参构造。
      *
      * @param mapper    MyBatis Mapper
      * @param tableName 锁表名（仅字母数字下划线）
      * @param ownerId   持锁者标识
-     * @param ttlMs     锁 TTL 毫秒
+     * @param ttlMs       锁 TTL 毫秒
+     * @param idGenerator 主键 id 生成器（starsite-sequence 组件）
      * @throws IllegalArgumentException 表名非法
      */
-    public DbLockClient(ScheduleLockMapper mapper, String tableName, String ownerId, long ttlMs) {
+    public DbLockClient(ScheduleLockMapper mapper, String tableName, String ownerId, long ttlMs,
+                        java.util.function.LongSupplier idGenerator) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
@@ -69,6 +74,7 @@ public class DbLockClient implements LockClient {
         this.tableName = tableName;
         this.ownerId = ownerId;
         this.ttlMs = ttlMs;
+        this.idGenerator = idGenerator;
     }
 
     /**
@@ -77,12 +83,12 @@ public class DbLockClient implements LockClient {
      * @param mapper ScheduleLockMapper
      * @param config 组件配置
      */
-    public DbLockClient(ScheduleLockMapper mapper, LockCoreConfig config) {
-        this(mapper, config.getTableName(), config.getOwnerId(), config.getTtlMs());
+    public DbLockClient(ScheduleLockMapper mapper, LockCoreConfig config, java.util.function.LongSupplier idGenerator) {
+        this(mapper, config.getTableName(), config.getOwnerId(), config.getTtlMs(), idGenerator);
     }
 
     /**
-     * 非阻塞争锁：先确保锁行存在（INSERT IGNORE 幂等），再原子 UPDATE 抢占。
+     * 非阻塞争锁：先确保锁行存在（INSERT ... WHERE NOT EXISTS 只插不覆盖），再原子抢占。
      * 争锁 SQL 异常时 fail-open（返回 true 继续——宁可竞争不停摆，上层有幂等兜底）。
      *
      * @param lockName 锁名
@@ -91,10 +97,11 @@ public class DbLockClient implements LockClient {
     @Override
     public boolean tryLock(String lockName) {
         try {
-            // 首次争锁时先补种子行（INSERT IGNORE 已存在则无操作）
-            mapper.seedLockRow(tableName, lockName);
+            // 首次争锁时先补种子行（只插不覆盖；id 由 sequence 组件生成）
+            mapper.seedLockRow(tableName, idGenerator.getAsLong(), lockName);
             LocalDateTime until = LocalDateTime.now().plusNanos(ttlMs * 1_000_000);
-            boolean acquired = mapper.tryAcquire(tableName, lockName, ownerId, until, java.time.LocalDateTime.now()) > 0;
+            boolean acquired = mapper.tryAcquire(tableName, lockName,
+                    ownerId, until, LocalDateTime.now()) > 0;
             if (acquired) {
                 log.trace("[starsite-lock] 获得锁: lock={}, owner={}", lockName, ownerId);
             }

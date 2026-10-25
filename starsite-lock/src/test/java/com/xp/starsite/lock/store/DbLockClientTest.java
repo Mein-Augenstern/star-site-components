@@ -36,6 +36,10 @@ class DbLockClientTest {
     /** H2 数据源（类级共享，各用例独立锁名隔离） */
     private static javax.sql.DataSource dataSource;
 
+    /** 测试 id 生成序列（各用例的种子行主键互不冲突） */
+    private static final java.util.concurrent.atomic.AtomicLong TEST_ID_SEQ =
+            new java.util.concurrent.atomic.AtomicLong(0);
+
     /**
      * 建库 + 建锁表。
      */
@@ -46,10 +50,13 @@ class DbLockClientTest {
                 .build();
         try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE IF NOT EXISTS component_schedule_lock ("
-                    + "lock_name VARCHAR(64) NOT NULL PRIMARY KEY, "
+                    + "id BIGINT NOT NULL PRIMARY KEY, "
+                    + "lock_name VARCHAR(64) NOT NULL, "
                     + "locked_by VARCHAR(128), "
                     + "locked_until TIMESTAMP, "
-                    + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+                    + "gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "CONSTRAINT uk_lock_name UNIQUE (lock_name))");
         }
     }
 
@@ -72,7 +79,8 @@ class DbLockClientTest {
         com.xp.starsite.lock.model.LockCoreConfig lockConfig =
                 new com.xp.starsite.lock.model.LockCoreConfig();
         lockConfig.setOwnerId(ownerId);
-        return new DbLockClient(mapper, lockConfig);
+        // 测试 id 生成器：AtomicLong 递增（固定值会跨用例主键冲突，fail-open 掩盖互斥语义）
+        return new DbLockClient(mapper, lockConfig, TEST_ID_SEQ::incrementAndGet);
     }
 
     /** 首次争锁成功 */

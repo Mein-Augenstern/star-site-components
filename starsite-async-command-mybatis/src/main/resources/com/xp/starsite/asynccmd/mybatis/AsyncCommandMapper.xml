@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  异步命令 MyBatis Mapper XML（与 AsyncCommandMapper 接口同包放置——addMapper 自动发现）。
+  约定：${table} 为白名单校验后的表名字符串替换；业务值一律 #{} 参数绑定。
+  主键 id 由 starsite-sequence 组件生成（INSERT 显式带入，表无 AUTO_INCREMENT）。
+-->
+<mapper namespace="com.xp.starsite.asynccmd.mybatis.AsyncCommandMapper">
+
+    <insert id="insert" parameterType="com.xp.starsite.asynccmd.model.AsyncCommand">
+        INSERT INTO ${table} (id, cmd_type, biz_key, payload, status, max_retry,
+                              retry_count, next_run_at, owner, gmt_create)
+        VALUES (#{cmd.id}, #{cmd.cmdType}, #{cmd.bizKey}, #{cmd.payload}, #{cmd.status},
+                #{cmd.maxRetry}, #{cmd.retryCount}, #{cmd.nextRunAt}, #{cmd.owner}, NOW())
+    </insert>
+
+    <select id="selectById" resultType="com.xp.starsite.asynccmd.model.AsyncCommand">
+        SELECT * FROM ${table} WHERE id = #{id}
+    </select>
+
+    <select id="countUnfinished" resultType="long">
+        SELECT COUNT(*) FROM ${table}
+        WHERE cmd_type = #{cmdType} AND biz_key = #{bizKey}
+          AND status IN ('PENDING', 'RUNNING')
+    </select>
+
+    <update id="claim">
+        UPDATE ${table} SET status = 'RUNNING', claim_token = #{token}, gmt_modified = NOW()
+        WHERE status = 'PENDING' AND next_run_at &lt;= #{now}
+          AND id IN (SELECT id FROM (SELECT id FROM ${table}
+                     WHERE status = 'PENDING' AND next_run_at &lt;= #{now}
+                     ORDER BY id LIMIT #{limit}) t)
+    </update>
+
+    <select id="findByToken" resultType="com.xp.starsite.asynccmd.model.AsyncCommand">
+        SELECT * FROM ${table} WHERE claim_token = #{token} ORDER BY id
+    </select>
+
+    <update id="claimById">
+        UPDATE ${table} SET status = 'RUNNING', claim_token = #{token}, gmt_modified = NOW()
+        WHERE id = #{id} AND status = 'PENDING' AND next_run_at &lt;= NOW()
+    </update>
+
+    <update id="reclaimStale">
+        UPDATE ${table} SET status = 'PENDING', claim_token = NULL, gmt_modified = NOW()
+        WHERE status = 'RUNNING' AND gmt_modified &lt; #{threshold}
+        LIMIT #{limit}
+    </update>
+
+    <update id="updateState" parameterType="com.xp.starsite.asynccmd.model.AsyncCommand">
+        UPDATE ${table} SET status = #{cmd.status}, claim_token = #{cmd.claimToken},
+                            retry_count = #{cmd.retryCount}, next_run_at = #{cmd.nextRunAt},
+                            last_error = #{cmd.lastError}, gmt_modified = NOW()
+        WHERE id = #{cmd.id}
+    </update>
+
+    <select id="countByStatus" resultType="long">
+        SELECT COUNT(*) FROM ${table} WHERE status = #{statusCode}
+    </select>
+
+    <select id="countBacklogDue" resultType="long">
+        SELECT COUNT(*) FROM ${table} WHERE status = 'PENDING' AND next_run_at &lt;= #{now}
+    </select>
+
+    <select id="selectRecent" resultType="com.xp.starsite.asynccmd.model.AsyncCommand">
+        SELECT * FROM ${table} ORDER BY id DESC LIMIT #{limit}
+    </select>
+
+    <select id="countPage" resultType="long">
+        SELECT COUNT(*) FROM ${table} WHERE 1 = 1
+        <if test="statusCode != null and statusCode != ''">AND status = #{statusCode}</if>
+        <if test="cmdType != null and cmdType != ''">AND cmd_type = #{cmdType}</if>
+    </select>
+
+    <select id="selectPage" resultType="com.xp.starsite.asynccmd.model.AsyncCommand">
+        SELECT * FROM ${table} WHERE 1 = 1
+        <if test="statusCode != null and statusCode != ''">AND status = #{statusCode}</if>
+        <if test="cmdType != null and cmdType != ''">AND cmd_type = #{cmdType}</if>
+        ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <update id="createTable">
+        CREATE TABLE IF NOT EXISTS ${table} (
+            id           BIGINT NOT NULL PRIMARY KEY,
+            cmd_type     VARCHAR(64)  NOT NULL,
+            biz_key      VARCHAR(128) DEFAULT '',
+            payload      TEXT,
+            status       VARCHAR(16)  NOT NULL DEFAULT 'PENDING',
+            max_retry    INT          NOT NULL DEFAULT 5,
+            retry_count  INT          NOT NULL DEFAULT 0,
+            next_run_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_error   VARCHAR(500),
+            owner        VARCHAR(64)  DEFAULT '',
+            claim_token  VARCHAR(64),
+            gmt_create   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            gmt_modified TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    </update>
+</mapper>

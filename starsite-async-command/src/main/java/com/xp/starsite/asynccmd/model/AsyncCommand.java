@@ -67,9 +67,9 @@ public class AsyncCommand {
     /** 调度认领令牌（认领瞬间生成，处理完成后清空） */
     private String claimToken;
     /** 创建时间（由存储维护） */
-    private LocalDateTime createdAt;
+    private LocalDateTime gmtCreate;
     /** 最后更新时间（由存储维护；悬挂回收以它判定 RUNNING 是否超时） */
-    private LocalDateTime updatedAt;
+    private LocalDateTime gmtModified;
 
     /**
      * 获取主键 id。
@@ -248,26 +248,26 @@ public class AsyncCommand {
      *
      * @return 创建时间；未落库时为 null
      */
-    public LocalDateTime getCreatedAt() { return createdAt; }
+    public LocalDateTime getGmtCreate() { return gmtCreate; }
 
     /**
      * 设置创建时间。
      *
-     * @param createdAt 创建时间（由存储维护，insert 时写入）
+     * @param gmtCreate 创建时间（由存储维护，insert 时写入）
      */
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public void setGmtCreate(LocalDateTime gmtCreate) { this.gmtCreate = gmtCreate; }
 
     /**
      * 获取最后更新时间。
      *
      * @return 最后更新时间（RUNNING 悬挂判定的锚点）；未落库时为 null
      */
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public LocalDateTime getGmtModified() { return gmtModified; }
 
     /**
      * 设置最后更新时间。
      *
-     * @param updatedAt 最后更新时间（由存储在每次写入时刷新）
+     * @param gmtModified 最后更新时间（由存储在每次写入时刷新）
      */
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public void setGmtModified(LocalDateTime gmtModified) { this.gmtModified = gmtModified; }
 }

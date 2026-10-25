@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  分布式锁 MyBatis Mapper XML（与 ScheduleLockMapper 接口同包放置——addMapper 自动发现）。
+  约定：${tableName} 为白名单校验后的表名；业务值一律 #{} 参数绑定。
+  表结构规范：id 为 sequence 组件生成的物理主键，lock_name 为唯一键（互斥锚点），
+  gmt_create / gmt_modified 标准时间列。
+-->
+<mapper namespace="com.xp.starsite.lock.mybatis.ScheduleLockMapper">
+
+    <update id="createTable">
+        CREATE TABLE IF NOT EXISTS ${tableName} (
+            id           BIGINT       NOT NULL PRIMARY KEY,
+            lock_name    VARCHAR(64)  NOT NULL,
+            locked_by    VARCHAR(128),
+            locked_until TIMESTAMP(3),
+            gmt_create   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            gmt_modified TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uk_${tableName}_lock_name UNIQUE (lock_name)
+        )
+    </update>
+
+    <!-- 种子行：仅当不存在时 INSERT（H2 的 MERGE KEY VALUES 是替换整行的 upsert——
+         会把他方持锁状态重置为 NULL，不可用作种子；NOT EXISTS 只插入不覆盖） -->
+    <insert id="seedLockRow">
+        INSERT INTO ${tableName} (id, lock_name)
+        SELECT #{id}, #{lockName}
+        WHERE NOT EXISTS (SELECT 1 FROM ${tableName} WHERE lock_name = #{lockName})
+    </insert>
+
+    <!-- 纯 UPDATE 争锁（seedRow 已保证行存在）：条件不满足即 0 行——互斥判定正确。 -->
+    <update id="tryAcquire">
+        UPDATE ${tableName} SET locked_by = #{ownerId}, locked_until = #{until}
+        WHERE lock_name = #{lockName}
+          AND (locked_by IS NULL OR locked_by = #{ownerId}
+               OR locked_until IS NULL OR locked_until &lt; #{now})
+    </update>
+
+    <update id="release">
+        UPDATE ${tableName} SET locked_by = NULL, locked_until = NULL
+        WHERE lock_name = #{lockName} AND locked_by = #{ownerId}
+    </update>
+
+    <select id="findHolder" resultType="string">
+        SELECT locked_by FROM ${tableName} WHERE lock_name = #{lockName}
+    </select>
+</mapper>

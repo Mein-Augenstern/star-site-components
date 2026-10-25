@@ -28,6 +28,13 @@
       <version>${project.version}</version>
       <scope>provided</scope>
     </dependency>
+    <!-- sequence 组件（物理主键标准来源；provided 不传递） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-sequence-spring-boot-starter</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
     <!-- MyBatis（provided：由消费方classpath提供，本模块不传递强制依赖） -->
     <dependency>
       <groupId>org.mybatis</groupId>

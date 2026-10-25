@@ -69,7 +69,8 @@ public class SequenceMyBatisAutoConfiguration {
             com.xp.starsite.sequence.SequenceProperties props,
             Environment env,
             SqlSessionFactory sqlSessionFactory,
-            ObjectProvider<PlatformTransactionManager> transactionManager) {
+            ObjectProvider<PlatformTransactionManager> transactionManager,
+            ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider) {
         log.info("[starsite-sequence] mysql 租约分配器：mybatis（消费方 MyBatis 生态原生生效）");
         String appName = env.getProperty("spring.application.name", "unknown");
         String instanceTag = props.getInstanceTag() != null && !props.getInstanceTag().isBlank()
@@ -77,9 +78,14 @@ public class SequenceMyBatisAutoConfiguration {
                 : appName + "@" + ProcessHandle.current().pid();
         SqlSessionTemplate sessionTemplate = new SqlSessionTemplate(sqlSessionFactory);
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager.getObject());
+        // 审计行主键 id 生成器：优先 sequence 门面；缺省回退 workerId 派生（自举阶段安全）
+        com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+        java.util.function.LongSupplier idGenerator = idGen != null
+                ? idGen::next
+                : () -> 1;  // 自举兜底（__global__ 种子行为保留 id=1，审计行随后覆盖更新）
         return new MyBatisMysqlWorkerIdAllocator(
                 mapper, sessionTemplate, txTemplate,
                 props.getTableName(), appName, instanceTag,
-                props.getWorkerIdBits(), props.getWraparoundPolicy().name());
+                props.getWorkerIdBits(), props.getWraparoundPolicy().name(), idGenerator);
     }
 }

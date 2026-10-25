@@ -56,14 +56,17 @@ public class LockAutoConfiguration {
      * @param props                 锁配置
      * @param mapperProvider        DB 模式的 Mapper 提供者（@MapperScan 注册）
      * @param redisTemplateProvider Redis 模式的模板提供者
+     * @param idGenProvider         id 生成器提供者（DB 模式必填——锁行物理主键标准来源）
      * @param env                   Spring 环境（回填 ownerId）
      * @return LockClient 门面
+     * @throws IllegalStateException db 模式缺 Mapper 或缺 StarsiteIdGenerator、redis 模式缺模板时快速失败
      */
     @Bean
     @ConditionalOnMissingBean
     public LockClient lockClient(LockProperties props,
                                  ObjectProvider<ScheduleLockMapper> mapperProvider,
                                  ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+                                 ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider,
                                  Environment env) {
         if (props.getOwnerId() == null || props.getOwnerId().isBlank()) {
             String appName = env.getProperty("spring.application.name", "unknown");
@@ -78,9 +81,20 @@ public class LockAutoConfiguration {
                                     + "消费方需有 mybatis-spring-boot-starter + DataSource，"
                                     + "或配置 @MapperScan 包含 com.xp.starsite.lock.mybatis）");
                 }
+                // 组件表规范：物理主键一律由 sequence 组件生成（无 AUTO_INCREMENT）
+                com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+                if (idGen == null) {
+                    throw new IllegalStateException(
+                            "starsite.lock.mode=db 需要 StarsiteIdGenerator"
+                                    + "（starsite-sequence 组件）生成锁行物理主键；请引入"
+                                    + " starsite-sequence-spring-boot-starter");
+                }
+                if (props.isInitDdl()) {
+                    ensureLockTable(mapper, props.getTableName());
+                }
                 log.info("[starsite-lock] 存储形态：db（table={}，owner={}）",
                         props.getTableName(), props.getOwnerId());
-                yield new DbLockClient(mapper, props);
+                yield new DbLockClient(mapper, props, idGen::next);
             }
             case REDIS -> {
                 StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
@@ -94,5 +108,22 @@ public class LockAutoConfiguration {
                 yield new RedisLockClient(redis, props);
             }
         };
+    }
+
+    /**
+     * 幂等建锁表（IF NOT EXISTS）。建表失败只记 warn 不抛出：
+     * 表可能由 DBA/迁移脚本统一管理，真有问题会在首次争锁时暴露。
+     *
+     * @param mapper    锁表 Mapper
+     * @param tableName 锁表名
+     */
+    private void ensureLockTable(ScheduleLockMapper mapper, String tableName) {
+        try {
+            mapper.createTable(tableName);
+            log.info("[starsite-lock] 锁表 {} 就绪（IF NOT EXISTS）", tableName);
+        } catch (RuntimeException e) {
+            // 建表失败不阻断启动（表可能由 DBA/迁移脚本管理），首次争锁时即会暴露
+            log.warn("[starsite-lock] 建表检查失败（不阻断启动）: {}", e.getMessage());
+        }
     }
 }

@@ -85,7 +85,7 @@ public interface AsyncCommandSql {
         public String createTable() {
             return """
                     CREATE TABLE IF NOT EXISTS {table} (
-                      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                      id          BIGINT UNSIGNED NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
                       cmd_type    VARCHAR(64)  NOT NULL COMMENT '命令类型=执行器路由键',
                       biz_key     VARCHAR(128) DEFAULT '' COMMENT '业务键(幂等/追踪)',
                       payload     TEXT         DEFAULT NULL COMMENT '命令载荷 JSON',
@@ -96,8 +96,8 @@ public interface AsyncCommandSql {
                       last_error  VARCHAR(500) DEFAULT NULL,
                       owner       VARCHAR(64)  DEFAULT '' COMMENT '提交方服务名',
                       claim_token VARCHAR(64)  DEFAULT NULL COMMENT '调度认领令牌',
-                      created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                      updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                      gmt_create  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                      gmt_modified DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
                       PRIMARY KEY (id),
                       KEY idx_status_next (status, next_run_at),
                       KEY idx_type_biz (cmd_type, biz_key)
@@ -106,8 +106,9 @@ public interface AsyncCommandSql {
 
         @Override
         public String insert() {
-            return "INSERT INTO {table} (cmd_type, biz_key, payload, status, max_retry, retry_count, "
-                    + "next_run_at, owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            return "INSERT INTO {table} (id, cmd_type, biz_key, payload, status, max_retry, "
+                    + "retry_count, next_run_at, owner, gmt_create) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
         }
 
         @Override
@@ -124,7 +125,7 @@ public interface AsyncCommandSql {
         @Override
         public String claim() {
             // 派生表 {t} 绕 MySQL ERROR 1093（UPDATE 不能直接改 IN 子查询引用的同表）
-            return "UPDATE {table} SET status = 'RUNNING', claim_token = ?, updated_at = NOW() "
+            return "UPDATE {table} SET status = 'RUNNING', claim_token = ?, gmt_modified = NOW() "
                     + "WHERE status = 'PENDING' AND next_run_at <= ? "
                     + "AND id IN (SELECT id FROM (SELECT id FROM {table} "
                     + "WHERE status = 'PENDING' AND next_run_at <= ? ORDER BY id LIMIT ?) t)";
@@ -137,20 +138,20 @@ public interface AsyncCommandSql {
 
         @Override
         public String claimById() {
-            return "UPDATE {table} SET status = 'RUNNING', claim_token = ?, updated_at = NOW() "
+            return "UPDATE {table} SET status = 'RUNNING', claim_token = ?, gmt_modified = NOW() "
                     + "WHERE id = ? AND status = 'PENDING' AND next_run_at <= NOW()";
         }
 
         @Override
         public String reclaimStale() {
-            return "UPDATE {table} SET status = 'PENDING', claim_token = NULL, updated_at = NOW() "
-                    + "WHERE status = 'RUNNING' AND updated_at < NOW() - INTERVAL ? SECOND LIMIT ?";
+            return "UPDATE {table} SET status = 'PENDING', claim_token = NULL, gmt_modified = NOW() "
+                    + "WHERE status = 'RUNNING' AND gmt_modified < ? LIMIT ?";
         }
 
         @Override
         public String updateState() {
             return "UPDATE {table} SET status = ?, claim_token = ?, retry_count = ?, "
-                    + "next_run_at = ?, last_error = ?, updated_at = NOW() WHERE id = ?";
+                    + "next_run_at = ?, last_error = ?, gmt_modified = NOW() WHERE id = ?";
         }
 
         @Override

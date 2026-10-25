@@ -20,6 +20,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -53,14 +54,22 @@ public class AsyncCommandMyBatisAutoConfiguration {
      *
      * @param mapper MyBatis Mapper（@MapperScan 注册）
      * @param props  组件配置（读表名与 init-ddl）
+     * @param idGenProvider id 生成器提供者（组件表物理主键标准来源，缺失快速失败）
      * @return MyBatis 版存储
+     * @throws IllegalStateException 容器中无 StarsiteIdGenerator（未引入 sequence 组件）时
      */
     @Bean
     @ConditionalOnMissingBean(AsyncCommandStore.class)
     public AsyncCommandStore myBatisAsyncCommandStore(AsyncCommandMapper mapper,
-                                                      com.xp.starsite.asynccmd.AsyncCommandProperties props) {
+                                                      com.xp.starsite.asynccmd.AsyncCommandProperties props,
+                                                      ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider) {
+        com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+        if (idGen == null) {
+            throw new IllegalStateException("MyBatis 存储需要 starsite-sequence 组件提供 StarsiteIdGenerator"
+                    + "（组件表物理主键标准来源）；请引 starsite-sequence-spring-boot-starter");
+        }
         log.info("[starsite-async-command] 存储形态：mybatis（table={}，消费方 MyBatis 生态原生生效）",
                 props.getTableName());
-        return new MyBatisAsyncCommandStore(mapper, props.getTableName(), props.isInitDdl());
+        return new MyBatisAsyncCommandStore(mapper, props.getTableName(), props.isInitDdl(), idGen::next);
     }
 }
