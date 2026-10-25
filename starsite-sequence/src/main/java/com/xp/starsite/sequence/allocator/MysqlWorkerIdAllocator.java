@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence;
+package com.xp.starsite.sequence.allocator;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -88,6 +88,9 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     /** 回绕策略：RESET 重置全局池重取 / FAIL 抛异常拒绝 */
     private final WraparoundPolicy wraparoundPolicy;
 
+    /** SQL 方言（全部租约语句来源，本类零硬编码 SQL） */
+    private final SequenceSql sql;
+
     /**
      * 构造 MySQL 租约分配器。
      *
@@ -103,6 +106,26 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     public MysqlWorkerIdAllocator(DataSource dataSource, String tableName, String serviceName,
                                   String instanceTag, boolean initDdl, int workerIdBits,
                                   WraparoundPolicy wraparoundPolicy) {
+        this(dataSource, tableName, serviceName, instanceTag, initDdl, workerIdBits,
+                wraparoundPolicy, new SequenceSql.MySql());
+    }
+
+    /**
+     * 全参构造（自定义方言）。
+     *
+     * @param dataSource        目标库连接池，不可为 null
+     * @param tableName         sequence 表表名，仅允许字母数字下划线（防 SQL 注入）
+     * @param serviceName       服务名（审计行 key），各服务互不相同
+     * @param instanceTag       实例标识（审计可见），建议含主机/pid 等可定位信息
+     * @param initDdl           true 时分配前自动 CREATE TABLE IF NOT EXISTS 并播种全局池行
+     * @param workerIdBits      机器位宽度（位），决定本分配器可分配的 workerId 上限
+     * @param wraparoundPolicy  分配值超上限时的回绕策略
+     * @param sql               SQL 方言（语句来源；自定义实现适配其他数据库/ORM）
+     * @throws IllegalArgumentException dataSource 为 null，或 tableName 为 null / 含白名单外字符
+     */
+    public MysqlWorkerIdAllocator(DataSource dataSource, String tableName, String serviceName,
+                                  String instanceTag, boolean initDdl, int workerIdBits,
+                                  WraparoundPolicy wraparoundPolicy, SequenceSql sql) {
         if (dataSource == null) {
             throw new IllegalArgumentException("mysql 模式需要 DataSource（检查数据源配置）");
         }
@@ -116,6 +139,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         this.initDdl = initDdl;
         this.maxWorkerId = ~(-1L << workerIdBits);
         this.wraparoundPolicy = wraparoundPolicy;
+        this.sql = sql;
     }
 
     /**
@@ -163,6 +187,16 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     }
 
     /**
+     * 渲染方言语句：{table} 占位替换为白名单表名。
+     *
+     * @param statement 方言原始语句
+     * @return 可执行语句
+     */
+    private String render(String statement) {
+        return statement.replace("{table}", tableName);
+    }
+
+    /**
      * 幂等建表并播种全局池种子行：CREATE TABLE IF NOT EXISTS 后
      * INSERT IGNORE 一条 service_name = __global__、worker_id = 0 的计数行（已存在则忽略）。
      *
@@ -170,18 +204,9 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @throws SQLException DDL 或种子行写入失败
      */
     private void ensureTable(Connection conn) throws SQLException {
-        String ddl = """
-                CREATE TABLE IF NOT EXISTS %s (
-                  service_name VARCHAR(64) NOT NULL COMMENT '服务名（__global__=全局池计数行，其余为实例占用记录）',
-                  worker_id    INT NOT NULL DEFAULT 0 COMMENT '该行机器位（全局池行=已分配到的最大值）',
-                  instance     VARCHAR(128) DEFAULT NULL COMMENT '最近占用实例标识',
-                  updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                  PRIMARY KEY (service_name)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='雪花 worker-id 分配序列表'""".formatted(tableName);
         try (Statement stmt = conn.createStatement()) {
-            stmt.execute(ddl);
-            try (PreparedStatement seed = conn.prepareStatement(
-                    "INSERT IGNORE INTO " + tableName + " (service_name, worker_id, instance) VALUES (?, 0, ?)")) {
+            stmt.execute(render(sql.createTable()));
+            try (PreparedStatement seed = conn.prepareStatement(render(sql.seedGlobalPool()))) {
                 seed.setString(1, GLOBAL_POOL_KEY);
                 seed.setString(2, "pool");
                 seed.executeUpdate();
@@ -201,10 +226,8 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @throws SQLException UPDATE 执行失败，或 SELECT LAST_INSERT_ID() 无返回行（异常态）
      */
     private long takeFromGlobalPool(Connection conn) throws SQLException {
-        try (PreparedStatement update = conn.prepareStatement(
-                "UPDATE " + tableName + " SET worker_id = LAST_INSERT_ID(worker_id + 1), "
-                        + "instance = ?, updated_at = NOW() WHERE service_name = ?");
-             PreparedStatement select = conn.prepareStatement("SELECT LAST_INSERT_ID()")) {
+        try (PreparedStatement update = conn.prepareStatement(render(sql.takeFromGlobalPool()));
+             PreparedStatement select = conn.prepareStatement(render(sql.selectLastInsertId()))) {
             update.setString(1, instanceTag);
             update.setString(2, GLOBAL_POOL_KEY);
             update.executeUpdate();
@@ -226,11 +249,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @throws SQLException 审计行写入失败
      */
     private void recordOwnership(Connection conn, long workerId) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement(
-                "INSERT INTO " + tableName + " (service_name, worker_id, instance, updated_at) "
-                        + "VALUES (?, ?, ?, NOW()) "
-                        + "ON DUPLICATE KEY UPDATE worker_id = VALUES(worker_id), "
-                        + "instance = VALUES(instance), updated_at = NOW()")) {
+        try (PreparedStatement stmt = conn.prepareStatement(render(sql.recordOwnership()))) {
             stmt.setString(1, serviceName);
             stmt.setLong(2, workerId);
             stmt.setString(3, instanceTag);
@@ -245,8 +264,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @throws SQLException 重置 UPDATE 执行失败
      */
     private void resetGlobalPool(Connection conn) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement(
-                "UPDATE " + tableName + " SET worker_id = 0, instance = ? WHERE service_name = ?")) {
+        try (PreparedStatement stmt = conn.prepareStatement(render(sql.resetGlobalPool()))) {
             stmt.setString(1, instanceTag + "(wraparound-reset)");
             stmt.setString(2, GLOBAL_POOL_KEY);
             stmt.executeUpdate();

@@ -15,6 +15,11 @@
  */
 package com.xp.starsite.sequence;
 
+import com.xp.starsite.sequence.allocator.FixedWorkerIdAllocator;
+import com.xp.starsite.sequence.allocator.MysqlWorkerIdAllocator;
+import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
+import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 import com.xp.starsite.sequence.health.StarsiteSequenceHealthIndicator;
 import javax.sql.DataSource;
 import org.slf4j.Logger;

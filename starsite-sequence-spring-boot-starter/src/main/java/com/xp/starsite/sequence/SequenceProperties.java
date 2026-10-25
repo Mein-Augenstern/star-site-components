@@ -15,6 +15,7 @@
  */
 package com.xp.starsite.sequence;
 
+import com.xp.starsite.sequence.config.SequenceConfig;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**

@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence;
+package com.xp.starsite.sequence.config;
+
+import com.xp.starsite.sequence.allocator.MysqlWorkerIdAllocator;
+import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 
 /**
  * 雪花序列参数（纯配置载体，无框架依赖——starter 的 @ConfigurationProperties 继承本类完成绑定）。

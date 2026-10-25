@@ -13,7 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence;
+package com.xp.starsite.sequence.facade;
+
+import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 
 /**
  * 序列组件门面：业务代码注入本 Bean 调 {@link #next()} / {@link #nextStr()} 获取全局唯一 id。

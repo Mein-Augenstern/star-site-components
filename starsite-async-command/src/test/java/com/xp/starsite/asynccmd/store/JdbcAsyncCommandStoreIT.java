@@ -134,7 +134,7 @@ class JdbcAsyncCommandStoreIT {
         ds.setUrl(jdbcUrl());
         ds.setUsername(dbUser());
         ds.setPassword(dbPassword());
-        return new JdbcAsyncCommandStore(new JdbcTemplate(ds), table, true);
+        return new JdbcAsyncCommandStore(new JdbcTemplate(ds), table, new AsyncCommandSql.MySql(), true);
     }
 
     /**

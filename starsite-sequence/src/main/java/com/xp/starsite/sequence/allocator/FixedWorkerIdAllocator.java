@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence;
+package com.xp.starsite.sequence.allocator;
 
 /**
  * 单机形态机器位分配器：分配结果直接采用构造传入的配置值（SequenceConfig 默认 1）。

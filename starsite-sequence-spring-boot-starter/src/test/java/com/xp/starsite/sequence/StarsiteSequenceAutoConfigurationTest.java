@@ -17,6 +17,8 @@ package com.xp.starsite.sequence;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
+import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

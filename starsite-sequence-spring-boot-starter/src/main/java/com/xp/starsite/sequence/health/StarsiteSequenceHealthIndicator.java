@@ -15,7 +15,7 @@
  */
 package com.xp.starsite.sequence.health;
 
-import com.xp.starsite.sequence.StarsiteIdGenerator;
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 

@@ -20,6 +20,7 @@ import com.xp.starsite.asynccmd.admin.AsyncCommandAdminGuard;
 import com.xp.starsite.asynccmd.admin.AsyncCommandAdminService;
 import com.xp.starsite.asynccmd.admin.StaticTokenAdminGuard;
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
+import com.xp.starsite.asynccmd.client.AsyncCommandTxTemplate;
 import com.xp.starsite.asynccmd.clock.TimeSource;
 import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
 import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
@@ -27,6 +28,7 @@ import com.xp.starsite.asynccmd.health.AsyncCommandHealthIndicator;
 import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
 import com.xp.starsite.asynccmd.metrics.MicrometerAsyncCommandMetrics;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
+import com.xp.starsite.asynccmd.store.AsyncCommandSql;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
@@ -44,6 +46,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * starsite-async-command 自动装配（starter 模块，仅粘合；命令/存储/调度本体在 core）：
@@ -81,7 +84,8 @@ public class AsyncCommandAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public AsyncCommandStore asyncCommandStore(AsyncCommandProperties props,
-                                               ObjectProvider<JdbcTemplate> jdbcTemplateProvider) {
+                                               ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
+                                               AsyncCommandSql sql) {
         // 枚举 switch 表达式：MEMORY/JDBC 两分支穷尽且均以 yield 终止，无需 default
         return switch (props.getStore()) {
             case MEMORY -> {
@@ -97,7 +101,7 @@ public class AsyncCommandAutoConfiguration {
                 }
                 log.info("[starsite-async-command] 存储形态：jdbc（table={}，单机/分布式通用令牌认领）",
                         props.getTableName());
-                yield new JdbcAsyncCommandStore(jdbc, props.getTableName(), props.isInitDdl());
+                yield new JdbcAsyncCommandStore(jdbc, props.getTableName(), sql, props.isInitDdl());
             }
         };
     }
@@ -172,6 +176,34 @@ public class AsyncCommandAutoConfiguration {
     @ConditionalOnMissingBean
     public AsyncCommandLifecycle asyncCommandLifecycle(AsyncCommandScheduler scheduler) {
         return new AsyncCommandLifecycle(scheduler);
+    }
+
+    /**
+     * 装配 SQL 方言 Bean：默认 MySQL 实现（全部命令表语句的来源）。
+     * 让位语义：@ConditionalOnMissingBean——应用自定义方言（适配其他数据库/ORM）时让位。
+     *
+     * @return MySQL 默认方言
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AsyncCommandSql asyncCommandSql() {
+        return new AsyncCommandSql.MySql();
+    }
+
+    /**
+     * 装配事务性提交模板 Bean：把"业务写库 + 提交命令"包进同一数据库事务（回调式编程事务）。
+     * 无 TransactionTemplate 环境（无 DataSource 的 memory 形态）时回退直连（非原子，降级记日志）。
+     * 让位语义：@ConditionalOnMissingBean。
+     *
+     * @param client             命令客户端
+     * @param txTemplateProvider 事务模板提供者（Spring 事务自动配置提供；缺省为 null 走直连）
+     * @return 事务性提交模板
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public AsyncCommandTxTemplate asyncCommandTxTemplate(AsyncCommandClient client,
+                                                         ObjectProvider<TransactionTemplate> txTemplateProvider) {
+        return new AsyncCommandTxTemplate(txTemplateProvider.getIfAvailable(), client);
     }
 
     /**

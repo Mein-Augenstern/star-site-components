@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence;
+package com.xp.starsite.sequence.allocator;
 
 /**
  * 雪花机器位分配器 SPI：为服务实例分配全局唯一（或单机内确定）的 workerId。

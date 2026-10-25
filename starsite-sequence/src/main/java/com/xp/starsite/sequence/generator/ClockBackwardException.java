@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.xp.starsite.sequence;
+package com.xp.starsite.sequence.generator;
 
 /**
  * 时钟回拨超限异常：回拨幅度超过 {@code maxBackwardMillis} 且策略为 FAIL 时抛出。
