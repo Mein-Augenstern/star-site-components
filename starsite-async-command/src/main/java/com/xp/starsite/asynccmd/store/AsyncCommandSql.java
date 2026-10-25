@@ -100,7 +100,8 @@ public interface AsyncCommandSql {
                       gmt_modified DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
                       PRIMARY KEY (id),
                       KEY idx_status_next (status, next_run_at),
-                      KEY idx_type_biz (cmd_type, biz_key)
+                      KEY idx_type_biz (cmd_type, biz_key),
+                      KEY idx_claim_token (claim_token)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='异步命令'""";
         }
 

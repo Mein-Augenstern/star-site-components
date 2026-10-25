@@ -80,6 +80,8 @@
         ORDER BY id DESC LIMIT #{size} OFFSET #{offset}
     </select>
 
+    <!-- 索引与 JDBC 方言版对齐：认领(status,next_run_at) / 幂等(cmd_type,biz_key) /
+         认领取回(claim_token) —— 高频路径全索引命中 -->
     <update id="createTable">
         CREATE TABLE IF NOT EXISTS ${table} (
             id           BIGINT NOT NULL PRIMARY KEY,
@@ -94,7 +96,10 @@
             owner        VARCHAR(64)  DEFAULT '',
             claim_token  VARCHAR(64),
             gmt_create   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            gmt_modified TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+            gmt_modified TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            KEY idx_status_next (status, next_run_at),
+            KEY idx_type_biz (cmd_type, biz_key),
+            KEY idx_claim_token (claim_token)
         )
     </update>
 </mapper>

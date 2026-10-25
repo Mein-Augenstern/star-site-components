@@ -87,11 +87,36 @@ class MyBatisAsyncCommandStoreTest {
         return factory.getObject();
     }
 
+    /**
+     * H2 建表通道：createTable 语句是 MySQL 方言（内联 KEY 索引语法 H2 不支持，
+     * 由真库 IT 验证）；H2 单测经 JDBC 建同构无索引表——行数极小，索引不影响语义。
+     *
+     * @param table 本用例专属表名
+     */
+    private static void createH2Table(String table) throws Exception {
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS " + table + " ("
+                    + "id BIGINT NOT NULL PRIMARY KEY, "
+                    + "cmd_type VARCHAR(64) NOT NULL, "
+                    + "biz_key VARCHAR(128) DEFAULT '', "
+                    + "payload TEXT, "
+                    + "status VARCHAR(16) NOT NULL DEFAULT 'PENDING', "
+                    + "max_retry INT NOT NULL DEFAULT 5, "
+                    + "retry_count INT NOT NULL DEFAULT 0, "
+                    + "next_run_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "last_error VARCHAR(500), "
+                    + "owner VARCHAR(64) DEFAULT '', "
+                    + "claim_token VARCHAR(64), "
+                    + "gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+        }
+    }
+
     /** 全链路：提交 → 认领 → 执行 → SUCCESS（SQL 全部经 MyBatis 执行） */
     @Test
     void 提交认领执行_全链路经MyBatis() throws Exception {
         AsyncCommandMapper mapper = mapper();
-        mapper.createTable("async_cmd_t1");
+        createH2Table("async_cmd_t1");
         MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t1", false, TEST_ID_SEQ::incrementAndGet);
 
         AsyncCommandConfig config = new AsyncCommandConfig();
@@ -114,7 +139,7 @@ class MyBatisAsyncCommandStoreTest {
     @Test
     void 双实例认领互斥() throws Exception {
         AsyncCommandMapper mapper = mapper();
-        mapper.createTable("async_cmd_t2");
+        createH2Table("async_cmd_t2");
         MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t2", false, TEST_ID_SEQ::incrementAndGet);
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("t");
@@ -133,7 +158,7 @@ class MyBatisAsyncCommandStoreTest {
     @Test
     void 悬挂回收() throws Exception {
         AsyncCommandMapper mapper = mapper();
-        mapper.createTable("async_cmd_t3");
+        createH2Table("async_cmd_t3");
         MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t3", false, TEST_ID_SEQ::incrementAndGet);
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("t");
@@ -149,7 +174,7 @@ class MyBatisAsyncCommandStoreTest {
     @Test
     void 管控分页过滤() throws Exception {
         AsyncCommandMapper mapper = mapper();
-        mapper.createTable("async_cmd_t4");
+        createH2Table("async_cmd_t4");
         MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_cmd_t4", false, TEST_ID_SEQ::incrementAndGet);
         AsyncCommandConfig config = new AsyncCommandConfig();
         config.setOwner("t");

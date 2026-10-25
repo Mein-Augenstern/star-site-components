@@ -91,8 +91,11 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     /** SQL 方言（全部租约语句来源，本类零硬编码 SQL） */
     private final SequenceSql sql;
 
+    /** 审计行主键 id 生成器（缺省为服务名派生 workerId 的自举雪花——跨服务唯一，无需先有正式发号器） */
+    private final java.util.function.LongSupplier idGenerator;
+
     /**
-     * 构造 MySQL 租约分配器。
+     * 构造 MySQL 租约分配器（审计行 id 用服务名派生 workerId 的自举雪花）。
      *
      * @param dataSource        目标库连接池，不可为 null
      * @param tableName         sequence 表表名，仅允许字母数字下划线（防 SQL 注入）
@@ -111,7 +114,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     }
 
     /**
-     * 全参构造（自定义方言）。
+     * 全参构造（自定义方言；审计行 id 用自举雪花）。
      *
      * @param dataSource        目标库连接池，不可为 null
      * @param tableName         sequence 表表名，仅允许字母数字下划线（防 SQL 注入）
@@ -126,6 +129,28 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     public MysqlWorkerIdAllocator(DataSource dataSource, String tableName, String serviceName,
                                   String instanceTag, boolean initDdl, int workerIdBits,
                                   WraparoundPolicy wraparoundPolicy, SequenceSql sql) {
+        this(dataSource, tableName, serviceName, instanceTag, initDdl, workerIdBits,
+                wraparoundPolicy, sql, bootstrapIdGenerator(serviceName));
+    }
+
+    /**
+     * 全参构造（显式审计行 id 生成器）。
+     *
+     * @param dataSource        目标库连接池，不可为 null
+     * @param tableName         sequence 表表名，仅允许字母数字下划线（防 SQL 注入）
+     * @param serviceName       服务名（审计行 key），各服务互不相同
+     * @param instanceTag       实例标识（审计可见），建议含主机/pid 等可定位信息
+     * @param initDdl           true 时分配前自动 CREATE TABLE IF NOT EXISTS 并播种全局池行
+     * @param workerIdBits      机器位宽度（位），决定本分配器可分配的 workerId 上限
+     * @param wraparoundPolicy  分配值超上限时的回绕策略
+     * @param sql               SQL 方言（语句来源；自定义实现适配其他数据库/ORM）
+     * @param idGenerator       审计行主键 id 生成器（分配器自举阶段即可用——如服务名派生 workerId 的雪花）
+     * @throws IllegalArgumentException dataSource 为 null，或 tableName 为 null / 含白名单外字符
+     */
+    public MysqlWorkerIdAllocator(DataSource dataSource, String tableName, String serviceName,
+                                  String instanceTag, boolean initDdl, int workerIdBits,
+                                  WraparoundPolicy wraparoundPolicy, SequenceSql sql,
+                                  java.util.function.LongSupplier idGenerator) {
         if (dataSource == null) {
             throw new IllegalArgumentException("mysql 模式需要 DataSource（检查数据源配置）");
         }
@@ -140,6 +165,25 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
         this.maxWorkerId = ~(-1L << workerIdBits);
         this.wraparoundPolicy = wraparoundPolicy;
         this.sql = sql;
+        this.idGenerator = idGenerator;
+    }
+
+    /**
+     * 自举 id 生成器：服务名 hash 派生 workerId 的独立雪花（CLAMP 钳制回拨）。
+     * 分配器建正式发号器之前就要写审计行，此时唯一可用的确定性离散源就是服务名——
+     * 跨服务不同号即满足审计行主键唯一性；固定值（如恒为 1）会让多服务审计行在
+     * 主键上互撞并经 ON DUPLICATE KEY 交叉覆盖，不可用。
+     *
+     * @param serviceName 服务名（派生 workerId 的种子）
+     * @return 自举发号 supplier
+     */
+    private static java.util.function.LongSupplier bootstrapIdGenerator(String serviceName) {
+        long bootstrapWorkerId = Math.floorMod(serviceName.hashCode(), 1024);
+        com.xp.starsite.sequence.generator.SnowflakeIdGenerator bootstrap =
+                new com.xp.starsite.sequence.generator.SnowflakeIdGenerator(
+                        bootstrapWorkerId, 1767225600000L, 10, 12, 2000,
+                        com.xp.starsite.sequence.generator.SnowflakeIdGenerator.BackwardPolicy.CLAMP);
+        return bootstrap::nextId;
     }
 
     /**
@@ -250,9 +294,10 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      */
     private void recordOwnership(Connection conn, long workerId) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement(render(sql.recordOwnership()))) {
-            stmt.setString(1, serviceName);
-            stmt.setLong(2, workerId);
-            stmt.setString(3, instanceTag);
+            stmt.setLong(1, idGenerator.getAsLong());
+            stmt.setString(2, serviceName);
+            stmt.setLong(3, workerId);
+            stmt.setString(4, instanceTag);
             stmt.executeUpdate();
         }
     }

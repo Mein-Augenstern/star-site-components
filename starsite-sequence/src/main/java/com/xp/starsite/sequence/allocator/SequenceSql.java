@@ -27,10 +27,10 @@ package com.xp.starsite.sequence.allocator;
  */
 public interface SequenceSql {
 
-    /** 建表语句（幂等 IF NOT EXISTS）。 */
+    /** 建表语句（幂等 IF NOT EXISTS；表规范：id 物理主键 + service_name 唯一键 + gmt_*）。 */
     String createTable();
 
-    /** 播种全局池计数行（参数：GLOBAL_POOL_KEY, 'pool'）。 */
+    /** 播种全局池计数行（参数：GLOBAL_POOL_KEY, 'pool'；__global__ 行 id=1 自举保留）。 */
     String seedGlobalPool();
 
     /** 原子取号：LAST_INSERT_ID 技巧带回自增值（参数：instanceTag, GLOBAL_POOL_KEY）。 */
@@ -39,14 +39,14 @@ public interface SequenceSql {
     /** 会话内取回上次 LAST_INSERT_ID 值（无参）。 */
     String selectLastInsertId();
 
-    /** 记录/更新服务实例占用审计行（参数：serviceName, workerId, instanceTag）。 */
+    /** 记录/更新服务实例占用审计行（参数：id, serviceName, workerId, instanceTag——upsert 锚 service_name 唯一键）。 */
     String recordOwnership();
 
     /** 回绕重置全局池（参数：resetTag, GLOBAL_POOL_KEY）。 */
     String resetGlobalPool();
 
     /**
-     * MySQL 8 默认方言（语句与 0.1.0 版内置实现逐条等价，行为零变化）。
+     * MySQL 8 默认方言（与 MyBatis 适配版 SequenceMapper.xml 同一表形态：id 主键 + uk_service_name）。
      */
     class MySql implements SequenceSql {
 
@@ -54,24 +54,27 @@ public interface SequenceSql {
         public String createTable() {
             return """
                     CREATE TABLE IF NOT EXISTS {table} (
+                      id           BIGINT NOT NULL COMMENT '主键（审计行由发号器生成；__global__ 行固定为 1）',
                       service_name VARCHAR(64) NOT NULL COMMENT '服务名（__global__=全局池计数行，其余为实例占用记录）',
                       worker_id    INT NOT NULL DEFAULT 0 COMMENT '该行机器位（全局池行=已分配到的最大值）',
                       instance     VARCHAR(128) DEFAULT NULL COMMENT '最近占用实例标识',
-                      updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                      PRIMARY KEY (service_name)
+                      gmt_create   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                      PRIMARY KEY (id),
+                      UNIQUE KEY uk_{table}_service_name (service_name)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='雪花 worker-id 分配序列表'""";
         }
 
         @Override
         public String seedGlobalPool() {
-            return "INSERT IGNORE INTO {table} (service_name, worker_id, instance) VALUES (?, 0, ?)";
+            return "INSERT IGNORE INTO {table} (id, service_name, worker_id, instance) VALUES (1, ?, 0, ?)";
         }
 
         @Override
         public String takeFromGlobalPool() {
             // LAST_INSERT_ID(expr)：UPDATE 命中时把自增结果绑回会话，下一步 SELECT 可取
             return "UPDATE {table} SET worker_id = LAST_INSERT_ID(worker_id + 1), "
-                    + "instance = ?, updated_at = NOW() WHERE service_name = ?";
+                    + "instance = ?, gmt_modified = NOW() WHERE service_name = ?";
         }
 
         @Override
@@ -81,15 +84,15 @@ public interface SequenceSql {
 
         @Override
         public String recordOwnership() {
-            return "INSERT INTO {table} (service_name, worker_id, instance, updated_at) "
-                    + "VALUES (?, ?, ?, NOW()) "
+            return "INSERT INTO {table} (id, service_name, worker_id, instance) "
+                    + "VALUES (?, ?, ?, ?) "
                     + "ON DUPLICATE KEY UPDATE worker_id = VALUES(worker_id), "
-                    + "instance = VALUES(instance), updated_at = NOW()";
+                    + "instance = VALUES(instance), gmt_modified = NOW()";
         }
 
         @Override
         public String resetGlobalPool() {
-            return "UPDATE {table} SET worker_id = 0, instance = ? WHERE service_name = ?";
+            return "UPDATE {table} SET worker_id = 0, instance = ?, gmt_modified = NOW() WHERE service_name = ?";
         }
     }
 }
