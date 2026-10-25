@@ -24,16 +24,19 @@ import com.xp.starsite.asynccmd.client.AsyncCommandTxTemplate;
 import com.xp.starsite.asynccmd.clock.TimeSource;
 import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
 import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
+import com.xp.starsite.asynccmd.executor.ScheduleMode;
 import com.xp.starsite.asynccmd.health.AsyncCommandHealthIndicator;
 import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
 import com.xp.starsite.asynccmd.metrics.MicrometerAsyncCommandMetrics;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.AsyncCommandSql;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
+import com.xp.starsite.asynccmd.store.DbScheduleLock;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
+import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -155,12 +158,28 @@ public class AsyncCommandAutoConfiguration {
     public AsyncCommandScheduler asyncCommandScheduler(AsyncCommandStore store, AsyncCommandClient client,
                                                        AsyncCommandProperties props,
                                                        ExecutorRegistry registry,
-                                                       AsyncCommandMetrics metrics) {
+                                                       AsyncCommandMetrics metrics,
+                                                       ObjectProvider<DataSource> dataSourceProvider,
+                                                       Environment env) {
         // start/stop 由下方 SmartLifecycle 包装托管（容器最后启动、最先停止）
         AsyncCommandScheduler scheduler =
                 new AsyncCommandScheduler(store, client, props, registry, TimeSource.system(), metrics);
         // IMMEDIATE 模式联动：把调度器的即时派发入口回填给 client（提交即执行；钩子内部容错降级）
         client.setSubmitHook(scheduler::onSubmit);
+        // 分布式调度模式接线（COMPETING 默认不设锁；LEADER 需 DataSource 建 DB 锁；EXTERNAL 不自跑）
+        ScheduleMode mode = props.getScheduleMode();
+        scheduler.setScheduleMode(mode);
+        if (mode == ScheduleMode.LEADER) {
+            DataSource ds = dataSourceProvider.getIfAvailable();
+            if (ds != null) {
+                String appName = env.getProperty("spring.application.name", "unknown");
+                String ownerId = appName + "@" + ProcessHandle.current().pid();
+                scheduler.setScheduleLock(new DbScheduleLock(ds, "async-cmd-scheduler",
+                        ownerId, props.getScheduleLockTtlMs()));
+            } else {
+                log.warn("[starsite-async-command] LEADER 模式但无 DataSource——退化为 COMPETING");
+            }
+        }
         return scheduler;
     }
 
@@ -305,6 +324,7 @@ public class AsyncCommandAutoConfiguration {
     @ConditionalOnWebApplication
     @ConditionalOnProperty(prefix = "starsite.async-command", name = "admin-enabled", havingValue = "true")
     public AsyncCommandAdminController asyncCommandAdminController(AsyncCommandAdminService admin,
+                                                                   AsyncCommandScheduler scheduler,
                                                                    ObjectProvider<AsyncCommandAdminGuard> guardProvider,
                                                                    AsyncCommandProperties props) {
         if (guardProvider.getIfAvailable() == null
@@ -313,6 +333,6 @@ public class AsyncCommandAutoConfiguration {
                     + "且 starsite.async-command.admin-token 为空）——当前放行所有请求，仅适合本地开发；"
                     + "生产请配置 admin-token 或提供自定义守卫 Bean");
         }
-        return new AsyncCommandAdminController(admin, guardProvider);
+        return new AsyncCommandAdminController(admin, guardProvider, scheduler);
     }
 }

@@ -46,6 +46,9 @@ public class AsyncCommandAdminController {
     /** 管控服务（查询与处置的本体实现，端点方法全部委托给它） */
     private final AsyncCommandAdminService admin;
 
+    /** 调度器（/tick 端点手动触发一轮调度用） */
+    private final com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler scheduler;
+
     /** 鉴权守卫的惰性提供者：应用自定义 Bean → 内置静态 Token 守卫 → ALLOW_ALL 兜底 */
     private final ObjectProvider<AsyncCommandAdminGuard> guardProvider;
 
@@ -56,9 +59,11 @@ public class AsyncCommandAdminController {
      * @param guardProvider 鉴权守卫提供者（缺省时使用 ALLOW_ALL 放行——装配层已告警）
      */
     public AsyncCommandAdminController(AsyncCommandAdminService admin,
-                                       ObjectProvider<AsyncCommandAdminGuard> guardProvider) {
+                                       ObjectProvider<AsyncCommandAdminGuard> guardProvider,
+                                       com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler scheduler) {
         this.admin = admin;
         this.guardProvider = guardProvider;
+        this.scheduler = scheduler;
     }
 
     /**
@@ -167,5 +172,21 @@ public class AsyncCommandAdminController {
     public Map<String, Object> kill(HttpServletRequest request, @PathVariable long id) throws Exception {
         guard(request);
         return Map.of("ok", admin.kill(id));
+    }
+
+    /**
+     * 手动触发一轮 tick（POST {基路径}/tick）：等价于调度器执行一轮（回收悬挂 + 认领 + 分发）。
+     * EXTERNAL 调度模式下由外部调度器（XXL-Job / K8s CronJob / ElasticJob）调用本端点驱动调度；
+     * 其他模式下也可作为运维手动触发入口。执行完返回本轮认领到的命令数。
+     *
+     * @param request 当前请求（先经鉴权守卫）
+     * @return {"claimed": N} 本轮认领并执行的命令数
+     * @throws Exception 守卫拒绝或 tick 执行异常
+     */
+    @PostMapping("/tick")
+    public Map<String, Object> triggerTick(HttpServletRequest request) throws Exception {
+        guard(request);
+        scheduler.triggerTick();
+        return Map.of("ok", true);
     }
 }

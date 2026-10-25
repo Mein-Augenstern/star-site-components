@@ -23,9 +23,11 @@ import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
 import com.xp.starsite.asynccmd.executor.ExecutionMode;
 import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
 import com.xp.starsite.asynccmd.executor.PoolIsolatedExecutor;
+import com.xp.starsite.asynccmd.executor.ScheduleMode;
 import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
+import com.xp.starsite.asynccmd.store.DbScheduleLock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -102,6 +104,15 @@ public class AsyncCommandScheduler {
     /** tick 在途标志：volatile 供 stop() 线程无锁探测本轮是否仍在执行 */
     private volatile boolean executingTick = false;
 
+    /** 分布式调度锁（LEADER 模式用；null = COMPETING/EXTERNAL 模式不启用锁） */
+    private volatile DbScheduleLock scheduleLock;
+
+    /** 当前调度模式（volatile——装配层 setScheduleMode 可能晚于 start 调用） */
+    private volatile ScheduleMode scheduleMode = ScheduleMode.COMPETING;
+
+    /** leader 是否持有锁（stop 时判断是否要主动 unlock） */
+    private volatile boolean holdingLock = false;
+
     /**
      * 便捷构造（时间源取系统时钟，指标取 NOOP）。
      *
@@ -160,13 +171,19 @@ public class AsyncCommandScheduler {
             return;
         }
         long interval = Math.max(MIN_POLL_INTERVAL_MS, config.getPollIntervalMs());
-        executor.scheduleWithFixedDelay(this::safeTick, interval, interval, TimeUnit.MILLISECONDS);
+        if (scheduleMode == ScheduleMode.EXTERNAL) {
+            // 外部触发模式：不自跑调度——外部调度器调 triggerTick()（XXL-Job / K8s CronJob / ElasticJob）
+            log.info("[starsite-async-command] 调度器启动（EXTERNAL 模式）：等待外部调度器触发 tick，"
+                    + "routes={}", registry.types());
+        } else {
+            executor.scheduleWithFixedDelay(this::safeTick, interval, interval, TimeUnit.MILLISECONDS);
+            log.info("[starsite-async-command] 调度器启动（{} 模式）：interval={}ms, batch={}, "
+                            + "staleAfter={}s, sharedPool={}/{}, routes={}",
+                    scheduleMode, interval, config.getBatchSize(), config.getStaleAfterSeconds(),
+                    config.getSharedPoolCoreSize(), config.getSharedPoolMaxSize(), registry.types());
+        }
         started = true;
         running = true;
-        log.info("[starsite-async-command] 调度器启动：interval={}ms, batch={}, staleAfter={}s, "
-                        + "sharedPool={}/{}, routes={}",
-                interval, config.getBatchSize(), config.getStaleAfterSeconds(),
-                config.getSharedPoolCoreSize(), config.getSharedPoolMaxSize(), registry.types());
     }
 
     /**
@@ -185,6 +202,10 @@ public class AsyncCommandScheduler {
                 Thread.currentThread().interrupt();
                 break;
             }
+        }
+        if (holdingLock && scheduleLock != null) {
+            scheduleLock.unlock();
+            holdingLock = false;
         }
         started = false;
         log.info("[starsite-async-command] 调度器停止（池内未落终态任务由重启后悬挂回收兜底）");
@@ -236,6 +257,13 @@ public class AsyncCommandScheduler {
      * tick 的异常兜底：scheduleWithFixedDelay 任务抛未捕获异常会被静默取消，调度永久停摆。
      */
     private void safeTick() {
+        if (scheduleMode == ScheduleMode.LEADER && scheduleLock != null) {
+            if (!scheduleLock.tryLock()) {
+                // 非 leader 实例：他方持锁中，跳过本轮（TTL 过期后自动接管）
+                return;
+            }
+            holdingLock = true;
+        }
         try {
             tick();
         } catch (Exception e) {
@@ -388,5 +416,43 @@ public class AsyncCommandScheduler {
      */
     static <T> List<T> emptyIfNull(List<T> list) {
         return list == null ? List.of() : list;
+    }
+
+    /**
+     * 设置调度模式（装配层在 start 前调用；volatile 保证运行期切换可见）。
+     *
+     * @param mode 目标模式（COMPETING / LEADER / EXTERNAL）
+     */
+    public void setScheduleMode(ScheduleMode mode) {
+        this.scheduleMode = mode == null ? ScheduleMode.COMPETING : mode;
+    }
+
+    /**
+     * 读取当前调度模式。
+     *
+     * @return 当前生效的调度模式
+     */
+    public ScheduleMode getScheduleMode() {
+        return scheduleMode;
+    }
+
+    /**
+     * 设置分布式调度锁（LEADER 模式必设；其他模式可空）。
+     *
+     * @param lock DB 分布式锁实例（null = 不使用锁，LEADER 模式退化为 COMPETING）
+     */
+    public void setScheduleLock(DbScheduleLock lock) {
+        this.scheduleLock = lock;
+    }
+
+    /**
+     * 外部触发 tick（EXTERNAL 模式的触发入口——XXL-Job handler / K8s CronJob 调本方法
+     * 或经管控端点 {@code POST {admin-base-path}/tick}）。
+     * 等价于手动执行一轮调度（回收悬挂 + 认领 + 分发执行）。
+     *
+     * @throws RuntimeException 调度执行异常（不吞——外部调度器据以告警重试）
+     */
+    public void triggerTick() {
+        tick();
     }
 }

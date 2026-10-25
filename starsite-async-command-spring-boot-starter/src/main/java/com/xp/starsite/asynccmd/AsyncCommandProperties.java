@@ -16,6 +16,7 @@
 package com.xp.starsite.asynccmd;
 
 import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
+import com.xp.starsite.asynccmd.executor.ScheduleMode;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -60,6 +61,12 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
      * 应用自定义 AsyncCommandAdminGuard Bean 时本配置被忽略（自定义优先）。
      */
     private String adminToken = "";
+
+    /** 调度触发模式（COMPETING 默认 / LEADER / EXTERNAL，取值语义见 ScheduleMode 枚举注释）。 */
+    private ScheduleMode scheduleMode = ScheduleMode.COMPETING;
+
+    /** LEADER 模式锁 TTL 毫秒（leader 崩溃后其他实例在此时间后接管；应大于 poll-interval-ms）。 */
+    private long scheduleLockTtlMs = 30000;
 
     /**
      * 存储形态枚举：决定命令落库方式与可用部署拓扑。
@@ -176,4 +183,13 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
      * @param adminToken 静态 Token（建议高熵随机串，经环境变量注入而非写死在仓库）
      */
     public void setAdminToken(String adminToken) { this.adminToken = adminToken; }
+
+    /** 读取调度触发模式。@return 当前模式（默认 COMPETING） */
+    public ScheduleMode getScheduleMode() { return scheduleMode; }
+    /** 设置调度触发模式。@param scheduleMode COMPETING / LEADER / EXTERNAL */
+    public void setScheduleMode(ScheduleMode scheduleMode) { this.scheduleMode = scheduleMode; }
+    /** 读取 LEADER 锁 TTL。@return TTL 毫秒（默认 30000） */
+    public long getScheduleLockTtlMs() { return scheduleLockTtlMs; }
+    /** 设置 LEADER 锁 TTL。@param scheduleLockTtlMs 毫秒（大于 poll-interval-ms） */
+    public void setScheduleLockTtlMs(long scheduleLockTtlMs) { this.scheduleLockTtlMs = scheduleLockTtlMs; }
 }
