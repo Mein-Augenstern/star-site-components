@@ -25,6 +25,13 @@
       <artifactId>spring-jdbc</artifactId>
     </dependency>
 
+    <!-- 分布式锁组件（LEADER 模式用） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-lock</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
     <!-- 测试 -->
     <dependency>
       <groupId>org.springframework.boot</groupId>

@@ -27,7 +27,7 @@ import com.xp.starsite.asynccmd.executor.ScheduleMode;
 import com.xp.starsite.asynccmd.metrics.AsyncCommandMetrics;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
-import com.xp.starsite.asynccmd.store.DbScheduleLock;
+import com.xp.starsite.lock.client.LockClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -104,8 +104,8 @@ public class AsyncCommandScheduler {
     /** tick 在途标志：volatile 供 stop() 线程无锁探测本轮是否仍在执行 */
     private volatile boolean executingTick = false;
 
-    /** 分布式调度锁（LEADER 模式用；null = COMPETING/EXTERNAL 模式不启用锁） */
-    private volatile DbScheduleLock scheduleLock;
+    /** 分布式锁门面（LEADER 模式用；null = COMPETING/EXTERNAL 模式不启用锁） */
+    private volatile LockClient scheduleLock;
 
     /** 当前调度模式（volatile——装配层 setScheduleMode 可能晚于 start 调用） */
     private volatile ScheduleMode scheduleMode = ScheduleMode.COMPETING;
@@ -204,7 +204,7 @@ public class AsyncCommandScheduler {
             }
         }
         if (holdingLock && scheduleLock != null) {
-            scheduleLock.unlock();
+            scheduleLock.unlock("async-cmd-scheduler");
             holdingLock = false;
         }
         started = false;
@@ -258,7 +258,7 @@ public class AsyncCommandScheduler {
      */
     private void safeTick() {
         if (scheduleMode == ScheduleMode.LEADER && scheduleLock != null) {
-            if (!scheduleLock.tryLock()) {
+            if (!scheduleLock.tryLock("async-cmd-scheduler")) {
                 // 非 leader 实例：他方持锁中，跳过本轮（TTL 过期后自动接管）
                 return;
             }
@@ -439,9 +439,9 @@ public class AsyncCommandScheduler {
     /**
      * 设置分布式调度锁（LEADER 模式必设；其他模式可空）。
      *
-     * @param lock DB 分布式锁实例（null = 不使用锁，LEADER 模式退化为 COMPETING）
+     * @param lock 分布式锁门面（null = 不使用锁，LEADER 模式退化为 COMPETING）
      */
-    public void setScheduleLock(DbScheduleLock lock) {
+    public void setScheduleLock(LockClient lock) {
         this.scheduleLock = lock;
     }
 

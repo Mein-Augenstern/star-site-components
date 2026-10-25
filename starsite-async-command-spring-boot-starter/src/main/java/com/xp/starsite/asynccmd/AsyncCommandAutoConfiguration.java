@@ -31,7 +31,6 @@ import com.xp.starsite.asynccmd.metrics.MicrometerAsyncCommandMetrics;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.AsyncCommandSql;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
-import com.xp.starsite.asynccmd.store.DbScheduleLock;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -169,17 +168,10 @@ public class AsyncCommandAutoConfiguration {
         // 分布式调度模式接线（COMPETING 默认不设锁；LEADER 需 DataSource 建 DB 锁；EXTERNAL 不自跑）
         ScheduleMode mode = props.getScheduleMode();
         scheduler.setScheduleMode(mode);
-        if (mode == ScheduleMode.LEADER) {
-            DataSource ds = dataSourceProvider.getIfAvailable();
-            if (ds != null) {
-                String appName = env.getProperty("spring.application.name", "unknown");
-                String ownerId = appName + "@" + ProcessHandle.current().pid();
-                scheduler.setScheduleLock(new DbScheduleLock(ds, "async-cmd-scheduler",
-                        ownerId, props.getScheduleLockTtlMs()));
-            } else {
-                log.warn("[starsite-async-command] LEADER 模式但无 DataSource——退化为 COMPETING");
-            }
+        if (mode == ScheduleMode.LEADER && dataSourceProvider.getIfAvailable() == null) {
+            log.warn("[starsite-async-command] LEADER 模式但无 DataSource——退化为 COMPETING");
         }
+        // LEADER 模式的锁由 LockClient 组件提供（业务方注入 LockClient Bean 即自动使用）
         return scheduler;
     }
 

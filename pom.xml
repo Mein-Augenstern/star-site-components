@@ -17,6 +17,9 @@
     <module>starsite-async-command</module>
     <module>starsite-async-command-spring-boot-starter</module>
     <module>starsite-async-command-mybatis</module>
+    <module>starsite-lock</module>
+    <module>starsite-lock-spring-boot-starter</module>
+    <module>starsite-sequence-mybatis</module>
   </modules>
 
   <properties>
