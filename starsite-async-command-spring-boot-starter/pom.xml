@@ -12,7 +12,7 @@
 
   <artifactId>starsite-async-command-spring-boot-starter</artifactId>
   <name>starsite-async-command-spring-boot-starter</name>
-  <description>异步命令 starter：自动装配（jdbc/memory）+ SmartLifecycle 托管 + 健康端点 + 可选管控端点，引 jar + 配置即用</description>
+  <description>异步命令 starter：自动装配（jdbc/memory）+ SmartLifecycle 托管 + 健康端点 + 可选管控端点，引 jar + 配置即用（测试见 starsite-async-command-tests）</description>
 
   <dependencies>
     <dependency>
@@ -40,18 +40,6 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-configuration-processor</artifactId>
       <optional>true</optional>
-    </dependency>
-
-    <!-- 测试 -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-actuator</artifactId>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>

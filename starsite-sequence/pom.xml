@@ -12,40 +12,12 @@
 
   <artifactId>starsite-sequence</artifactId>
   <name>starsite-sequence</name>
-  <description>雪花序列核心库：生成器 + 单机/MySQL 租约机器位分配 + 时钟回拨钳制（零 Spring Boot 依赖，可脱离 starter 独立使用）</description>
+  <description>雪花序列核心库：生成器 + 单机/MySQL 租约机器位分配 + 时钟回拨钳制（零 Spring Boot 依赖，可脱离 starter 独立使用；测试见 starsite-sequence-tests）</description>
 
   <dependencies>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-    </dependency>
-
-    <!-- 测试 -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-test</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <!-- IT 用 SimpleDriverDataSource -->
-    <dependency>
-      <groupId>org.springframework</groupId>
-      <artifactId>spring-jdbc</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>mysql</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.mysql</groupId>
-      <artifactId>mysql-connector-j</artifactId>
-      <scope>test</scope>
     </dependency>
   </dependencies>
 </project>

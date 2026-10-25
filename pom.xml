@@ -12,10 +12,14 @@
   <description>star-site 系列通用组件库：雪花序列（sequence）与异步命令（async-command），单机与分布式双形态，微服务引 jar + 配置即用</description>
 
   <modules>
+    <!-- 生产模块（纯 main，零测试目录） -->
     <module>starsite-sequence</module>
     <module>starsite-sequence-spring-boot-starter</module>
     <module>starsite-async-command</module>
     <module>starsite-async-command-spring-boot-starter</module>
+    <!-- 测试聚合模块（不发布，仅随 verify 运行；clone 生产模块目录不出现 test） -->
+    <module>starsite-sequence-tests</module>
+    <module>starsite-async-command-tests</module>
   </modules>
 
   <properties>
