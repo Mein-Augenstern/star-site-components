@@ -11,9 +11,6 @@ starsite-sequence ──────► starsite-sequence-spring-boot-starter
   雪花序列核心库              自动装配 + 健康端点
 starsite-async-command ─► starsite-async-command-spring-boot-starter
   异步命令核心库              自动装配 + SmartLifecycle + 健康/管控端点
-
-starsite-sequence-tests / starsite-async-command-tests
-  测试聚合模块（独立于生产模块；生产模块目录零 test，pom 零测试依赖）
 ```
 
 | 组件 | 单机形态 | 分布式形态 |
