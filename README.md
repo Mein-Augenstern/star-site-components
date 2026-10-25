@@ -159,9 +159,31 @@ class ReportGenerateExecutor implements AsyncCommandExecutor {
 }
 ```
 
+### 批量执行器（攒批更高效的场景）
+
+```java
+// 实现批量接口：同轮认领到的同类型命令合并成一次调用（组内 id 升序）
+// 原子语义：executeBatch 抛异常 = 整批重试（副作用需幂等）；正常返回 = 整批成功
+@Component
+class PushBatchExecutor implements AsyncCommandBatchExecutor {
+    @Override public String type() { return "push-notify"; }
+    @Override public void executeBatch(List<AsyncCommand> cmds) {
+        // 一次外部调用推完本批（计费接口按次计费/批量落库场景收益最大）
+    }
+}
+```
+
+### 指标（引 actuator/micrometer 即自动生效）
+
+- Counter `starsite.async.commands{status=submitted|success|retry|dead, cmdType=…}`——命令生命周期四态计数
+- Timer `starsite.async.execution{cmdType=…}`——执行耗时分布（批量执行器记整批一次）
+- 无 micrometer 时自动降级 NOOP（零开销）；自定义监控体系实现 `AsyncCommandMetrics` Bean 即接管
+- 告警建议：`dead > 0` 立即告警（与健康端点"死信即 DOWN"同语义）；retry 速率突增预示下游故障
+
 ### 健康与管控
 
 - **健康端点**（引 actuator 即有）：`starsiteSequence`（形态/机器位，被动上报）；`starsiteAsyncCommand`（各状态计数 + 到期积压，**存在死信即 DOWN**）
+- **管控端点鉴权**（三级，优先级从高到低）：① 自定义 `AsyncCommandAdminGuard` Bean（接内部鉴权体系）；② 配置 `starsite.async-command.admin-token` 启用内置守卫——校验请求头 `X-Starsite-Admin-Token`（常量时间比对防时序侧信道）；③ 都不配则放行 + 启动 WARN（仅本地开发）
 - **管控端点**（默认关）：
 
 ```yaml

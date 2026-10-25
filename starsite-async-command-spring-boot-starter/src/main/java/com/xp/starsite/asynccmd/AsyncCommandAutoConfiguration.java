@@ -16,11 +16,15 @@
 package com.xp.starsite.asynccmd;
 
 import com.xp.starsite.asynccmd.admin.AsyncCommandAdminController;
+import com.xp.starsite.asynccmd.admin.AsyncCommandAdminGuard;
 import com.xp.starsite.asynccmd.admin.AsyncCommandAdminService;
+import com.xp.starsite.asynccmd.admin.StaticTokenAdminGuard;
 import com.xp.starsite.asynccmd.health.AsyncCommandHealthIndicator;
+import com.xp.starsite.asynccmd.metrics.MicrometerAsyncCommandMetrics;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,12 +108,12 @@ public class AsyncCommandAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public AsyncCommandClient asyncCommandClient(AsyncCommandStore store, AsyncCommandProperties props,
-                                                 Environment env) {
+                                                 Environment env, AsyncCommandMetrics metrics) {
         // 未显式配置 owner 时回填应用名，保证多实例下的认领主体可区分、可追溯
         if (props.getOwner() == null || props.getOwner().isBlank()) {
             props.setOwner(env.getProperty("spring.application.name", "unknown"));
         }
-        return new AsyncCommandClient(store, props);
+        return new AsyncCommandClient(store, props, TimeSource.system(), metrics);
     }
 
     /**
@@ -140,9 +144,10 @@ public class AsyncCommandAutoConfiguration {
     @ConditionalOnMissingBean
     public AsyncCommandScheduler asyncCommandScheduler(AsyncCommandStore store, AsyncCommandClient client,
                                                        AsyncCommandProperties props,
-                                                       ExecutorRegistry registry) {
+                                                       ExecutorRegistry registry,
+                                                       AsyncCommandMetrics metrics) {
         // start/stop 由下方 SmartLifecycle 包装托管（容器最后启动、最先停止）
-        return new AsyncCommandScheduler(store, client, props, registry);
+        return new AsyncCommandScheduler(store, client, props, registry, TimeSource.system(), metrics);
     }
 
     /**
@@ -157,6 +162,42 @@ public class AsyncCommandAutoConfiguration {
     @ConditionalOnMissingBean
     public AsyncCommandLifecycle asyncCommandLifecycle(AsyncCommandScheduler scheduler) {
         return new AsyncCommandLifecycle(scheduler);
+    }
+
+    /**
+     * 装配 Micrometer 指标实现 Bean：classpath 存在 MeterRegistry（即引了 micrometer，如 starter-actuator）时生效。
+     * <p>指标清单见 {@link MicrometerAsyncCommandMetrics} 类注释（命令四态计数 + 执行耗时 Timer）；
+     * 让位语义：@ConditionalOnMissingBean(AsyncCommandMetrics)——应用自定义指标实现（如内部 SDK）时本方法不生效；
+     * micrometer 不在 classpath 时不装配——client/scheduler 注入的核心 Bean 方法里以
+     * ObjectProvider 兜底为 NOOP，指标能力降级但不阻断装配。
+     *
+     * @param meterRegistryProvider Micrometer 注册表提供者（Boot 自动配置提供；缺省不创建本 Bean）
+     * @return Micrometer 指标实现
+     */
+    @Bean
+    @ConditionalOnMissingBean(AsyncCommandMetrics.class)
+    @ConditionalOnClass(name = "io.micrometer.core.instrument.MeterRegistry")
+    public AsyncCommandMetrics micrometerAsyncCommandMetrics(
+            ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        MeterRegistry registry = meterRegistryProvider.getIfAvailable();
+        if (registry == null) {
+            // 理论不可达（@ConditionalOnClass 只保证类存在，registry Bean 由 Boot 提供）；防御回 NOOP
+            return AsyncCommandMetrics.NOOP;
+        }
+        return new MicrometerAsyncCommandMetrics(registry);
+    }
+
+    /**
+     * 指标兜底 Bean：micrometer 不在 classpath 时提供 NOOP——保证 client/scheduler 装配方法
+     * 直接按类型注入 AsyncCommandMetrics 永不缺 Bean（免 ObjectProvider 分支）。
+     * 让位语义：@ConditionalOnMissingBean(AsyncCommandMetrics)——上面的 Micrometer Bean 或应用自定义优先。
+     *
+     * @return NOOP 指标实现（零开销空方法）
+     */
+    @Bean
+    @ConditionalOnMissingBean(AsyncCommandMetrics.class)
+    public AsyncCommandMetrics noopAsyncCommandMetrics() {
+        return AsyncCommandMetrics.NOOP;
     }
 
     /**
@@ -191,19 +232,45 @@ public class AsyncCommandAutoConfiguration {
     }
 
     /**
-     * 装配管控 HTTP 端点 Bean：暴露 stats/recent/list 查询与 retry/requeue/kill 处置端点。
+     * 装配内置静态 Token 守卫 Bean：配置 starsite.async-command.admin-token（属性存在且非空）时生效，
+     * 校验请求头 X-Starsite-Admin-Token（常量时间比对，见 {@link StaticTokenAdminGuard}）。
+     * <p>让位语义：@ConditionalOnMissingBean(AsyncCommandAdminGuard)——应用自定义守卫（接内部鉴权体系）时本方法不生效。
+     *
+     * @param props 异步命令配置（读 admin-token；空白值启动期抛错暴露配置错误）
+     * @return 内置静态 Token 守卫
+     * @throws IllegalArgumentException admin-token 配置存在但为空白（fail-fast，防"以为配了守卫实际全放行"）
+     */
+    @Bean
+    @ConditionalOnMissingBean(AsyncCommandAdminGuard.class)
+    @ConditionalOnProperty(prefix = "starsite.async-command", name = "admin-token")
+    public AsyncCommandAdminGuard staticTokenAdminGuard(AsyncCommandProperties props) {
+        return new StaticTokenAdminGuard(props.getAdminToken());
+    }
+
+    /**
+     * 装配管控 HTTP 端点 Bean：暴露 stats/recent/list 查询与 retry/requeue/kill 处置端点，
+     * 每个端点执行前经 {@link AsyncCommandAdminGuard} 鉴权。
      * <p>装配条件：Web 应用 + {@code starsite.async-command.admin-enabled=true}（默认关闭）；
      * 让位语义：@ConditionalOnMissingBean——应用已自定义 {@link AsyncCommandAdminController} 时本方法不生效。
-     * 安全注意：无内置鉴权，须确保仅内网/网关白名单可达。
+     * 安全注意：既无自定义守卫也未配 admin-token 时放行所有请求——装配时打 WARN 提醒（仅适合本地开发）。
      *
-     * @param admin 管控服务（端点直接委托给它）
+     * @param admin         管控服务（端点直接委托给它）
+     * @param guardProvider 鉴权守卫提供者（无任何守卫时 Controller 内部兜底 ALLOW_ALL）
      * @return 管控端点 Controller 实例
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnWebApplication
     @ConditionalOnProperty(prefix = "starsite.async-command", name = "admin-enabled", havingValue = "true")
-    public AsyncCommandAdminController asyncCommandAdminController(AsyncCommandAdminService admin) {
-        return new AsyncCommandAdminController(admin);
+    public AsyncCommandAdminController asyncCommandAdminController(AsyncCommandAdminService admin,
+                                                                   ObjectProvider<AsyncCommandAdminGuard> guardProvider,
+                                                                   AsyncCommandProperties props) {
+        if (guardProvider.getIfAvailable() == null
+                && (props.getAdminToken() == null || props.getAdminToken().isBlank())) {
+            log.warn("[starsite-async-command] 管控端点已开启但未配置鉴权（无自定义 AsyncCommandAdminGuard Bean "
+                    + "且 starsite.async-command.admin-token 为空）——当前放行所有请求，仅适合本地开发；"
+                    + "生产请配置 admin-token 或提供自定义守卫 Bean");
+        }
+        return new AsyncCommandAdminController(admin, guardProvider);
     }
 }

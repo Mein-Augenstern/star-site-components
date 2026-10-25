@@ -16,7 +16,11 @@
 package com.xp.starsite.asynccmd;
 
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -30,6 +34,8 @@ import org.slf4j.LoggerFactory;
  * <p>
  * 每轮：回收悬挂 RUNNING（执行进程死亡残留）→ 令牌认领到期 PENDING →
  * {@link ExecutorRegistry} 按类型路由执行 → 成功落 SUCCESS / 失败指数退避回 PENDING / 超限进 DEAD。
+ * 执行器若实现 {@link AsyncCommandBatchExecutor}，同轮同类型命令合并成一次批量调用
+ * （原子语义：批抛异常 = 整批重试，见该接口注释）。
  * 多实例部署时各实例独立令牌认领，同一命令只会被一个实例执行（谁写入算谁）。
  * 优雅停机：停止认领新命令，等待本轮执行中的命令落终态后退出（超时由重启后的悬挂回收兜底）。
  * <p>
@@ -60,6 +66,8 @@ public class AsyncCommandScheduler {
     private final ExecutorRegistry registry;
     /** 时间源：认领到期判定基准（测试可注入假时钟） */
     private final TimeSource time;
+    /** 指标出口：成功计数/执行耗时（未装配监控时为 NOOP，零开销） */
+    private final AsyncCommandMetrics metrics;
     /** 单线程调度执行器：线程名 starsite-async-cmd（出错可回溯），daemon 不阻拦 JVM 退出 */
     private final ScheduledExecutorService executor;
 
@@ -73,7 +81,7 @@ public class AsyncCommandScheduler {
     private volatile boolean executingTick = false;
 
     /**
-     * 便捷构造（时间源取系统时钟）。
+     * 便捷构造（时间源取系统时钟，指标取 NOOP）。
      *
      * @param store    命令存储
      * @param client   状态回写客户端
@@ -82,7 +90,21 @@ public class AsyncCommandScheduler {
      */
     public AsyncCommandScheduler(AsyncCommandStore store, AsyncCommandClient client,
                                  AsyncCommandConfig config, ExecutorRegistry registry) {
-        this(store, client, config, registry, TimeSource.system());
+        this(store, client, config, registry, TimeSource.system(), AsyncCommandMetrics.NOOP);
+    }
+
+    /**
+     * 构造（指标取 NOOP）。
+     *
+     * @param store    命令存储
+     * @param client   状态回写客户端
+     * @param config   调度参数
+     * @param registry 执行器注册表
+     * @param time     时间源（测试注入假时钟用）
+     */
+    public AsyncCommandScheduler(AsyncCommandStore store, AsyncCommandClient client,
+                                 AsyncCommandConfig config, ExecutorRegistry registry, TimeSource time) {
+        this(store, client, config, registry, time, AsyncCommandMetrics.NOOP);
     }
 
     /**
@@ -93,14 +115,17 @@ public class AsyncCommandScheduler {
      * @param config   调度参数
      * @param registry 执行器注册表
      * @param time     时间源（测试注入假时钟用）
+     * @param metrics  指标出口（成功计数/执行耗时；无监控传 {@link AsyncCommandMetrics#NOOP}）
      */
     public AsyncCommandScheduler(AsyncCommandStore store, AsyncCommandClient client,
-                                 AsyncCommandConfig config, ExecutorRegistry registry, TimeSource time) {
+                                 AsyncCommandConfig config, ExecutorRegistry registry,
+                                 TimeSource time, AsyncCommandMetrics metrics) {
         this.store = store;
         this.client = client;
         this.config = config;
         this.registry = registry;
         this.time = time;
+        this.metrics = metrics;
         this.executor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "starsite-async-cmd");
             t.setDaemon(true);
@@ -171,7 +196,7 @@ public class AsyncCommandScheduler {
 
     /**
      * 执行单轮调度（public 供测试与运维工具确定性驱动，不依赖内部调度线程）。
-     * 固定顺序：回收悬挂 RUNNING → 令牌认领到期 PENDING → 逐条路由执行并回写终态/重试。
+     * 固定顺序：回收悬挂 RUNNING → 令牌认领到期 PENDING → 按类型分组路由执行并回写终态/重试。
      * 认领 0 条时本轮直接结束；执行期间 executingTick 为 true，供 stop() 优雅排空等待。
      */
     public void tick() {
@@ -191,24 +216,78 @@ public class AsyncCommandScheduler {
                 // 无到期命令，本轮结束
                 return;
             }
-            for (AsyncCommand cmd : emptyIfNull(store.findByToken(token))) {
-                AsyncCommandExecutor handler = registry.find(cmd.getCmdType());
-                if (handler == null) {
-                    // 无执行器按失败处理（记 lastError 进重试/死信），绝不无声跳过——命令不能丢
-                    client.markRetryOrFail(cmd, new IllegalStateException("无注册执行器: " + cmd.getCmdType()));
-                    continue;
-                }
-                try {
-                    handler.execute(cmd);
-                    client.markSuccess(cmd);
-                } catch (Exception e) {
-                    // 执行器抛异常 = 命令失败，交由退避重试
-                    client.markRetryOrFail(cmd, e);
-                }
-            }
+            dispatch(emptyIfNull(store.findByToken(token)));
         } finally {
             executingTick = false;
         }
+    }
+
+    /**
+     * 认领结果分发：无执行器的命令逐条按失败处理；其余按 cmdType 分组
+     * （LinkedHashMap 保持首次出现顺序，组内保持认领返回的 id 升序），
+     * 批量执行器整组一次调用，单条执行器逐条调用。
+     *
+     * @param claimed 本轮认领到的命令（不为 null）
+     */
+    private void dispatch(List<AsyncCommand> claimed) {
+        Map<String, List<AsyncCommand>> byType = new LinkedHashMap<>();
+        for (AsyncCommand cmd : claimed) {
+            if (registry.find(cmd.getCmdType()) == null) {
+                // 无执行器按失败处理（记 lastError 进重试/死信），绝不无声跳过——命令不能丢
+                client.markRetryOrFail(cmd, new IllegalStateException("无注册执行器: " + cmd.getCmdType()));
+                continue;
+            }
+            byType.computeIfAbsent(cmd.getCmdType(), k -> new ArrayList<>()).add(cmd);
+        }
+        for (Map.Entry<String, List<AsyncCommand>> entry : byType.entrySet()) {
+            AsyncCommandExecutor handler = registry.find(entry.getKey());
+            List<AsyncCommand> group = entry.getValue();
+            if (handler instanceof AsyncCommandBatchExecutor batchExecutor) {
+                executeBatch(batchExecutor, group);
+            } else {
+                for (AsyncCommand cmd : group) {
+                    executeSingle(handler, cmd);
+                }
+            }
+        }
+    }
+
+    /**
+     * 单条执行：计时执行器调用，成功回写 SUCCESS + 成功指标；
+     * 异常交由 {@link AsyncCommandClient#markRetryOrFail} 退避重试（重试/死信指标在 client 内打点）。
+     */
+    private void executeSingle(AsyncCommandExecutor handler, AsyncCommand cmd) {
+        long begin = System.nanoTime();
+        try {
+            handler.execute(cmd);
+        } catch (Exception e) {
+            // 执行器抛异常 = 命令失败，交由退避重试
+            client.markRetryOrFail(cmd, e);
+            return;
+        }
+        client.markSuccess(cmd);
+        metrics.recordSuccess(cmd.getCmdType(), Duration.ofNanos(System.nanoTime() - begin));
+    }
+
+    /**
+     * 批量执行（原子语义，见 {@link AsyncCommandBatchExecutor}）：整组一次调用并计时；
+     * 正常返回 = 逐条落 SUCCESS + 一次成功指标（耗时为整批耗时）；
+     * 抛异常 = 整组逐条按该异常 markRetryOrFail（各自计数退避，重试会重放整批——实现方需幂等）。
+     */
+    private void executeBatch(AsyncCommandBatchExecutor handler, List<AsyncCommand> group) {
+        long begin = System.nanoTime();
+        try {
+            handler.executeBatch(group);
+        } catch (Exception e) {
+            for (AsyncCommand cmd : group) {
+                client.markRetryOrFail(cmd, e);
+            }
+            return;
+        }
+        for (AsyncCommand cmd : group) {
+            client.markSuccess(cmd);
+        }
+        metrics.recordSuccess(group.get(0).getCmdType(), Duration.ofNanos(System.nanoTime() - begin));
     }
 
     /**

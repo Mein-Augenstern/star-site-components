@@ -54,6 +54,13 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
     private String adminBasePath = "/api/admin/async";
 
     /**
+     * 管控端点静态 Token（默认空 = 不启用内置守卫）：
+     * 配置非空值后启用内置 StaticTokenAdminGuard，校验请求头 X-Starsite-Admin-Token（常量时间比对）。
+     * 应用自定义 AsyncCommandAdminGuard Bean 时本配置被忽略（自定义优先）。
+     */
+    private String adminToken = "";
+
+    /**
      * 存储形态枚举：决定命令落库方式与可用部署拓扑。
      */
     public enum Store {
@@ -154,4 +161,18 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
      * @param adminBasePath 管控端点基路径（所有管控端点挂在该路径之下）
      */
     public void setAdminBasePath(String adminBasePath) { this.adminBasePath = adminBasePath; }
+
+    /**
+     * 读取管控端点静态 Token。
+     *
+     * @return 配置的 Token；空串表示未启用内置守卫（放行或依赖自定义守卫）
+     */
+    public String getAdminToken() { return adminToken; }
+
+    /**
+     * 设置管控端点静态 Token（配置非空即启用内置守卫；自定义 Guard Bean 存在时忽略）。
+     *
+     * @param adminToken 静态 Token（建议高熵随机串，经环境变量注入而非写死在仓库）
+     */
+    public void setAdminToken(String adminToken) { this.adminToken = adminToken; }
 }

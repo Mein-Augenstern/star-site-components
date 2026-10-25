@@ -36,6 +36,19 @@
       <artifactId>spring-web</artifactId>
       <optional>true</optional>
     </dependency>
+    <!-- Micrometer 指标实现（可选依赖：classpath 存在 micrometer 时装配指标 Bean） -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-core</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- 鉴权守卫接口需要 HttpServletRequest（随容器由 starter-web 提供，不强制引入） -->
+    <dependency>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <optional>true</optional>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-configuration-processor</artifactId>

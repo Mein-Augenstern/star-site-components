@@ -41,9 +41,11 @@ public class AsyncCommandClient {
     private final AsyncCommandConfig config;
     /** 时间源（nextRunAt 计算基准；测试可注入假时钟） */
     private final TimeSource time;
+    /** 指标出口：提交/重试/死信计数（未装配监控时为 NOOP，零开销） */
+    private final AsyncCommandMetrics metrics;
 
     /**
-     * 便捷构造（时间源取系统时钟）。
+     * 便捷构造（时间源取系统时钟，指标取 NOOP）。
      *
      * @param store  命令存储
      * @param config 运行参数
@@ -53,16 +55,30 @@ public class AsyncCommandClient {
     }
 
     /**
-     * 全参构造。
+     * 构造（指标取 NOOP）。
      *
      * @param store  命令存储
      * @param config 运行参数
      * @param time   时间源（测试注入假时钟用）
      */
     public AsyncCommandClient(AsyncCommandStore store, AsyncCommandConfig config, TimeSource time) {
+        this(store, config, time, AsyncCommandMetrics.NOOP);
+    }
+
+    /**
+     * 全参构造。
+     *
+     * @param store   命令存储
+     * @param config  运行参数
+     * @param time    时间源（测试注入假时钟用）
+     * @param metrics 指标出口（提交/重试/死信计数；无监控传 {@link AsyncCommandMetrics#NOOP}）
+     */
+    public AsyncCommandClient(AsyncCommandStore store, AsyncCommandConfig config,
+                              TimeSource time, AsyncCommandMetrics metrics) {
         this.store = store;
         this.config = config;
         this.time = time;
+        this.metrics = metrics;
     }
 
     /**
@@ -97,6 +113,7 @@ public class AsyncCommandClient {
         cmd.setNextRunAt(runAt);
         cmd.setOwner(config.getOwner());
         store.insert(cmd);
+        metrics.recordSubmitted(cmdType);
         log.info("async cmd submitted: type={}, key={}, id={}, runAt={}", cmdType, bizKey, cmd.getId(), runAt);
         return cmd;
     }
@@ -157,6 +174,7 @@ public class AsyncCommandClient {
             cmd.setStatus(AsyncCommand.DEAD);
             cmd.setLastError(truncate(msg));
             store.updateState(cmd);
+            metrics.recordDead(cmd.getCmdType());
             log.error("async cmd DEAD: id={}, type={}, lastError={}", cmd.getId(), cmd.getCmdType(), msg);
             return;
         }
@@ -168,6 +186,7 @@ public class AsyncCommandClient {
         cmd.setNextRunAt(time.now().plusSeconds(backoffSeconds));
         cmd.setLastError(truncate(msg));
         store.updateState(cmd);
+        metrics.recordRetry(cmd.getCmdType());
         log.warn("async cmd retry #{}: id={}, type={}, backoff={}s, err={}",
                 retry + 1, cmd.getId(), cmd.getCmdType(), backoffSeconds, msg);
     }
