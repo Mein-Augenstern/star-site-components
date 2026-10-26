@@ -466,6 +466,15 @@ public class AsyncCommandScheduler {
     }
 
     /**
+     * 读取当前调度锁（装配接线诊断：LEADER 模式下非 null 才真正选主）。
+     *
+     * @return 当前锁；未设置为 null
+     */
+    public LockClient getScheduleLock() {
+        return scheduleLock;
+    }
+
+    /**
      * 外部触发 tick（EXTERNAL 模式的触发入口——XXL-Job handler / K8s CronJob 调本方法
      * 或经管控端点 {@code POST {admin-base-path}/tick}）。
      * 等价于手动执行一轮调度（回收悬挂 + 认领 + 分发执行）。

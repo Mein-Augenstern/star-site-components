@@ -112,6 +112,42 @@ class AsyncCommandAutoConfigurationTest {
     }
 
     /**
+     * 用例：LEADER 模式注入 LockClient Bean 即自动接线调度锁。
+     * <p>验证点：容器中有 LockClient（引了 starsite-lock-spring-boot-starter）时，
+     * 调度器的调度锁被自动注入——真正选主，无需应用手工 setScheduleLock。
+     */
+    @Test
+    void LEADER模式_有LockClientBean_自动接线调度锁() {
+        com.xp.starsite.lock.client.LockClient stub =
+                new com.xp.starsite.lock.client.LockClient() {
+                    @Override public boolean tryLock(String lockName) { return true; }
+                    @Override public void unlock(String lockName) { /* no-op */ }
+                };
+        runner.withPropertyValues(
+                        "starsite.async-command.store=memory",
+                        "starsite.async-command.schedule-mode=leader")
+                .withBean(com.xp.starsite.lock.client.LockClient.class, () -> stub)
+                .run(ctx -> assertThat(ctx.getBean(AsyncCommandScheduler.class).getScheduleLock())
+                        .isSameAs(stub));
+    }
+
+    /**
+     * 用例：LEADER 模式无 LockClient Bean 时优雅退化。
+     * <p>验证点：容器中无锁 Bean 时调度器照常装配（调度锁为 null——safeTick 对 null 锁不做门控，
+     * 等价 COMPETING），不阻断启动。
+     */
+    @Test
+    void LEADER模式_无LockClientBean_退化装配不阻断() {
+        runner.withPropertyValues(
+                        "starsite.async-command.store=memory",
+                        "starsite.async-command.schedule-mode=leader")
+                .run(ctx -> {
+                    assertThat(ctx).hasSingleBean(AsyncCommandScheduler.class);
+                    assertThat(ctx.getBean(AsyncCommandScheduler.class).getScheduleLock()).isNull();
+                });
+    }
+
+    /**
      * 用例：owner 未配置时默认取应用名。
      * <p>验证点：未显式配置 owner 时，提交的命令其 owner 回填为 spring.application.name。
      */

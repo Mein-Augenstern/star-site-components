@@ -35,7 +35,6 @@ import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
-import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -155,11 +154,14 @@ public class AsyncCommandAutoConfiguration {
      * 装配调度器 Bean：到期命令认领与执行引擎（本体在 core，零 Spring 依赖）。
      * <p>让位语义：@ConditionalOnMissingBean——应用已自定义 {@link AsyncCommandScheduler} 时本方法不生效。
      * 注意：本方法只创建不启动，start/stop 由 {@link AsyncCommandLifecycle} 以 SmartLifecycle 托管。
+     * <p>LEADER 接线：容器中存在 {@code LockClient} Bean（引 starsite-lock-spring-boot-starter）
+     * 即自动注入调度锁——真正选主；无锁 Bean 时告警退化（safeTick 对 null 锁不做门控，等价 COMPETING）。
      *
      * @param store 命令存储（认领/回写状态）
      * @param client 命令客户端（复用其提交与状态语义）
      * @param props 异步命令配置（认领间隔/批量/重试等核心参数继承自 core 的 AsyncCommandConfig）
      * @param registry 执行器注册表（按 type 路由执行）
+     * @param lockProvider 调度锁提供者（LEADER 模式用；缺省退化 COMPETING）
      * @return 调度器实例（创建后处于未启动状态，待生命周期回调拉起）
      */
     @Bean
@@ -168,20 +170,25 @@ public class AsyncCommandAutoConfiguration {
                                                        AsyncCommandProperties props,
                                                        ExecutorRegistry registry,
                                                        AsyncCommandMetrics metrics,
-                                                       ObjectProvider<DataSource> dataSourceProvider,
+                                                       ObjectProvider<com.xp.starsite.lock.client.LockClient> lockProvider,
                                                        Environment env) {
         // start/stop 由下方 SmartLifecycle 包装托管（容器最后启动、最先停止）
         AsyncCommandScheduler scheduler =
                 new AsyncCommandScheduler(store, client, props, registry, TimeSource.system(), metrics);
         // IMMEDIATE 模式联动：把调度器的即时派发入口回填给 client（提交即执行；钩子内部容错降级）
         client.setSubmitHook(scheduler::onSubmit);
-        // 分布式调度模式接线（COMPETING 默认不设锁；LEADER 需 DataSource 建 DB 锁；EXTERNAL 不自跑）
+        // 分布式调度模式接线（COMPETING 默认不设锁；EXTERNAL 不自跑）
         ScheduleMode mode = props.getScheduleMode();
         scheduler.setScheduleMode(mode);
-        if (mode == ScheduleMode.LEADER && dataSourceProvider.getIfAvailable() == null) {
-            log.warn("[starsite-async-command] LEADER 模式但无 DataSource——退化为 COMPETING");
+        if (mode == ScheduleMode.LEADER) {
+            com.xp.starsite.lock.client.LockClient lock = lockProvider.getIfAvailable();
+            if (lock == null) {
+                log.warn("[starsite-async-command] LEADER 模式但容器中无 LockClient Bean"
+                        + "——退化为 COMPETING（引 starsite-lock-spring-boot-starter 并确保装配即选主）");
+            } else {
+                scheduler.setScheduleLock(lock);
+            }
         }
-        // LEADER 模式的锁由 LockClient 组件提供（业务方注入 LockClient Bean 即自动使用）
         return scheduler;
     }
 
