@@ -134,6 +134,9 @@
             <excludes>
               <exclude>**/*IT.java</exclude>
             </excludes>
+            <!-- JDK 21.0.12+（2025-10 CPU，JDK-8345742）默认禁动态 attach，
+                 Mockito inline mockmaker 的 ByteBuddy 自附加会失败（Agent failed to start），显式放开 -->
+            <argLine>-XX:+EnableDynamicAgentLoading</argLine>
           </configuration>
         </plugin>
         <plugin>
