@@ -54,6 +54,7 @@ class DbLockClientTest {
                     + "lock_name VARCHAR(64) NOT NULL, "
                     + "locked_by VARCHAR(128), "
                     + "locked_until TIMESTAMP, "
+                    + "hold_count INT NOT NULL DEFAULT 0, "
                     + "gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                     + "gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
                     + "CONSTRAINT uk_lock_name UNIQUE (lock_name))");
@@ -157,6 +158,26 @@ class DbLockClientTest {
 
         leader.unlock("reentrant-lock"); // 层数归零：真正释放
         assertThat(follower.tryLock("reentrant-lock")).isTrue();
+    }
+
+    /** 跨实例同 ownerId 共享存储端计数（分布式重入证明）：两个"Pod"各持客户端实例，
+     *  同 ownerId 嵌套加锁——计数在锁行上全局一致，任一实例释放一层，归零才真正放锁 */
+    @Test
+    void 跨实例同ownerId_存储端共享重入计数() throws Exception {
+        DbLockClient podA = new DbLockClient(mapper(), provisioner(), "starsite_lock",
+                "same-owner", 30_000);
+        DbLockClient podB = new DbLockClient(mapper(), provisioner(), "starsite_lock",
+                "same-owner", 30_000);
+        DbLockClient follower = lock("follower");
+
+        assertThat(podA.tryLock("dist-lock")).isTrue();   // 实例A 首抢（count=1）
+        assertThat(podB.tryLock("dist-lock")).isTrue();   // 实例B 同owner重入（count=2，存储端判定）
+
+        podB.unlock("dist-lock");                          // B 释放一层（count=1，持有者不动）
+        assertThat(follower.tryLock("dist-lock")).isFalse();
+
+        podA.unlock("dist-lock");                          // 归零清持有者
+        assertThat(follower.tryLock("dist-lock")).isTrue();
     }
 
     /** 行丢失自愈（分布式正确性）：外部删行后播种记忆陈旧，tryLock 仍能自愈重获——正确性不依赖 Pod 本地状态 */

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS starsite_lock (
   lock_name    VARCHAR(64)  NOT NULL COMMENT '锁名（全应用唯一）',
   locked_by    VARCHAR(128) DEFAULT NULL COMMENT '当前持锁者标识(服务名@pid)',
   locked_until DATETIME(3)  DEFAULT NULL COMMENT '持锁到期时刻(TTL过后可被抢)',
+  hold_count   INT          NOT NULL DEFAULT 0 COMMENT '重入持有层数（存储端权威，同 ownerId 跨实例共享）',
   gmt_create   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   gmt_modified DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),

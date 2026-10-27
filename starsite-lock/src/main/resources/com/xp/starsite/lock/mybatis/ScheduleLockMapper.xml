@@ -6,6 +6,7 @@
   约定：${tableName} 为白名单校验后的表名；业务值一律 #{} 参数绑定。
   表结构规范：id 为 sequence 组件生成的物理主键，lock_name 为唯一键（互斥锚点），
   gmt_create / gmt_modified 标准时间列。
+  重入计数（hold_count）存于锁行——存储端权威，同 ownerId 跨实例共享一致（分布式写法）。
 -->
 <mapper namespace="com.xp.starsite.lock.mybatis.ScheduleLockMapper">
 
@@ -19,6 +20,7 @@
             lock_name    VARCHAR(64)  NOT NULL,
             locked_by    VARCHAR(128),
             locked_until TIMESTAMP(3),
+            hold_count   INT          NOT NULL DEFAULT 0,
             gmt_create   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
             gmt_modified TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT uk_${tableName}_lock_name UNIQUE (lock_name)
@@ -33,17 +35,30 @@
         WHERE NOT EXISTS (SELECT 1 FROM ${tableName} WHERE lock_name = #{lockName})
     </insert>
 
-    <!-- 纯 UPDATE 争锁（seedRow 已保证行存在）：条件不满足即 0 行——互斥判定正确。 -->
+    <!-- 原子争锁 + 重入计数递增（单条 UPDATE，存储端权威）：
+         首抢/接管过期锁 → hold_count 归 1（旧持有者的陈旧计数一并重置）；
+         自己持锁（重入）→ hold_count + 1 并续期。CASE 均读更新前的旧值（hold_count
+         在 SET 中最后赋值，MySQL 左到右求值与 H2 标准语义下一致）。 -->
     <update id="tryAcquire">
-        UPDATE ${tableName} SET locked_by = #{ownerId}, locked_until = #{until}
-        WHERE lock_name = #{lockName}
-          AND (locked_by IS NULL OR locked_by = #{ownerId}
-               OR locked_until IS NULL OR locked_until &lt; #{now})
+        UPDATE ${tableName}
+           SET locked_by    = #{ownerId},
+               locked_until = #{until},
+               hold_count   = CASE WHEN locked_by = #{ownerId} THEN hold_count + 1 ELSE 1 END,
+               gmt_modified = NOW()
+         WHERE lock_name = #{lockName}
+           AND (locked_by IS NULL OR locked_by = #{ownerId}
+                OR locked_until IS NULL OR locked_until &lt; #{now})
     </update>
 
+    <!-- 原子按层释放（单条 UPDATE）：层数 > 1 仅递减（外层仍持锁，持有者字段不动）；
+         归零则清空持有者——任何同 ownerId 实例的 unlock 都作用于同一份存储计数 -->
     <update id="release">
-        UPDATE ${tableName} SET locked_by = NULL, locked_until = NULL
-        WHERE lock_name = #{lockName} AND locked_by = #{ownerId}
+        UPDATE ${tableName}
+           SET locked_by    = CASE WHEN hold_count &lt;= 1 THEN NULL ELSE locked_by END,
+               locked_until = CASE WHEN hold_count &lt;= 1 THEN NULL ELSE locked_until END,
+               hold_count   = hold_count - 1,
+               gmt_modified = NOW()
+         WHERE lock_name = #{lockName} AND locked_by = #{ownerId}
     </update>
 
     <select id="findHolder" resultType="string">
