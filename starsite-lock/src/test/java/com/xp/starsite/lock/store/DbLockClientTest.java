@@ -81,6 +81,14 @@ class DbLockClientTest {
     }
 
     /**
+     * 构造锁表就绪器（每客户端独立——实例内种子记忆互不共享，与生产多实例形态一致）。
+     */
+    private static com.xp.starsite.lock.store.LockTableProvisioner provisioner() throws Exception {
+        return new com.xp.starsite.lock.store.LockTableProvisioner(
+                mapper(), "component_schedule_lock", TEST_ID_SEQ::incrementAndGet);
+    }
+
+    /**
      * 构造 DbLockClient（系统时钟，默认 TTL）。
      *
      * @param ownerId 持锁者标识
@@ -90,7 +98,8 @@ class DbLockClientTest {
                 new com.xp.starsite.lock.model.LockCoreConfig();
         lockConfig.setOwnerId(ownerId);
         // 测试 id 生成器：AtomicLong 递增（固定值会跨用例主键冲突，fail-open 掩盖互斥语义）
-        return new DbLockClient(mapper(), lockConfig, TEST_ID_SEQ::incrementAndGet);
+        return new DbLockClient(mapper(), provisioner(), lockConfig.getTableName(),
+                lockConfig.getOwnerId(), lockConfig.getTtlMs());
     }
 
     /** 首次争锁成功 */
@@ -172,8 +181,11 @@ class DbLockClientTest {
                     }
                     return method.invoke(real, args);
                 });
-        DbLockClient lock = new DbLockClient(counting, "component_schedule_lock",
-                "sower", 30_000, TEST_ID_SEQ::incrementAndGet);
+        com.xp.starsite.lock.store.LockTableProvisioner countingProvisioner =
+                new com.xp.starsite.lock.store.LockTableProvisioner(
+                        counting, "component_schedule_lock", TEST_ID_SEQ::incrementAndGet);
+        DbLockClient lock = new DbLockClient(counting, countingProvisioner, "component_schedule_lock",
+                "sower", 30_000);
 
         assertThat(lock.tryLock("seed-once")).isTrue();
         assertThat(lock.tryLock("seed-once")).isTrue(); // 重入
@@ -209,10 +221,10 @@ class DbLockClientTest {
     @Test
     void TTL过期_他方接管() throws Exception {
         MutableClock clock = new MutableClock(java.time.Instant.now());
-        DbLockClient leader = new DbLockClient(mapper(), "component_schedule_lock",
-                "leader", 30_000, TEST_ID_SEQ::incrementAndGet, clock);
-        DbLockClient follower = new DbLockClient(mapper(), "component_schedule_lock",
-                "follower", 30_000, TEST_ID_SEQ::incrementAndGet, clock);
+        DbLockClient leader = new DbLockClient(mapper(), provisioner(), "component_schedule_lock",
+                "leader", 30_000, clock);
+        DbLockClient follower = new DbLockClient(mapper(), provisioner(), "component_schedule_lock",
+                "follower", 30_000, clock);
 
         assertThat(leader.tryLock("ttl-lock")).isTrue();
         assertThat(follower.tryLock("ttl-lock")).isFalse(); // TTL 内他方不可抢
@@ -233,8 +245,8 @@ class DbLockClientTest {
             pool[i] = new Thread(() -> {
                 try {
                     // 每线程独立 client（SqlSession 非线程安全，不跨线程共享）
-                    DbLockClient racer = new DbLockClient(mapper(), "component_schedule_lock",
-                            owner, 30_000, TEST_ID_SEQ::incrementAndGet);
+                    DbLockClient racer = new DbLockClient(mapper(), provisioner(), "component_schedule_lock",
+                            owner, 30_000);
                     startGate.await(); // 同起跑线：最大化竞争窗口
                     if (racer.tryLock("race-lock")) {
                         winners.incrementAndGet();
@@ -259,8 +271,11 @@ class DbLockClientTest {
                 ScheduleLockMapper.class.getClassLoader(),
                 new Class<?>[]{ScheduleLockMapper.class},
                 (proxy, method, args) -> { throw new IllegalStateException("db down"); });
-        DbLockClient lock = new DbLockClient(boom, "component_schedule_lock",
-                "x", 30_000, TEST_ID_SEQ::incrementAndGet);
+        com.xp.starsite.lock.store.LockTableProvisioner boomProvisioner =
+                new com.xp.starsite.lock.store.LockTableProvisioner(
+                        boom, "component_schedule_lock", TEST_ID_SEQ::incrementAndGet);
+        DbLockClient lock = new DbLockClient(boom, boomProvisioner, "component_schedule_lock",
+                "x", 30_000);
         assertThat(lock.tryLock("any-lock")).isTrue();
     }
 

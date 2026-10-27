@@ -89,12 +89,17 @@ public class LockAutoConfiguration {
                                     + "（starsite-sequence 组件）生成锁行物理主键；请引入"
                                     + " starsite-sequence-spring-boot-starter");
                 }
+                // 存储就绪器（建表/播种）与锁客户端（互斥语义）职责分离，共享同一表名
+                com.xp.starsite.lock.store.LockTableProvisioner provisioner =
+                        new com.xp.starsite.lock.store.LockTableProvisioner(
+                                mapper, props.getTableName(), idGen::next);
                 if (props.isInitDdl()) {
-                    ensureLockTable(mapper, props.getTableName());
+                    provisioner.ensureTable();
                 }
                 log.info("[starsite-lock] 存储形态：db（table={}，owner={}）",
                         props.getTableName(), props.getOwnerId());
-                yield new DbLockClient(mapper, props, idGen::next);
+                yield new DbLockClient(mapper, provisioner, props.getTableName(),
+                        props.getOwnerId(), props.getTtlMs());
             }
             case REDIS -> {
                 StringRedisTemplate redis = redisTemplateProvider.getIfAvailable();
@@ -108,22 +113,5 @@ public class LockAutoConfiguration {
                 yield new RedisLockClient(redis, props);
             }
         };
-    }
-
-    /**
-     * 幂等建锁表（IF NOT EXISTS）。建表失败只记 warn 不抛出：
-     * 表可能由 DBA/迁移脚本统一管理，真有问题会在首次争锁时暴露。
-     *
-     * @param mapper    锁表 Mapper
-     * @param tableName 锁表名
-     */
-    private void ensureLockTable(ScheduleLockMapper mapper, String tableName) {
-        try {
-            mapper.createTable(tableName);
-            log.info("[starsite-lock] 锁表 {} 就绪（IF NOT EXISTS）", tableName);
-        } catch (RuntimeException e) {
-            // 建表失败不阻断启动（表可能由 DBA/迁移脚本管理），首次争锁时即会暴露
-            log.warn("[starsite-lock] 建表检查失败（不阻断启动）: {}", e.getMessage());
-        }
     }
 }

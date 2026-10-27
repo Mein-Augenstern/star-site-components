@@ -16,6 +16,7 @@
 package com.xp.starsite.lock.redis;
 
 import com.xp.starsite.lock.client.LockClient;
+import com.xp.starsite.lock.client.ReentrantHoldCounter;
 import com.xp.starsite.lock.model.LockCoreConfig;
 import java.time.Duration;
 import java.util.List;
@@ -25,13 +26,16 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 
 /**
- * Redis 分布式锁实现：SET NX EX 原子争锁 + Lua 脚本 CAS 释放（防误删他方锁）。
+ * Redis 分布式锁实现（互斥语义职责）：SET NX PX 原子争锁 + Lua 脚本 CAS 释放（防误删他方锁）。
  * <p>
- * 与 DB 锁的取舍：Redis 锁的争锁/释放是内存级操作（亚毫秒），适合高频争锁场景；
- * DB 锁无需额外基础设施。两者语义一致（tryLock/unlock），经 LockClient 统一门面对外暴露。
+ * 职责边界（单一职责拆分）：本类只管互斥语义（争锁/原子续期/按计数释放）；
+ * 重入层数由 {@link ReentrantHoldCounter} 承担（归零才真正 DEL）；
+ * 装配（模式选择/ownerId 回填）在 starter。
  * <p>
  * 释放脚本：只有 locked_by = 自己才 DEL——防止实例 A 的锁超时后实例 B 获得，
- * A 醒来误删 B 的锁（经典 RedLock 陷阱）。
+ * A 醒来误删 B 的锁（经典 RedLock 陷阱）。续期脚本同理：CAS 比较后 PEXPIRE，
+ * 绝不能拆成 GET+EXPIRE 两步（key 过期瞬间会误延他方锁并误判持锁）。
+ * 与 DB 锁的取舍：Redis 争锁/释放是内存级操作（亚毫秒），适合高频争锁；DB 锁无需额外基础设施。
  *
  * @author muyi
  * @date 2026/10/25
@@ -67,13 +71,8 @@ public class RedisLockClient implements LockClient {
     /** 锁 TTL */
     private final Duration ttl;
 
-    /**
-     * 实例内重入计数（锁名 → 持有层数）：同实例同名 tryLock 重入递增，unlock 递减——
-     * 归零才真正 DEL。嵌套作用域的内层 finally 不会误放外层的锁
-     * （互斥权威仍在 Redis 的 owner 值，计数只管"本实例还剩几层没出"）。
-     */
-    private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> holds =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    /** 重入持有计数（实例内层数；归零才真正 DEL） */
+    private final ReentrantHoldCounter holds = new ReentrantHoldCounter();
 
     /**
      * 全参构造。
@@ -89,21 +88,19 @@ public class RedisLockClient implements LockClient {
     }
 
     /**
-     * 非阻塞争锁：SET key value NX PX ttl（原子）。
-     * 同一持有者重复调用 = 续期（Lua CAS 原子重设 TTL——GET+EXPIRE 两步在 key 过期瞬间
-     * 会误延他方锁并误判持锁，不可拆）。
+     * 非阻塞争锁（可重入）：SET key value NX PX ttl（原子）；
+     * key 已存在且仍是自己持有则 Lua CAS 原子续期（重入 + 层数递增）。
      *
      * @param lockName 锁名
-     * @return true 获得锁（或续期成功——仍是本方持有）
+     * @return true 获得锁（或重入成功——仍是本方持有）
      */
     @Override
     public boolean tryLock(String lockName) {
         String key = keyPrefix + lockName;
         Boolean ok = redisTemplate.opsForValue().setIfAbsent(key, ownerId, ttl);
         if (Boolean.TRUE.equals(ok)) {
-            holds.computeIfAbsent(lockName, k -> new java.util.concurrent.atomic.AtomicInteger())
-                    .incrementAndGet();
-            log.trace("[starsite-lock] Redis 获得锁: key={}, owner={}", key, ownerId);
+            log.trace("[starsite-lock] Redis 获得锁: key={}, owner={}, 持有层数={}",
+                    key, ownerId, holds.acquire(lockName));
             return true;
         }
         // 已存在：仅当仍是自己持有时原子续期（脚本返回 0 = 已易主/已过期，争锁失败）
@@ -111,16 +108,15 @@ public class RedisLockClient implements LockClient {
                 new DefaultRedisScript<>(RENEW_LUA, Long.class),
                 List.of(key), ownerId, String.valueOf(ttl.toMillis()));
         if (renewed != null && renewed > 0) {
-            holds.computeIfAbsent(lockName, k -> new java.util.concurrent.atomic.AtomicInteger())
-                    .incrementAndGet();
-            log.trace("[starsite-lock] Redis 锁续期: key={}, owner={}", key, ownerId);
+            log.trace("[starsite-lock] Redis 锁续期: key={}, owner={}, 持有层数={}",
+                    key, ownerId, holds.acquire(lockName));
             return true;
         }
         return false;
     }
 
     /**
-     * 释放锁（可重入语义）：持有层数 &gt; 1 时仅递减计数（内层退出外层仍持锁）；
+     * 释放一层持有（可重入）：计数 &gt; 0 时仅递减（外层仍在临界区）；
      * 归零才真正执行 Lua CAS 释放（比较 owner 后 DEL，原子防误删他方锁）。
      *
      * @param lockName 锁名
@@ -128,15 +124,11 @@ public class RedisLockClient implements LockClient {
     @Override
     public void unlock(String lockName) {
         String key = keyPrefix + lockName;
-        java.util.concurrent.atomic.AtomicInteger count = holds.get(lockName);
-        if (count != null) {
-            int remaining = count.decrementAndGet();
-            if (remaining > 0) {
-                // 内层作用域退出：外层仍在临界区，不能 DEL（DEL 了会被他方立即抢走）
-                log.trace("[starsite-lock] Redis 内层释放（外层仍持锁）: key={}, 剩余层数={}", key, remaining);
-                return;
-            }
-            holds.remove(lockName, count);
+        int remaining = holds.release(lockName);
+        if (remaining > 0) {
+            // 内层作用域退出：外层仍在临界区，不能 DEL（DEL 了会被他方立即抢走）
+            log.trace("[starsite-lock] Redis 内层释放（外层仍持锁）: key={}, 剩余层数={}", key, remaining);
+            return;
         }
         try {
             Long result = redisTemplate.execute(
