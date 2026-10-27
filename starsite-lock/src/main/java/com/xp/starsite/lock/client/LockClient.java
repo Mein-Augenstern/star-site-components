@@ -45,6 +45,9 @@ package com.xp.starsite.lock.client;
  */
 public interface LockClient {
 
+    /** 等待获取形态的轮询重试间隔（毫秒）：DB/Redis 无阻塞通知原语，轮询是唯一可移植形态 */
+    long WAIT_RETRY_INTERVAL_MS = 100;
+
     /**
      * 非阻塞争锁（成功即获得持有权并刷新 TTL）。
      * 同一实例重复调用 = 重入（TTL 刷新 + 持有层数递增）；他方持锁中返回 false（不阻塞不等待）。
@@ -53,6 +56,46 @@ public interface LockClient {
      * @return true 获得锁（或重入成功）；false 他方持锁中（跳过本轮）
      */
     boolean tryLock(String lockName);
+
+    /**
+     * 限时等待争锁（支持获取时等待时间）：立即尝试一次，未获得则在等待窗口内轮询重试，
+     * 任一次成功即返回 true；窗口耗尽仍无锁返回 false。
+     * <p>
+     * 语义边界（诚实声明）：
+     * <ul>
+     *   <li>轮询而非通知——DB 行锁 / Redis 都没有"释放即唤醒"的可移植原语，100ms 间隔是
+     *       延迟与负载的折中；无排队公平性（每次重试都是全新原子争锁，先到不一定先得）</li>
+     *   <li>等待期间线程让出（sleep）；被中断时恢复中断标记并返回 false（不吞中断信号）</li>
+     *   <li>DB 形态的 fail-open 生效于每一次尝试：存储异常的那次尝试直接返回 true 退出</li>
+     *   <li>成功后语义与 {@link #tryLock(String)} 完全一致（TTL 刷新 + 重入计数 +1，
+     *       配对一次 unlock）</li>
+     * </ul>
+     *
+     * @param lockName  锁名（全应用唯一）
+     * @param waitMillis 最长等待毫秒（&le;0 退化为单次非阻塞尝试）
+     * @return true 获得锁（或重入成功）；false 等待窗口内未获得
+     */
+    default boolean tryLock(String lockName, long waitMillis) {
+        if (waitMillis <= 0) {
+            return tryLock(lockName);
+        }
+        long deadline = System.currentTimeMillis() + waitMillis;
+        while (true) {
+            if (tryLock(lockName)) {
+                return true;
+            }
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                return false;
+            }
+            try {
+                Thread.sleep(Math.min(remaining, WAIT_RETRY_INTERVAL_MS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+    }
 
     /**
      * 释放一层持有（可重入）：持有层数 &gt; 1 时仅递减（外层仍在临界区，存储不动）；

@@ -3,6 +3,11 @@
 -- 使用方式：DBA 手工执行 / 复制到 Flyway/Liquibase / 组件自动建表(init-ddl=true)
 -- 表规范：id 物理主键（__global__ 种子行固定 id=1 为自举保留值）
 --         + service_name 唯一键（upsert 幂等锚点 + 等值命中）
+--
+-- 索引清单（最小集，租约/审计语句全部点查，无扫描无慢 SQL）：
+--   PRIMARY KEY (id)                          —— 物理主键（审计行由发号器生成；__global__ 固定 1）
+--   UNIQUE KEY uk_sys_sequence_service_name   —— 取号/重置的 WHERE service_name=? 等值命中；
+--                                                recordOwnership 的 ON DUPLICATE KEY 锚点（幂等 upsert）
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS sys_sequence (
@@ -13,7 +18,7 @@ CREATE TABLE IF NOT EXISTS sys_sequence (
   gmt_create   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_sys_sequence_service_name (service_name)
+  UNIQUE KEY uk_sys_sequence_service_name (service_name) COMMENT '租约取号等值命中 + 审计行 upsert 幂等锚点'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='雪花 worker-id 分配序列表';
 
 -- 全局池计数行种子（LAST_INSERT_ID 原子租约的锚点行；id=1 为组件自举保留值）

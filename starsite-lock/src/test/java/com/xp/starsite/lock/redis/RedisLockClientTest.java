@@ -123,6 +123,16 @@ class RedisLockClientTest {
         assertThatCode(() -> client.unlock("job")).doesNotThrowAnyException();
     }
 
+    /** 等待获取（默认方法）：前几轮 SETNX 落空，轮询重试后命中——窗口内获得 */
+    @Test
+    void 等待获取_轮询重试后命中() {
+        // 前两轮落空（他方持有语义），第三轮起 SETNX 命中（他方已释放语义）
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(false, false, true);
+
+        assertThat(client.tryLock("job", 2_000)).isTrue();
+    }
+
     /**
      * 重入（行为版断言，跟随者视角证明）：嵌套两层后内层退出——跟随者仍抢不到（外层持锁中，
      * 内层退出没有 DEL）；最外层退出后跟随者立即抢到（此刻才真正释放）。

@@ -40,6 +40,11 @@
 
     <!-- 表规范：id 物理主键（__global__ 种子行固定 id=1）+ service_name 唯一键
          （recordOwnership 的 ON DUPLICATE KEY 锚点 = 幂等 upsert；取号/重置按 service_name 等值命中） -->
+    <!-- 索引清单（最小集；生产 DDL 见 sql/mysql/sys_sequence_ddl.sql）：
+         PRIMARY KEY (id)                                物理主键（__global__ 行固定 id=1）
+         uk_${table}_service_name (service_name)         取号/重置等值命中；
+                                                          recordOwnership 的 ON DUPLICATE KEY
+                                                          幂等锚点（同服务重启不膨胀审计行） -->
     <update id="createTable">
         CREATE TABLE IF NOT EXISTS ${table} (
             id           BIGINT      NOT NULL,

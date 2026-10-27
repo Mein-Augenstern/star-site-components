@@ -99,9 +99,9 @@ public interface AsyncCommandSql {
                       gmt_create  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
                       gmt_modified DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
                       PRIMARY KEY (id),
-                      KEY idx_status_next (status, next_run_at),
-                      KEY idx_type_biz (cmd_type, biz_key),
-                      KEY idx_claim_token (claim_token)
+                      KEY idx_status_next (status, next_run_at) COMMENT '认领查询：按状态+到期扫',
+                      KEY idx_type_biz (cmd_type, biz_key) COMMENT '幂等检查：同类型同业务键计数',
+                      KEY idx_claim_token (claim_token) COMMENT '认领取回：按令牌取本批（非唯一——一批共用令牌）'
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='异步命令'""";
         }
 

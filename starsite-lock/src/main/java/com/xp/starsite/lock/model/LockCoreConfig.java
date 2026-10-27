@@ -25,8 +25,8 @@ package com.xp.starsite.lock.model;
  */
 public class LockCoreConfig {
 
-    /** 锁表名（DB 模式）。 */
-    private String tableName = "component_schedule_lock";
+    /** 锁表名（DB 模式）。通用分布式锁——不绑定调度场景（历史默认 component_schedule_lock 已更名） */
+    private String tableName = "starsite_lock";
 
     /** 持锁者标识（starter 默认取 spring.application.name@pid）。 */
     private String ownerId = "";

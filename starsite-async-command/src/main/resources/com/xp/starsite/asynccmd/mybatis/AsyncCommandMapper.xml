@@ -82,6 +82,12 @@
 
     <!-- 索引与 JDBC 方言版对齐：认领(status,next_run_at) / 幂等(cmd_type,biz_key) /
          认领取回(claim_token) —— 高频路径全索引命中 -->
+    <!-- 索引清单（高频路径全命中；生产 DDL 见 sql/mysql/async_command_ddl.sql）：
+         PRIMARY KEY (id)                        物理主键（sequence 发号；claimById/回写/详情点查）
+         idx_status_next (status, next_run_at)   认领查询：status='PENDING' AND next_run_at<=?
+                                                 完整覆盖（含积压计数 index-only COUNT）
+         idx_type_biz (cmd_type, biz_key)        幂等检查：同类型同业务键未完成计数
+         idx_claim_token (claim_token)           认领取回：按令牌取本批命令（非唯一——一批共用令牌） -->
     <update id="createTable">
         CREATE TABLE IF NOT EXISTS ${table} (
             id           BIGINT NOT NULL PRIMARY KEY,

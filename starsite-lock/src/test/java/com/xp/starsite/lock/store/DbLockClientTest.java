@@ -49,7 +49,7 @@ class DbLockClientTest {
                 .setType(EmbeddedDatabaseType.H2)
                 .build();
         try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
-            st.execute("CREATE TABLE IF NOT EXISTS component_schedule_lock ("
+            st.execute("CREATE TABLE IF NOT EXISTS starsite_lock ("
                     + "id BIGINT NOT NULL PRIMARY KEY, "
                     + "lock_name VARCHAR(64) NOT NULL, "
                     + "locked_by VARCHAR(128), "
@@ -85,7 +85,7 @@ class DbLockClientTest {
      */
     private static com.xp.starsite.lock.store.LockTableProvisioner provisioner() throws Exception {
         return new com.xp.starsite.lock.store.LockTableProvisioner(
-                mapper(), "component_schedule_lock", TEST_ID_SEQ::incrementAndGet);
+                mapper(), "starsite_lock", TEST_ID_SEQ::incrementAndGet);
     }
 
     /**
@@ -168,11 +168,45 @@ class DbLockClientTest {
 
         // 模拟外部删行（运维误删/表重建）——此刻实例内 seeded 记忆已陈旧
         try (Connection conn = dataSource.getConnection(); java.sql.Statement st = conn.createStatement()) {
-            st.execute("DELETE FROM component_schedule_lock WHERE lock_name = 'heal-lock'");
+            st.execute("DELETE FROM starsite_lock WHERE lock_name = 'heal-lock'");
         }
 
         // 修复前：seeded 陈旧 → 跳过播种 → UPDATE 0 行 → 永远 false（需重启才能恢复）
         assertThat(lock.tryLock("heal-lock")).isTrue();
+    }
+
+    /** 等待获取：他方持锁，等待窗口内异步释放——获得并返回（且未耗满窗口） */
+    @Test
+    void 等待获取_他方释放后获得() throws Exception {
+        DbLockClient leader = lock("leader");
+        DbLockClient follower = lock("follower");
+        assertThat(leader.tryLock("wait-lock")).isTrue();
+
+        Thread releaser = new Thread(() -> {
+            try {
+                Thread.sleep(200);   // 200ms 后释放（远小于 5s 等待窗口）
+            } catch (InterruptedException ignore) {
+                Thread.currentThread().interrupt();
+            }
+            leader.unlock("wait-lock");
+        });
+        releaser.start();
+        long begin = System.currentTimeMillis();
+        assertThat(follower.tryLock("wait-lock", 5_000)).isTrue();
+        assertThat(System.currentTimeMillis() - begin).isLessThan(4_000); // 轮询及时感知释放
+        releaser.join(1_000);
+    }
+
+    /** 等待获取：他方长持不放，窗口耗尽返回 false（等待时长真实生效） */
+    @Test
+    void 等待获取_窗口耗尽返回false() throws Exception {
+        DbLockClient leader = lock("leader");
+        DbLockClient follower = lock("follower");
+        assertThat(leader.tryLock("hold-lock")).isTrue();   // TTL 30s，窗口内不会自动过期
+
+        long begin = System.currentTimeMillis();
+        assertThat(follower.tryLock("hold-lock", 300)).isFalse();
+        assertThat(System.currentTimeMillis() - begin).isGreaterThanOrEqualTo(250); // 真等了
     }
 
     /** 多余释放（计数已空/从未持有）防御：不抛异常，直释放兜底无副作用 */
@@ -199,8 +233,8 @@ class DbLockClientTest {
                 });
         com.xp.starsite.lock.store.LockTableProvisioner countingProvisioner =
                 new com.xp.starsite.lock.store.LockTableProvisioner(
-                        counting, "component_schedule_lock", TEST_ID_SEQ::incrementAndGet);
-        DbLockClient lock = new DbLockClient(counting, countingProvisioner, "component_schedule_lock",
+                        counting, "starsite_lock", TEST_ID_SEQ::incrementAndGet);
+        DbLockClient lock = new DbLockClient(counting, countingProvisioner, "starsite_lock",
                 "sower", 30_000);
 
         assertThat(lock.tryLock("seed-once")).isTrue();
@@ -218,7 +252,7 @@ class DbLockClientTest {
         int uniqueIndexKinds = 0;
         String lastName = null;
         try (var rs = dataSource.getConnection().getMetaData()
-                .getIndexInfo(null, null, "COMPONENT_SCHEDULE_LOCK", false, false)) {
+                .getIndexInfo(null, null, "STARSITE_LOCK", false, false)) {
             while (rs.next()) {
                 if (!rs.getBoolean("NON_UNIQUE")) {
                     String idx = rs.getString("INDEX_NAME");
@@ -237,9 +271,9 @@ class DbLockClientTest {
     @Test
     void TTL过期_他方接管() throws Exception {
         MutableClock clock = new MutableClock(java.time.Instant.now());
-        DbLockClient leader = new DbLockClient(mapper(), provisioner(), "component_schedule_lock",
+        DbLockClient leader = new DbLockClient(mapper(), provisioner(), "starsite_lock",
                 "leader", 30_000, clock);
-        DbLockClient follower = new DbLockClient(mapper(), provisioner(), "component_schedule_lock",
+        DbLockClient follower = new DbLockClient(mapper(), provisioner(), "starsite_lock",
                 "follower", 30_000, clock);
 
         assertThat(leader.tryLock("ttl-lock")).isTrue();
@@ -261,7 +295,7 @@ class DbLockClientTest {
             pool[i] = new Thread(() -> {
                 try {
                     // 每线程独立 client（SqlSession 非线程安全，不跨线程共享）
-                    DbLockClient racer = new DbLockClient(mapper(), provisioner(), "component_schedule_lock",
+                    DbLockClient racer = new DbLockClient(mapper(), provisioner(), "starsite_lock",
                             owner, 30_000);
                     startGate.await(); // 同起跑线：最大化竞争窗口
                     if (racer.tryLock("race-lock")) {
@@ -289,8 +323,8 @@ class DbLockClientTest {
                 (proxy, method, args) -> { throw new IllegalStateException("db down"); });
         com.xp.starsite.lock.store.LockTableProvisioner boomProvisioner =
                 new com.xp.starsite.lock.store.LockTableProvisioner(
-                        boom, "component_schedule_lock", TEST_ID_SEQ::incrementAndGet);
-        DbLockClient lock = new DbLockClient(boom, boomProvisioner, "component_schedule_lock",
+                        boom, "starsite_lock", TEST_ID_SEQ::incrementAndGet);
+        DbLockClient lock = new DbLockClient(boom, boomProvisioner, "starsite_lock",
                 "x", 30_000);
         assertThat(lock.tryLock("any-lock")).isTrue();
     }

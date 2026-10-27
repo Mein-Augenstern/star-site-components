@@ -9,6 +9,10 @@
 -->
 <mapper namespace="com.xp.starsite.lock.mybatis.ScheduleLockMapper">
 
+    <!-- 索引清单（最小集；生产 DDL 与注释见 sql/mysql/starsite_lock_ddl.sql）：
+         PRIMARY KEY (id)                        物理主键（种子行 id 由 sequence 组件发号）
+         uk_${tableName}_lock_name (lock_name)   互斥锚点——tryAcquire/release/findHolder 的
+                                                 WHERE 全点查此键；并发播种的冲突判定也依赖它 -->
     <update id="createTable">
         CREATE TABLE IF NOT EXISTS ${tableName} (
             id           BIGINT       NOT NULL PRIMARY KEY,

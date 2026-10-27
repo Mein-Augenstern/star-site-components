@@ -31,7 +31,7 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 
 ## 组件表规范（三组件统一铁律）
 
-所有组件表（`sys_sequence` / `async_command` / `component_schedule_lock`）遵守同一套建表标准：
+所有组件表（`sys_sequence` / `async_command` / `starsite_lock`）遵守同一套建表标准：
 
 - **物理主键 `id` 由 sequence 组件发号**（insert 前预生成显式写入，**禁 AUTO_INCREMENT**；`sys_sequence` 的 `__global__` 种子行固定 `id=1` 为自举保留）
 - **标准时间列 `gmt_create` / `gmt_modified`**（DEFAULT CURRENT_TIMESTAMP，modified 带 ON UPDATE）
@@ -287,7 +287,7 @@ starsite:
   lock:
     mode: db              # 默认；需 MyBatis 环境 + DataSource + sequence starter（锁行主键发号）
     # mode: redis         # 需 StringRedisTemplate
-    table-name: component_schedule_lock
+    table-name: starsite_lock
     ttl-ms: 30000         # 持锁 TTL（过期即让位——锁持有者崩溃后最长等一个 TTL）
     # owner-id:           # 缺省回填 应用名@pid
     # redis-key-prefix: starsite:lock:
@@ -299,7 +299,8 @@ class NightlyJob {
     private final LockClient lockClient;
 
     void run() {
-        if (lockClient.tryLock("nightly-settle")) {     // 非阻塞；自己持锁时=续期
+        if (lockClient.tryLock("nightly-settle", 3_000)) {  // 限时等待：3s 内他方释放则获得；0=非阻塞
+
             try {
                 // 只有持锁实例进入（TTL 内其余实例 tryLock 返回 false）
             } finally {
@@ -311,6 +312,7 @@ class NightlyJob {
 ```
 
 - **DB 形态**：`lock_name` 唯一键单行 UPDATE 原子抢占（空/过期/自己持锁三种命中）；种子播种有实例内记忆（性能提示而非正确性依据）——未抢到时校验锁行存活性，外部删行自动重播种重试自愈，无需重启
+- **限时等待获取**：`tryLock(name, waitMillis)`——立即尝试 + 窗口内轮询重试（100ms 间隔；无公平性，DB fail-open 逐次生效；中断恢复标记返回 false）
 - **可重入（ownerId/实例粒度）**：同实例同名 tryLock 重入=续期+层数递增，unlock 递减——归零才真正释放，嵌套作用域的内层 finally 不会误放外层的锁
 - **SQL 全索引命中**：锁表仅 PK(id)+uk(lock_name) 最小索引集，争锁/释放/查询全部 lock_name 点查，无扫描无慢 SQL（索引完备性有单测断言）
 - **Redis 形态**：`SET key value NX PX ttl` + 校验 value 的 Lua 原子释放（防误删他方锁）
@@ -322,7 +324,7 @@ class NightlyJob {
 |---|---|---|
 | `enabled` | true | 总开关 |
 | `mode` | db | db / redis |
-| `table-name` | component_schedule_lock | db 锁表 |
+| `table-name` | starsite_lock | db 锁表（通用互斥，不绑定调度场景） |
 | `ttl-ms` | 30000 | 持锁 TTL |
 | `owner-id` | 应用名@pid | 持锁者标识 |
 | `redis-key-prefix` | starsite:lock: | redis 键前缀 |

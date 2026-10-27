@@ -30,8 +30,9 @@ CREATE TABLE IF NOT EXISTS async_command (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='异步命令表';
 
 -- LEADER 调度模式的分布式锁表（schedule-mode=leader 时使用；competing/external 模式不需要）
+-- 索引：PRIMARY KEY (id) 物理主键（sequence 发号）；uk_starsite_lock_name 互斥锚点（争锁/释放/查询全点查）
 -- 表规范：id 物理主键（sequence 生成）+ lock_name 唯一键（互斥锚点）+ 标准时间列
-CREATE TABLE IF NOT EXISTS component_schedule_lock (
+CREATE TABLE IF NOT EXISTS starsite_lock (
   id           BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
   lock_name    VARCHAR(64)  NOT NULL COMMENT '锁名（组件内固定，如 async-cmd-scheduler）',
   locked_by    VARCHAR(128) DEFAULT NULL COMMENT '当前持锁者标识(服务名@pid)',
@@ -39,5 +40,5 @@ CREATE TABLE IF NOT EXISTS component_schedule_lock (
   gmt_create   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   gmt_modified DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_schedule_lock_name (lock_name)
+  UNIQUE KEY uk_starsite_lock_name (lock_name) COMMENT '互斥锚点：争锁/释放/查询全部点查此键'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='组件分布式调度锁表';
