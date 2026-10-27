@@ -84,9 +84,13 @@ public final class LockTableProvisioner {
     }
 
     /**
-     * 播种锁行（每锁名一次）：行不存在则插入（id 由 sequence 组件生成）。
+     * 播种锁行（每锁名一次，<b>性能提示而非正确性依据</b>）：行不存在则插入（id 由 sequence 生成）。
      * 已播种过直接返回；播种 SQL 异常吞掉——调用方（争锁路径）紧随的 UPDATE
      * 会以同样方式失败并走各自的容错语义。
+     * <p>
+     * 分布式语义：本记忆只是"省一条播种 SQL"的提示——正确性不依赖它。
+     * 行被外部删除/表重建导致记忆陈旧时，由 {@link DbLockClient} 的未抢到路径
+     * （findHolder 校验 + {@link #unseed} + 重播种重试）自愈，无需重启。
      *
      * @param lockName 锁名
      */
@@ -101,5 +105,27 @@ public final class LockTableProvisioner {
             log.debug("[starsite-lock] 种子行已存在或播种失败（继续争锁）: lock={}, err={}",
                     lockName, e.getMessage());
         }
+    }
+
+    /**
+     * 作废某锁名的播种记忆（自愈路径专用）：行丢失被证实后清除陈旧提示，
+     * 使下次 {@link #seedIfNeeded} 重新播种。
+     *
+     * @param lockName 锁名
+     */
+    public void unseed(String lockName) {
+        seeded.remove(lockName);
+    }
+
+    /**
+     * 锁行是否存在于表中（自愈路径的存活性校验；SELECT locked_by 点查 uk(lock_name)）。
+     * 注意返回 null 有二义（行不存在 / 行存在但无人持有）——调用方以幂等重播种 + 重试收敛，
+     * 不需要区分。
+     *
+     * @param lockName 锁名
+     * @return 当前持有者标识；行不存在或无人持有返回 null
+     */
+    public String findHolder(String lockName) {
+        return mapper.findHolder(tableName, lockName);
     }
 }

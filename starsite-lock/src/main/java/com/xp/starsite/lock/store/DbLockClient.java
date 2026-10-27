@@ -108,9 +108,14 @@ public class DbLockClient implements LockClient {
     }
 
     /**
-     * 非阻塞争锁（可重入）：存储就绪器按需播种锁行，随后单条 UPDATE 原子抢占
-     * （locked_by 为空/已过期/是自己三种命中）；成功或重入递增持有层数。
-     * 争锁 SQL 异常时 fail-open（返回 true 继续——宁可竞争不停摆，上层有幂等兜底）。
+     * 非阻塞争锁（可重入，分布式安全）：播种（性能提示级缓存）→ 单条 UPDATE 原子抢占
+     * （locked_by 为空/已过期/是自己三种命中）；未抢到时校验锁行存活性——
+     * 行丢失（外部删行/表重建导致播种记忆陈旧）自动重播种并重试一次，无需重启自愈。
+     * 成功或重入递增持有层数；争锁 SQL 异常 fail-open。
+     * <p>
+     * 正确性不依赖任何 Pod 本地状态：播种缓存只影响 SQL 条数（持有路径 1 条，
+     * 竞争路径 2 条），行丢失经"findHolder 校验 + 重播种 + 重试"收敛——
+     * 多 Pod 并发自愈时重播种幂等、重试仍走原子 UPDATE，互斥不破。
      * <p>
      * 重入粒度为 ownerId（实例级）：同实例嵌套作用域安全；跨实例同 ownerId 配置视为续期竞争。
      *
@@ -121,21 +126,41 @@ public class DbLockClient implements LockClient {
     public boolean tryLock(String lockName) {
         try {
             provisioner.seedIfNeeded(lockName);
-            // 单次取钟：until 与 now 同基准（两次 now() 会有毫秒级漂移，到期判定失真）
-            LocalDateTime now = LocalDateTime.now(clock);
-            LocalDateTime until = now.plusNanos(ttlMs * 1_000_000);
-            boolean acquired = mapper.tryAcquire(tableName, lockName,
-                    ownerId, until, now) > 0;
-            if (acquired) {
-                log.trace("[starsite-lock] 获得锁: lock={}, owner={}, 持有层数={}",
-                        lockName, ownerId, holds.acquire(lockName));
+            if (acquireOnce(lockName)) {
+                return true;
             }
-            return acquired;
+            // 未抢到：行丢失自愈。findHolder==null 二义（行不存在/无人持有），
+            // 幂等重播种 + 重试收敛两种情形——无人持有时重试即抢到，行不存在时补行再抢
+            if (provisioner.findHolder(lockName) == null) {
+                provisioner.unseed(lockName);
+                provisioner.seedIfNeeded(lockName);
+                return acquireOnce(lockName);
+            }
+            return false;
         } catch (RuntimeException e) {
             // 锁不可用不阻断调用方（fail-open——宁可多实例竞争也别停摆）
             log.warn("[starsite-lock] 争锁异常（fail-open 继续）: lock={}, err={}", lockName, e.getMessage());
             return true;
         }
+    }
+
+    /**
+     * 单次原子抢占（含取钟与层数登记）。
+     *
+     * @param lockName 锁名
+     * @return true 抢到或重入（层数已 +1）
+     */
+    private boolean acquireOnce(String lockName) {
+        // 单次取钟：until 与 now 同基准（两次 now() 会有毫秒级漂移，到期判定失真）
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime until = now.plusNanos(ttlMs * 1_000_000);
+        boolean acquired = mapper.tryAcquire(tableName, lockName,
+                ownerId, until, now) > 0;
+        if (acquired) {
+            log.trace("[starsite-lock] 获得锁: lock={}, owner={}, 持有层数={}",
+                    lockName, ownerId, holds.acquire(lockName));
+        }
+        return acquired;
     }
 
     /**

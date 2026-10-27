@@ -159,6 +159,22 @@ class DbLockClientTest {
         assertThat(follower.tryLock("reentrant-lock")).isTrue();
     }
 
+    /** 行丢失自愈（分布式正确性）：外部删行后播种记忆陈旧，tryLock 仍能自愈重获——正确性不依赖 Pod 本地状态 */
+    @Test
+    void 行丢失自愈_播种记忆陈旧不阻断() throws Exception {
+        DbLockClient lock = lock("healer");
+        assertThat(lock.tryLock("heal-lock")).isTrue();
+        lock.unlock("heal-lock");
+
+        // 模拟外部删行（运维误删/表重建）——此刻实例内 seeded 记忆已陈旧
+        try (Connection conn = dataSource.getConnection(); java.sql.Statement st = conn.createStatement()) {
+            st.execute("DELETE FROM component_schedule_lock WHERE lock_name = 'heal-lock'");
+        }
+
+        // 修复前：seeded 陈旧 → 跳过播种 → UPDATE 0 行 → 永远 false（需重启才能恢复）
+        assertThat(lock.tryLock("heal-lock")).isTrue();
+    }
+
     /** 多余释放（计数已空/从未持有）防御：不抛异常，直释放兜底无副作用 */
     @Test
     void 多余释放_防御不报错() throws Exception {

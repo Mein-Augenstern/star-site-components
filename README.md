@@ -310,7 +310,7 @@ class NightlyJob {
 }
 ```
 
-- **DB 形态**：`lock_name` 唯一键单行 UPDATE 原子抢占（空/过期/自己持锁三种命中）；种子行每锁名实例内只插一次（稳态下 tryLock 仅 1 条点查 SQL）
+- **DB 形态**：`lock_name` 唯一键单行 UPDATE 原子抢占（空/过期/自己持锁三种命中）；种子播种有实例内记忆（性能提示而非正确性依据）——未抢到时校验锁行存活性，外部删行自动重播种重试自愈，无需重启
 - **可重入（ownerId/实例粒度）**：同实例同名 tryLock 重入=续期+层数递增，unlock 递减——归零才真正释放，嵌套作用域的内层 finally 不会误放外层的锁
 - **SQL 全索引命中**：锁表仅 PK(id)+uk(lock_name) 最小索引集，争锁/释放/查询全部 lock_name 点查，无扫描无慢 SQL（索引完备性有单测断言）
 - **Redis 形态**：`SET key value NX PX ttl` + 校验 value 的 Lua 原子释放（防误删他方锁）

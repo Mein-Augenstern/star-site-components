@@ -111,6 +111,12 @@ public class AsyncCommandScheduler {
     private volatile ScheduleMode scheduleMode = ScheduleMode.COMPETING;
 
     /** leader 是否持有锁（stop 时判断是否要主动 unlock） */
+    /**
+     * LEADER 模式"本实例当前持锁"标记（Pod 本地簿记，非分布式权威）：
+     * 仅用于 stop() 时决定要不要释放调度锁；选主权威在 DB 锁行（TTL 过期自动让位），
+     * 且即使簿记失真导致双实例同时 tick，命令级互斥由令牌认领的原子 UPDATE 兜底——
+     * 分布式正确性不依赖此标记。
+     */
     private volatile boolean holdingLock = false;
 
     /**
