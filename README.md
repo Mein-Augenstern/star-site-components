@@ -328,6 +328,8 @@ class NightlyJob {
 
 ## 构建与测试
 
+当前全量 **98 项单测**（6 模块全绿；数字随测试演进，以 `mvn verify` 汇总行实时值为准——本行为对外镜像面的权威声明口径）。
+
 ```bash
 mvn verify          # 规范检查 + 单测全量（唯一性/回拨/回绕/重试/死信/幂等/认领互斥/悬挂回收/装配/生命周期/锁互斥）
 mvn verify -Pit     # 真库 IT（Testcontainers MySQL）：LAST_INSERT_ID 原子租约、令牌认领并发、悬挂回收
