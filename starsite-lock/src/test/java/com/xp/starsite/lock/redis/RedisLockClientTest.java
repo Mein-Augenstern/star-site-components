@@ -122,4 +122,32 @@ class RedisLockClientTest {
 
         assertThatCode(() -> client.unlock("job")).doesNotThrowAnyException();
     }
+
+    /**
+     * 重入（行为版断言，跟随者视角证明）：嵌套两层后内层退出——跟随者仍抢不到（外层持锁中，
+     * 内层退出没有 DEL）；最外层退出后跟随者立即抢到（此刻才真正释放）。
+     */
+    @Test
+    void 重入_内层退出不放锁_最外层退出才放() {
+        LockCoreConfig followerCfg = new LockCoreConfig();
+        followerCfg.setOwnerId("inst-b");
+        RedisLockClient follower = new RedisLockClient(redis, followerCfg);
+
+        // 顺序：外层 SETNX 命中 → 内层 SETNX 落空 → 跟随者 SETNX 落空 → 最外层释放后跟随者命中
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(true, false, false, true);
+        // 续期脚本（owner+ttl 两参形态）：内层重入命中 1；跟随者试探落空 0（key 仍归 leader）
+        when(redis.execute(any(DefaultRedisScript.class), anyList(), any(), any()))
+                .thenReturn(1L, 0L);
+        // 释放脚本（owner 单参形态）：命中 1
+        when(redis.execute(any(DefaultRedisScript.class), anyList(), any())).thenReturn(1L);
+
+        assertThat(client.tryLock("job")).isTrue();   // 外层获得（层数 1）
+        assertThat(client.tryLock("job")).isTrue();   // 内层重入（层数 2）
+        client.unlock("job");                          // 内层退出——不 DEL
+        assertThat(follower.tryLock("job")).isFalse(); // 外层仍持锁，跟随者进不来
+
+        client.unlock("job");                          // 最外层退出——真正 CAS 释放
+        assertThat(follower.tryLock("job")).isTrue();  // 跟随者立即接管
+    }
 }

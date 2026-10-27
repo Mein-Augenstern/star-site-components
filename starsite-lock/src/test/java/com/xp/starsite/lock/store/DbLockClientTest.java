@@ -135,6 +135,76 @@ class DbLockClientTest {
         assertThat(lock.tryLock("lock-b")).isTrue(); // 不同锁名可同时持有
     }
 
+    /** 重入：嵌套两层 tryLock，内层 unlock 只递减计数——外层仍持锁，他方抢不走 */
+    @Test
+    void 重入_内层释放不误放外层() throws Exception {
+        DbLockClient leader = lock("leader");
+        DbLockClient follower = lock("follower");
+        assertThat(leader.tryLock("reentrant-lock")).isTrue();
+        assertThat(leader.tryLock("reentrant-lock")).isTrue(); // 重入 = 续期 + 层数 2
+
+        leader.unlock("reentrant-lock"); // 内层退出：层数 2→1，DB 行不动
+        assertThat(follower.tryLock("reentrant-lock")).isFalse(); // 外层仍持锁
+
+        leader.unlock("reentrant-lock"); // 层数归零：真正释放
+        assertThat(follower.tryLock("reentrant-lock")).isTrue();
+    }
+
+    /** 多余释放（计数已空/从未持有）防御：不抛异常，直释放兜底无副作用 */
+    @Test
+    void 多余释放_防御不报错() throws Exception {
+        DbLockClient lock = lock("leader");
+        lock.unlock("never-locked"); // holds 无计数 → 直接 DB 释放（rows=0，静默）
+        assertThat(lock.tryLock("fresh-lock")).isTrue(); // 防御路径不影响后续正常锁
+    }
+
+    /** 种子只插一次：同锁名多次 tryLock，seedLockRow SQL 仅首次执行（稳态 SQL 2→1） */
+    @Test
+    void 种子幂等_SQL只执行一次() throws Exception {
+        ScheduleLockMapper real = mapper();
+        java.util.concurrent.atomic.AtomicInteger seedCalls = new java.util.concurrent.atomic.AtomicInteger();
+        ScheduleLockMapper counting = (ScheduleLockMapper) java.lang.reflect.Proxy.newProxyInstance(
+                ScheduleLockMapper.class.getClassLoader(),
+                new Class<?>[]{ScheduleLockMapper.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("seedLockRow")) {
+                        seedCalls.incrementAndGet();
+                    }
+                    return method.invoke(real, args);
+                });
+        DbLockClient lock = new DbLockClient(counting, "component_schedule_lock",
+                "sower", 30_000, TEST_ID_SEQ::incrementAndGet);
+
+        assertThat(lock.tryLock("seed-once")).isTrue();
+        assertThat(lock.tryLock("seed-once")).isTrue(); // 重入
+        lock.unlock("seed-once");                        // 内层退出
+        lock.unlock("seed-once");                        // 归零释放
+        assertThat(lock.tryLock("seed-once")).isTrue();  // 重新争锁（不重播种）
+        assertThat(seedCalls.get()).isEqualTo(1); // 三轮争锁只有首轮播种
+    }
+
+    /** 索引完备性：锁表必须有主键唯一索引 + lock_name 唯一索引（互斥权威与防注入锚点） */
+    @Test
+    void 索引完备性_PK与唯一键齐() throws Exception {
+        // 标准 JDBC 元数据（不依赖 H2 方言视图）：H2 大写化表名
+        int uniqueIndexKinds = 0;
+        String lastName = null;
+        try (var rs = dataSource.getConnection().getMetaData()
+                .getIndexInfo(null, null, "COMPONENT_SCHEDULE_LOCK", false, false)) {
+            while (rs.next()) {
+                if (!rs.getBoolean("NON_UNIQUE")) {
+                    String idx = rs.getString("INDEX_NAME");
+                    if (!idx.equals(lastName)) {   // 同一索引多列只计一次
+                        uniqueIndexKinds++;
+                        lastName = idx;
+                    }
+                }
+            }
+        }
+        // PK(id) + uk_lock_name 两类唯一索引都必须在
+        assertThat(uniqueIndexKinds).isEqualTo(2);
+    }
+
     /** TTL 过期他方接管：持锁后推进假时钟越过 TTL，follower 抢占成功（崩溃实例最长霸锁一个 TTL） */
     @Test
     void TTL过期_他方接管() throws Exception {

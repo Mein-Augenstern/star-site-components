@@ -59,6 +59,17 @@ public class DbLockClient implements LockClient {
     private final java.time.Clock clock;
 
     /**
+     * 实例内重入计数（锁名 → 持有层数）：同实例同名 tryLock 重入递增，
+     * unlock 递减——归零才真正释放 DB 行。嵌套作用域的内层 finally 不会误放外层的锁
+     * （互斥权威仍在 DB 的 owner 行，计数只管"本实例还剩几层没出"）。
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger> holds =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 已播种的锁名（实例内记忆）：种子行每个锁名只需插一次，稳态下 tryLock 的 SQL 从 2 条降到 1 条 */
+    private final java.util.Set<String> seeded = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
      * 全参构造（系统时钟）。
      *
      * @param mapper    MyBatis Mapper
@@ -108,11 +119,14 @@ public class DbLockClient implements LockClient {
     }
 
     /**
-     * 非阻塞争锁：先确保锁行存在（INSERT ... WHERE NOT EXISTS 只插不覆盖），再原子抢占。
+     * 非阻塞争锁（可重入）：先确保锁行存在（每个锁名实例内只播种一次），再原子抢占；
+     * 本实例已持有时重入=续期并递增计数。
      * 争锁 SQL 异常时 fail-open（返回 true 继续——宁可竞争不停摆，上层有幂等兜底）。
+     * <p>
+     * 重入粒度为 ownerId（实例级）：同实例嵌套作用域安全；跨实例同 ownerId 配置视为续期竞争。
      *
      * @param lockName 锁名
-     * @return true 获得锁；false 他方持锁中
+     * @return true 获得锁（或重入成功）；false 他方持锁中
      */
     @Override
     public boolean tryLock(String lockName) {
@@ -125,7 +139,10 @@ public class DbLockClient implements LockClient {
             boolean acquired = mapper.tryAcquire(tableName, lockName,
                     ownerId, until, now) > 0;
             if (acquired) {
-                log.trace("[starsite-lock] 获得锁: lock={}, owner={}", lockName, ownerId);
+                holds.computeIfAbsent(lockName, k -> new java.util.concurrent.atomic.AtomicInteger())
+                        .incrementAndGet();
+                log.trace("[starsite-lock] 获得锁: lock={}, owner={}, 持有层数={}",
+                        lockName, ownerId, holds.get(lockName));
             }
             return acquired;
         } catch (RuntimeException e) {
@@ -136,16 +153,24 @@ public class DbLockClient implements LockClient {
     }
 
     /**
-     * 补种子行（尽力而为）：并发首抢时多实例同时播种，输家撞 lock_name 唯一键——
+     * 补种子行（尽力而为 + 每锁名一次）：并发首抢时多实例同时播种，输家撞 lock_name 唯一键——
      * 这是正常并发结局而非故障（行已存在正是期望终态），吞掉继续争锁；
      * 真实库故障也会在此抛出，但紧随的 tryAcquire 会以同样方式失败并走 fail-open，语义不变。
      * 互斥权威只在 tryAcquire 的单条 UPDATE——种子不参与判定。
+     * <p>
+     * 性能：种子 INSERT 只在该锁名首次争锁时执行（实例内记忆），稳态下每次 tryLock 仅
+     * 1 条点查 UPDATE（uk_lock_name 命中）。极端运维场景（锁行被外部删除）该锁名将不可
+     * 抢占直至重启——以可观测性换 50% 的锁 SQL 削减。
      *
      * @param lockName 锁名
      */
     private void seedLockRowQuietly(String lockName) {
+        if (seeded.contains(lockName)) {
+            return;
+        }
         try {
             mapper.seedLockRow(tableName, idGenerator.getAsLong(), lockName);
+            seeded.add(lockName);
         } catch (RuntimeException e) {
             log.debug("[starsite-lock] 种子行已存在或播种失败（继续争锁）: lock={}, err={}",
                     lockName, e.getMessage());
@@ -153,12 +178,24 @@ public class DbLockClient implements LockClient {
     }
 
     /**
-     * 释放锁（仅持锁者有效）。
+     * 释放锁（可重入语义）：持有层数 &gt; 1 时仅递减计数（内层作用域退出，外层仍持锁，
+     * DB 行不动）；归零（或本实例无计数——防御直释放）才真正释放 DB 行（仅持锁者有效）。
+     * 多释放（计数已空再 unlock）不报错——按编程错误防御处理，直接尝试 DB 释放兜底。
      *
      * @param lockName 锁名
      */
     @Override
     public void unlock(String lockName) {
+        java.util.concurrent.atomic.AtomicInteger count = holds.get(lockName);
+        if (count != null) {
+            int remaining = count.decrementAndGet();
+            if (remaining > 0) {
+                // 内层作用域退出：外层仍在临界区，锁不能放（放到 DB 会被他方立即抢走）
+                log.trace("[starsite-lock] 内层释放（外层仍持锁）: lock={}, 剩余层数={}", lockName, remaining);
+                return;
+            }
+            holds.remove(lockName, count);
+        }
         try {
             int rows = mapper.release(tableName, lockName, ownerId);
             if (rows > 0) {
