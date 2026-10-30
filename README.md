@@ -19,7 +19,7 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 ```
 
 - JDK 21 · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
-- 当前全量 **120 项单测**（6 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
+- 当前全量 **123 项单测**（6 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 
 ## 快速开始
 

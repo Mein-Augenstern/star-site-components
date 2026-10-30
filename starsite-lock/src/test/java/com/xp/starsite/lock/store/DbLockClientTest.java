@@ -46,6 +46,7 @@ class DbLockClientTest {
     @BeforeAll
     static void setup() throws Exception {
         dataSource = new EmbeddedDatabaseBuilder()
+                .setName("lock-client-test")   // 显式隔离：多测试类共享 JVM 时 H2 默认同名会互相污染
                 .setType(EmbeddedDatabaseType.H2)
                 .build();
         try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {

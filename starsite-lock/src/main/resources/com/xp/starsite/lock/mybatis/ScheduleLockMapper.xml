@@ -64,4 +64,30 @@
     <select id="findHolder" resultType="string">
         SELECT locked_by FROM ${tableName} WHERE lock_name = #{lockName}
     </select>
+
+    <!-- ===== 运维侧门（LockAdminClient 专用；与正式互斥语义隔离） ===== -->
+
+    <!-- 强制释放：无视持有者与计数，清空全部持有字段（运维确认卡死后使用） -->
+    <update id="forceRelease">
+        UPDATE ${tableName}
+           SET locked_by = NULL, locked_until = NULL, hold_count = 0, gmt_modified = NOW()
+         WHERE lock_name = #{lockName}
+    </update>
+
+    <!-- 全部持锁（诊断/巡检；locked_by IS NOT NULL 过滤未持有行） -->
+    <select id="selectHeldLocks" resultType="com.xp.starsite.lock.client.LockAdminClient$LockInfo">
+        SELECT lock_name AS lockName, locked_by AS ownerId, hold_count AS holdCount,
+               locked_until AS lockedUntil, gmt_modified AS gmtModified
+        FROM ${tableName}
+        WHERE locked_by IS NOT NULL
+        ORDER BY lock_name
+    </select>
+
+    <!-- 单锁状态快照（含未持有行——诊断需要看到"行在但空"） -->
+    <select id="selectLockInfo" resultType="com.xp.starsite.lock.client.LockAdminClient$LockInfo">
+        SELECT lock_name AS lockName, locked_by AS ownerId, hold_count AS holdCount,
+               locked_until AS lockedUntil, gmt_modified AS gmtModified
+        FROM ${tableName}
+        WHERE lock_name = #{lockName}
+    </select>
 </mapper>

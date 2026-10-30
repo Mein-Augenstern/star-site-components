@@ -114,4 +114,31 @@ public class LockAutoConfiguration {
             }
         };
     }
+
+    /**
+     * 装配锁运维门面 Bean（可选，{@code starsite.lock.admin-enabled=true} 默认关）：
+     * 与 LockClient 的正式互斥语义完全隔离——强制释放卡死锁/查持有者/巡检。
+     * 仅 db 模式支持（redis 模式的运维经 redis-cli 直接操作）。
+     * <p>让位语义：@ConditionalOnMissingBean——应用已自定义 LockAdminClient 时让位。
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            prefix = "starsite.lock", name = "admin-enabled", havingValue = "true")
+    public com.xp.starsite.lock.client.LockAdminClient lockAdminClient(
+            LockProperties props,
+            ObjectProvider<ScheduleLockMapper> mapperProvider) {
+        if (props.getMode() != com.xp.starsite.lock.LockProperties.Mode.DB) {
+            log.warn("[starsite-lock] admin-enabled=true 仅支持 db 模式（当前 {}）——运维 Bean 不装配",
+                    props.getMode());
+            return null;
+        }
+        ScheduleLockMapper mapper = mapperProvider.getIfAvailable();
+        if (mapper == null) {
+            throw new IllegalStateException(
+                    "starsite.lock.admin-enabled=true 需要 ScheduleLockMapper Bean（同 db 模式前置条件）");
+        }
+        log.info("[starsite-lock] 运维门面就绪：强制释放/巡检/诊断（table={}）", props.getTableName());
+        return new com.xp.starsite.lock.store.DbLockAdminClient(mapper, props.getTableName());
+    }
 }

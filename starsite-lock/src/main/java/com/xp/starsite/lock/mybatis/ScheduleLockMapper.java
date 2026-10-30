@@ -88,4 +88,32 @@ public interface ScheduleLockMapper {
      * @return 持锁者标识；无持锁者返回 null
      */
     String findHolder(@Param("tableName") String tableName, @Param("lockName") String lockName);
+
+    /**
+     * 强制释放锁（运维侧门：无视持有者与计数清空全部持有字段）。
+     *
+     * @param tableName 锁表名
+     * @param lockName  锁名
+     * @return 影响行数（&gt;0 = 行存在且已清空）
+     */
+    int forceRelease(@Param("tableName") String tableName, @Param("lockName") String lockName);
+
+    /**
+     * 列出全部持锁（运维侧门：诊断/巡检）。
+     *
+     * @param tableName 锁表名
+     * @return 持锁信息列表（locked_by 非空的行）
+     */
+    java.util.List<com.xp.starsite.lock.client.LockAdminClient.LockInfo> selectHeldLocks(
+            @Param("tableName") String tableName);
+
+    /**
+     * 单锁状态快照（运维侧门：含未持有行）。
+     *
+     * @param tableName 锁表名
+     * @param lockName  锁名
+     * @return 锁信息；行不存在返回 null
+     */
+    com.xp.starsite.lock.client.LockAdminClient.LockInfo selectLockInfo(
+            @Param("tableName") String tableName, @Param("lockName") String lockName);
 }
