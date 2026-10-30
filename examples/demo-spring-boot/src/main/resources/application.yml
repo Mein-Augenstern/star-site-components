@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: starsite-demo
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/starsite_demo?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+mybatis:
+  mapper-locations: classpath:com/xp/starsite/**/mybatis/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+starsite:
+  sequence:
+    mode: mysql
+  async-command:
+    mode: mysql
+  lock:
+    mode: mysql

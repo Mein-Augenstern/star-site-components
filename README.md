@@ -23,7 +23,13 @@ starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
 ```
 
-- JDK 21 · Spring Boot 3.2+ · Zero Lombok in core · Apache-2.0
+- JDK 17+ · Spring Boot 3.2+ · Zero Lombok in core · Apache-2.0
+
+| JDK | Supported | Note |
+|---|---|---|
+| 17 | ✅ | Minimum (Spring Boot 3 requirement) |
+| 21 | ✅ | Recommended |
+| 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
 - **123 unit tests** + Testcontainers MySQL integration tests
 - Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
 
