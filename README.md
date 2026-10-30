@@ -352,7 +352,7 @@ mvn spotless:apply  # 规范自动修复（许可头/未用导入/空白）；ve
 ## 代码规范（机器把关，不靠自觉）
 
 - **Spotless 门禁**（`mvn verify` 强制）：Apache-2.0 许可头、未用导入清理、行尾空白、文件末换行
-- **Javadoc 约定**：公开类/接口必带职责说明与 `@author`/`@since`；注释写"为什么"（时钟为何钳制、悬挂为何用库时钟），不复述代码
+- **Javadoc 约定**：公开类/接口必带职责说明与 `@author`/`@since`；**每个公开方法（含 getter/setter）须有 javadoc**（至少一行语义说明，getter 标注返回值含义、setter 标注参数约束——配置类的 getter/setter 不例外，写"读取/设置 XX"即可，不许裸行）；注释写"为什么"（时钟为何钳制、悬挂为何用库时钟），不复述代码
 - **可维护性铁律**：魔数必须提常量并注释语义（如停机排空上限/轮询下限）；测试钩子（假时钟）只存在于 `src/test`；测试确定性优先——不 sleep、不碰运气
 - **CI**（GitHub Actions，ubuntu 自带 docker）：push/PR 自动跑规范检查 + 单测 + 真库 IT，红了不许合
 - License：[Apache-2.0](LICENSE)；`.editorconfig` 统一跨编辑器基础格式

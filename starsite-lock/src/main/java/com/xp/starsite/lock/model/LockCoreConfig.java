@@ -37,12 +37,27 @@ public class LockCoreConfig {
     /** Redis key 前缀（redis 模式）。 */
     private String redisKeyPrefix = "starsite:lock:";
 
+    /** 读取锁表名。@return 锁表名（仅字母数字下划线） */
     public String getTableName() { return tableName; }
+
+    /** 设置锁表名。@param tableName 锁表名 */
     public void setTableName(String tableName) { this.tableName = tableName; }
+
+    /** 读取持锁者标识。@return ownerId（空串时 starter 回填 应用名@pid） */
     public String getOwnerId() { return ownerId; }
+
+    /** 设置持锁者标识。@param ownerId 持锁者标识 */
     public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+
+    /** 读取锁 TTL。@return TTL 毫秒 */
     public long getTtlMs() { return ttlMs; }
+
+    /** 设置锁 TTL。@param ttlMs TTL 毫秒（应大于业务持有时长） */
     public void setTtlMs(long ttlMs) { this.ttlMs = ttlMs; }
+
+    /** 读取 Redis key 前缀。@return 前缀（redis 模式） */
     public String getRedisKeyPrefix() { return redisKeyPrefix; }
+
+    /** 设置 Redis key 前缀。@param redisKeyPrefix 前缀 */
     public void setRedisKeyPrefix(String redisKeyPrefix) { this.redisKeyPrefix = redisKeyPrefix; }
 }
