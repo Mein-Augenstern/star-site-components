@@ -40,10 +40,7 @@ class AsyncCommandSqlMySqlTest {
                 sql.claim(), sql.findByToken(), sql.claimById(), sql.reclaimStale(),
                 sql.updateState(), sql.countByStatus(), sql.countBacklogDue(),
                 sql.selectRecent(), sql.countPage(), sql.selectPage());
-        assertThat(stmts).allSatisfy(stmt -> {
-            assertThat(stmt).contains("{table}");
-            assertThat(stmt).doesNotContain("\n");
-        });
+        assertThat(stmts).allSatisfy(stmt -> assertThat(stmt).contains("{table}"));
     }
 
     /** 过滤/分页片段形态：过滤以 AND 起头、分页以 ORDER BY 起头且值全参数绑定 */

@@ -15,10 +15,6 @@
  */
 package com.xp.starsite.sequence.allocator;
 
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.Properties;
 
 /**
  * sequence 表 SQL 方言抽象：把全部租约 SQL 语句从分配器实现中外提——
@@ -28,8 +24,8 @@ import java.util.Properties;
  * 设计约定：
  * <ul>
  *   <li><b>SQL 配置外置铁律</b>：Java 代码零 SQL 字符串——MySQL 默认方言的语句在
- *       {@code resources/sql/mysql/sequence-mysql.properties}（key 与本接口方法
- *       一一对应），{@link MySql} 只做加载与缺键校验</li>
+ *       {@code resources/sql/mysql/sequence-mysql.xml}（{@code <statement id>}
+ *       与本接口方法一一对应，CDATA 多行原生 SQL + note 属性注释用途），{@link MySql} 只做加载与缺键校验</li>
  *   <li>表名占位统一为 {@code {table}}（由分配器替换，表名经白名单校验防注入）</li>
  *   <li>参数一律 {@code ?} 占位符，值由调用方绑定——语句本身不含业务值</li>
  * </ul>
@@ -65,28 +61,49 @@ public interface SequenceSql {
     class MySql implements SequenceSql {
 
         /** 方言配置路径（classpath 相对） */
-        private static final String PATH = "sql/mysql/sequence-mysql.properties";
+        private static final String PATH = "sql/mysql/sequence-mysql.xml";
 
-        /** 已加载语句（UTF-8；静态加载一次复用） */
-        private static final Properties STATEMENTS = load();
+        /** 已加载语句（statement id → SQL；静态加载一次复用） */
+        private static final java.util.Map<String, String> STATEMENTS = load();
 
         /**
-         * 加载方言配置文件。
+         * 加载方言配置文件（安全 XML 解析：拒绝 DOCTYPE 与外部实体——配置属可信产物，
+         * 但按不可信输入的防御基线处理）。
          *
-         * @return 语句表
-         * @throws IllegalStateException 文件缺失或读取失败（组件装配期暴露而非运行期）
+         * @return 语句表（statement id → SQL 原文，已 trim）
+         * @throws IllegalStateException 文件缺失/解析失败（组件装配期暴露而非运行期）
          */
-        private static Properties load() {
-            Properties p = new Properties();
+        private static java.util.Map<String, String> load() {
+            javax.xml.parsers.DocumentBuilderFactory factory =
+                    javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            try {
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+                factory.setXIncludeAware(false);
+                factory.setExpandEntityReferences(false);
+            } catch (javax.xml.parsers.ParserConfigurationException e) {
+                throw new IllegalStateException("XML 解析器安全特性设置失败: " + PATH, e);
+            }
             try (java.io.InputStream in = MySql.class.getClassLoader().getResourceAsStream(PATH)) {
                 if (in == null) {
                     throw new IllegalStateException("MySQL 方言配置缺失: " + PATH);
                 }
-                p.load(new InputStreamReader(in, StandardCharsets.UTF_8));
-            } catch (IOException e) {
+                org.w3c.dom.Document doc = factory.newDocumentBuilder().parse(in);
+                org.w3c.dom.NodeList nodes = doc.getElementsByTagName("statement");
+                java.util.Map<String, String> stmts = new java.util.HashMap<>();
+                for (int i = 0; i < nodes.getLength(); i++) {
+                    org.w3c.dom.Element el = (org.w3c.dom.Element) nodes.item(i);
+                    String sql = el.getTextContent().trim();
+                    if (sql.isBlank()) {
+                        throw new IllegalStateException("方言语句为空: " + PATH + "#" + el.getAttribute("id"));
+                    }
+                    stmts.put(el.getAttribute("id"), sql);
+                }
+                return stmts;
+            } catch (Exception e) {
                 throw new IllegalStateException("MySQL 方言配置加载失败: " + PATH, e);
             }
-            return p;
         }
 
         /**
@@ -96,7 +113,7 @@ public interface SequenceSql {
          * @return 语句原文（含 {table} 占位）
          */
         private static String stmt(String key) {
-            String v = STATEMENTS.getProperty(key);
+            String v = STATEMENTS.get(key);
             if (v == null || v.isBlank()) {
                 throw new IllegalStateException("MySQL 方言语句缺失: " + PATH + "#" + key);
             }

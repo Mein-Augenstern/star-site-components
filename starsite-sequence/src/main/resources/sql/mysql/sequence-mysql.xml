@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-sequence workerId 租约表 MySQL 方言（JDBC 分配器路径的 SQL 配置文件）
+  载体选 XML 而非 properties：SQL 生态的直觉载体（同 MyBatis mapper），
+  且 CDATA 可承载多行原生 SQL 与逐条注释。
+  约定：{table} 为白名单校验后的表名占位（分配器渲染）；参数一律 ? 占位符；
+  statement id 与 SequenceSql 接口方法一一对应；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/sequence/mybatis/SequenceMapper.xml；
+  索引清单见 sql/mysql/sys_sequence_ddl.sql
+-->
+<dialect component="sequence" database="mysql">
+
+    <statement id="createTable" note="建表（表规范：id 物理主键 + uk service_name + gmt_*；__global__ 种子行 id=1 自举保留）">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {table} (
+  id           BIGINT      NOT NULL COMMENT '主键（审计行由发号器生成；__global__ 行固定为 1）',
+  service_name VARCHAR(64) NOT NULL COMMENT '服务名（__global__=全局池计数行，其余为实例占用记录）',
+  worker_id    INT         NOT NULL DEFAULT 0 COMMENT '该行机器位（全局池行=已分配到的最大值）',
+  instance     VARCHAR(128) DEFAULT NULL COMMENT '最近占用实例标识',
+  gmt_create   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  gmt_modified DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_{table}_service_name (service_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='雪花 worker-id 分配序列表'
+        ]]>
+    </statement>
+
+    <statement id="seedGlobalPool" note="播种全局池计数行（INSERT IGNORE：uk_service_name 冲突即忽略，幂等；id=1 自举保留值）">
+        <![CDATA[ INSERT IGNORE INTO {table} (id, service_name, worker_id, instance) VALUES (1, ?, 0, ?) ]]>
+    </statement>
+
+    <statement id="takeFromGlobalPool" note="原子取号：LAST_INSERT_ID(expr) 把自增结果绑回会话变量（与 selectLastInsertId 须同连接/事务）">
+        <![CDATA[
+UPDATE {table} SET worker_id = LAST_INSERT_ID(worker_id + 1),
+                   instance = ?, gmt_modified = NOW()
+WHERE service_name = ?
+        ]]>
+    </statement>
+
+    <statement id="selectLastInsertId" note="会话内取回上次 LAST_INSERT_ID 值（无表访问）">
+        <![CDATA[ SELECT LAST_INSERT_ID() ]]>
+    </statement>
+
+    <statement id="recordOwnership" note="记录/更新服务实例占用审计行（upsert 锚 uk_service_name——同服务重启不膨胀审计行）">
+        <![CDATA[
+INSERT INTO {table} (id, service_name, worker_id, instance)
+VALUES (?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE worker_id = VALUES(worker_id),
+                        instance = VALUES(instance), gmt_modified = NOW()
+        ]]>
+    </statement>
+
+    <statement id="resetGlobalPool" note="回绕重置全局池为 0（RESET 策略用）">
+        <![CDATA[
+UPDATE {table} SET worker_id = 0, instance = ?, gmt_modified = NOW()
+WHERE service_name = ?
+        ]]>
+    </statement>
+
+</dialect>
