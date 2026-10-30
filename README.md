@@ -81,7 +81,11 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 **注意**：async-command 的 `store=jdbc` 与 lock 的 `mode=db` 需要容器中有 `StarsiteIdGenerator`
 （即引入 sequence starter），缺失时启动快速失败——组件表物理主键无来源不可降级。
 
-消费方 classpath 有 MyBatis（引了 mybatis-spring-boot-starter，容器中存在 `SqlSessionFactory` Bean）时**零配置自动切换**：
+消费方 classpath 有 MyBatis（引了 mybatis-spring-boot-starter，容器中存在 `SqlSessionFactory` Bean）时**零配置自动切换**。
+Mapper XML 放在 `resources/com/xp/starsite/asynccmd/mybatis/` 这样的**深包路径不是失误而是 MyBatis 官方约定**：
+注册接口（`addMapper`/`@MapperScan`）时 MyBatis 按接口全限定名到同路径找同名 XML 自动加载
+（`MapperAnnotationBuilder.loadXmlResource`）——深路径正是"引 jar 零配置"的来源；挪到浅目录
+则每个消费方都得配 `mapper-locations`，得不偿失。
 命令存储换 MyBatis 版、workerId 租约换 MyBatis 版、锁表 Mapper 自动扫描注册——SQL 走与接口同包的
 Mapper XML，命令表/租约表对消费方的拦截器、分页插件、SQL 日志原生生效；无 MyBatis 的消费方零感知
 （自动装配不命中，回退 raw JDBC / 显式提示）。
@@ -355,7 +359,24 @@ mvn spotless:apply  # 规范自动修复（许可头/未用导入/空白）；ve
 
 ## 后续规划
 
+已交付（2026-10 组件库建设轮）：
+
 - [x] async-command：批量执行器、Micrometer 指标、管理端鉴权、分布式调度三模式
-- [x] star-site-backend 生产接入（发号 + AI 解读异步命令 + workerId 租约，包结构与门面已对齐）
+- [x] star-site-backend 生产接入（发号 + AI 解读异步命令 + workerId 租约 + 定时任务分布式锁防重跑）
+- [x] lock：可重入（存储端计数：DB hold_count 列 / Redis hash）、限时等待获取、行丢失自愈、
+      通用表名 starsite_lock（去调度绑定）
+- [x] 三组件 SQL/脚本配置外置（Mapper XML + 方言 XML + Lua 文件）、索引完备性门禁、
+      列表/详情分列（payload 大列不进列表）
+
+待办（按优先级）：
+
 - [ ] sequence：Redis 租约实现（无 MySQL 场景）、K8s StatefulSet 序号直取
-- [ ] lock：看门狗自动续期（长任务持锁跨 TTL 场景）
+- [ ] lock：看门狗自动续期（长任务持锁跨 TTL 场景——自动续期线程/租约延长，替代手工多次 tryLock 续期）
+- [ ] async-command：深分页游标化（selectPage 的 OFFSET → `WHERE id < lastId` keyset，配套
+      admin 端点 lastId 参数——OFFSET 深翻页线性变慢，2026-10 SQL 审计挂账）
+- [ ] async-command：reclaimStale 专用索引 (status, gmt_modified)——悬挂 RUNNING 常态化
+      （表百万行级）时再上，当前靠 idx_status_next 前缀回表够用
+- [ ] lock：TTL 到期判定的跨 Pod 时钟偏差治理——当前各 Pod 应用时钟判过期（依赖 NTP 对齐），
+      备选 DB 时钟判定但破坏假时钟可测性，需权衡后定案
+- [ ] 0.1.0 正式版发布：当前 0.1.0-SNAPSHOT 仅本地 m2（backend CI 靠 checkout 组件仓装包），
+      稳定后 tag + Release Notes，评估发布到托管仓库（GitHub Packages / 中央仓）
