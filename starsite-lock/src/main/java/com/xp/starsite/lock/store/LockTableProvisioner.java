@@ -25,12 +25,21 @@ import org.slf4j.LoggerFactory;
  * 锁表就绪器（存储供给职责，与 {@link DbLockClient} 的互斥语义分离）：
  * 负责建表（幂等 IF NOT EXISTS）与锁行播种（每锁名实例内只插一次）。
  * <p>
- * 播种用 INSERT ... WHERE NOT EXISTS 只插不覆盖——并发首抢多实例同时播种，
- * 输家撞 lock_name 唯一键属正常并发结局（行已存在正是期望终态），吞掉即可；
- * 互斥权威始终在 DbLockClient 的单条 UPDATE，播种不参与判定。
+ * <b>分布式正确性论证（seeded 是性能提示，不是正确性依据）</b>：
+ * <ul>
+ *   <li>互斥判定的最终权威始终是 {@code DbLockClient} 的存储端原子 UPDATE——
+ *       {@link #seeded} 只决定"要不要省一条播种 INSERT"，从不参与判定</li>
+ *   <li>多 Pod 并发播种安全：INSERT ... WHERE NOT EXISTS 幂等（后到者 0 行非异常）；
+ *       极窄竞态撞 uk 唯一键者吞异常且不记忆，下轮重试收敛</li>
+ *   <li>记忆陈旧（外部删行/表重建）自愈：争锁未命中经 {@link #healIfRowLost}
+ *       做存储端核实（findHolder），行丢失则作废记忆+重播种+重试——
+ *       多 Pod 同时自愈时重播种幂等、重试仍走原子 UPDATE，恰一胜</li>
+ *   <li>记忆陈旧但行已被他 Pod 重建并持有：findHolder 非空 → 不自愈不误抢，正常返回未获得</li>
+ * </ul>
+ * 任何 Pod 的 seeded 状态无论真假，tryLock 的返回值都与"没有缓存"时一致——
+ * 差别只在 SQL 条数（记忆命中省 1 条，未命中路径 2 条）。
  * <p>
- * 性能：种子 SQL 每锁名只执行一次，稳态下争锁只剩 1 条点查 UPDATE。
- * 极端运维场景（锁行被外部删除）该锁名将不可抢直至重启——以可观测性换 50% 的锁 SQL 削减。
+ * 性能：种子 SQL 每锁名每实例只执行一次，稳态下争锁只剩 1 条点查 UPDATE（省 50%）。
  *
  * @author muyi
  * @date 2026/10/27
@@ -49,7 +58,10 @@ public final class LockTableProvisioner {
     /** 种子行主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
     private final java.util.function.LongSupplier idGenerator;
 
-    /** 已播种的锁名（实例内记忆）：种子行每锁名只需插一次 */
+    /**
+     * 已播种的锁名（<b>纯性能提示</b>，正确性不依赖——论证见类注释）：
+     * 只用来省一条幂等 INSERT；陈旧时由 {@link #healIfRowLost} 在存储端核实后自愈。
+     */
     private final Set<String> seeded = ConcurrentHashMap.newKeySet();
 
     /**

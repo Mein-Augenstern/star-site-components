@@ -230,6 +230,42 @@ class DbLockClientTest {
         assertThat(System.currentTimeMillis() - begin).isGreaterThanOrEqualTo(250); // 真等了
     }
 
+    /** 多 Pod 记忆陈旧收敛（分布式证明 A）：外部删行后两个"Pod"各自自愈——
+     *  先自愈者补行并抢到，后者重播种为无操作且正常未获得；释放后后者可抢 */
+    @Test
+    void 多Pod记忆陈旧_先后自愈收敛() throws Exception {
+        DbLockClient podA = lock("pod-a");
+        DbLockClient podB = lock("pod-b");
+        assertThat(podA.tryLock("stale-memo")).isTrue();   // A 首抢（两 Pod 记忆随后都已建立）
+        assertThat(podB.tryLock("stale-memo")).isFalse();  // B 未获得（记忆已建立）
+
+        try (Connection conn = dataSource.getConnection(); java.sql.Statement st = conn.createStatement()) {
+            st.execute("DELETE FROM starsite_lock WHERE lock_name = 'stale-memo'");  // 双方记忆同时陈旧
+        }
+
+        assertThat(podA.tryLock("stale-memo")).isTrue();   // A 先自愈：补行+抢到
+        assertThat(podB.tryLock("stale-memo")).isFalse();  // B 后自愈：重播种无操作，未获得（A 持有）——不误抢
+        podA.unlock("stale-memo");
+        assertThat(podB.tryLock("stale-memo")).isTrue();   // 释放后 B 正常获得
+    }
+
+    /** 多 Pod 记忆陈旧但行被他方重建持有（分布式证明 B）：findHolder 非空 → 不自愈不误抢 */
+    @Test
+    void 记忆陈旧_行被他方重建持有_不误抢() throws Exception {
+        DbLockClient podA = lock("pod-a");
+        assertThat(podA.tryLock("outsider-lock")).isTrue();  // A 记忆建立
+        podA.unlock("outsider-lock");
+
+        try (Connection conn = dataSource.getConnection(); java.sql.Statement st = conn.createStatement()) {
+            st.execute("DELETE FROM starsite_lock WHERE lock_name = 'outsider-lock'");
+            // 模拟：删行期间他方 Pod 已重建并持有（记忆对 A 而言陈旧，但行是活的且归他方）
+            st.execute("INSERT INTO starsite_lock (id, lock_name, locked_by, locked_until, hold_count) "
+                    + "VALUES (9001, 'outsider-lock', 'other-pod', DATEADD('SECOND', 60, CURRENT_TIMESTAMP), 1)");
+        }
+
+        assertThat(podA.tryLock("outsider-lock")).isFalse(); // 存储端核实持有者非空 → 未获得，不误抢不误续
+    }
+
     /** 多余释放（计数已空/从未持有）防御：不抛异常，直释放兜底无副作用 */
     @Test
     void 多余释放_防御不报错() throws Exception {
