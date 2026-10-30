@@ -291,7 +291,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     public List<AsyncCommand> selectPage(String status, String cmdType, long offset, int size) {
         StringBuilder stmt = new StringBuilder(render(sql.selectPage()));
         Object[] filtered = appendFilters(stmt, status, cmdType);
-        stmt.append(" ORDER BY id DESC LIMIT ? OFFSET ?");
+        stmt.append(' ').append(sql.pageOrderLimit());
         Object[] args = new Object[filtered.length + 2];
         System.arraycopy(filtered, 0, args, 0, filtered.length);
         args[filtered.length] = size;
@@ -311,11 +311,11 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     private Object[] appendFilters(StringBuilder stmt, String status, String cmdType) {
         List<Object> args = new ArrayList<>();
         if (status != null && !status.isBlank()) {
-            stmt.append(" AND status = ?");
+            stmt.append(' ').append(sql.filterStatus());
             args.add(status);
         }
         if (cmdType != null && !cmdType.isBlank()) {
-            stmt.append(" AND cmd_type = ?");
+            stmt.append(' ').append(sql.filterCmdType());
             args.add(cmdType);
         }
         return args.toArray();

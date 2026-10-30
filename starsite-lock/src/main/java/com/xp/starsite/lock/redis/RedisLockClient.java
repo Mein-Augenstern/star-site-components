@@ -49,25 +49,33 @@ public class RedisLockClient implements LockClient {
     /**
      * 争锁/重入脚本（原子）：EXISTS=0 首抢建 hash 计 1 层；HEXISTS(owner) 命中重入 +1；
      * 两种命中都刷新 TTL；否则他方持有返回 0。
+     * <p>脚本配置外置：内容在 {@code resources/sql/lock-acquire.lua}（本类零脚本字符串）。
      */
-    private static final String ACQUIRE_LUA =
-            "if redis.call('EXISTS', KEYS[1]) == 0 then "
-            + "redis.call('HSET', KEYS[1], ARGV[1], 1) "
-            + "redis.call('PEXPIRE', KEYS[1], ARGV[2]) return 1 end "
-            + "if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 1 then "
-            + "redis.call('HINCRBY', KEYS[1], ARGV[1], 1) "
-            + "redis.call('PEXPIRE', KEYS[1], ARGV[2]) return 1 end "
-            + "return 0";
+    private static final String ACQUIRE_LUA = loadScript("sql/lock-acquire.lua");
 
     /**
      * 按层释放脚本（原子）：非持有者 -1；递减后仍 >0 续期返回 0（外层仍持锁）；
      * 归零 DEL 返回 1（真正释放，任何实例可立即争锁）。
+     * <p>脚本配置外置：内容在 {@code resources/sql/lock-release.lua}。
      */
-    private static final String RELEASE_LUA =
-            "if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0 then return -1 end "
-            + "local count = redis.call('HINCRBY', KEYS[1], ARGV[1], -1) "
-            + "if count > 0 then redis.call('PEXPIRE', KEYS[1], ARGV[2]) return 0 end "
-            + "redis.call('DEL', KEYS[1]) return 1";
+    private static final String RELEASE_LUA = loadScript("sql/lock-release.lua");
+
+    /**
+     * 从 classpath 加载 Lua 脚本（静态一次；缺文件快速失败——装配期暴露而非运行期）。
+     *
+     * @param path classpath 相对路径
+     * @return 脚本原文（去首尾空白）
+     */
+    private static String loadScript(String path) {
+        try (java.io.InputStream in = RedisLockClient.class.getClassLoader().getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("Redis 锁脚本缺失: " + path);
+            }
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Redis 锁脚本加载失败: " + path, e);
+        }
+    }
 
     /** Redis 模板 */
     private final StringRedisTemplate redisTemplate;

@@ -35,7 +35,7 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 
 - **物理主键 `id` 由 sequence 组件发号**（insert 前预生成显式写入，**禁 AUTO_INCREMENT**；`sys_sequence` 的 `__global__` 种子行固定 `id=1` 为自举保留）
 - **标准时间列 `gmt_create` / `gmt_modified`**（DEFAULT CURRENT_TIMESTAMP，modified 带 ON UPDATE）
-- **SQL 一律 Mapper XML**（与 Mapper 接口同包放置，`addMapper` 自动发现）；`${tableName}` 为白名单校验后的表名替换，业务值一律 `#{}` 参数绑定——Java 代码零硬编码 SQL
+- **SQL 配置外置铁律**：MyBatis 消费走 Mapper XML（同包放置，`addMapper` 自动发现）；JDBC 方言走 `resources/sql/mysql/<组件>-mysql.properties`（key=接口方法名）；Redis Lua 走 `resources/sql/*.lua`——Java 代码零 SQL 字符串（含过滤/排序片段）；`${tableName}`/`{table}` 为白名单校验后的表名替换，业务值一律参数绑定
 - 高频路径全索引命中（如 `async_command` 的认领 `(status, next_run_at)`、幂等 `(cmd_type, biz_key)`、认领取回 `(claim_token)`）
 - DBA 脚本在各组件 `src/main/resources/sql/mysql/`，与代码内 DDL 完全一致（时间列/主键形态勿改）
 
@@ -332,7 +332,7 @@ class NightlyJob {
 
 ## 构建与测试
 
-当前全量 **113 项单测**（6 模块全绿；数字随测试演进，以 `mvn verify` 汇总行实时值为准——本行为对外镜像面的权威声明口径）。
+当前全量 **118 项单测**（6 模块全绿；数字随测试演进，以 `mvn verify` 汇总行实时值为准——本行为对外镜像面的权威声明口径）。
 
 ```bash
 mvn verify          # 规范检查 + 单测全量（唯一性/回拨/回绕/重试/死信/幂等/认领互斥/悬挂回收/装配/生命周期/锁互斥）

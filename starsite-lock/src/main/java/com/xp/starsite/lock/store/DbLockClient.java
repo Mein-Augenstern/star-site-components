@@ -127,14 +127,9 @@ public class DbLockClient implements LockClient {
             if (acquireOnce(lockName)) {
                 return true;
             }
-            // 未抢到：行丢失自愈。findHolder==null 二义（行不存在/无人持有），
-            // 幂等重播种 + 重试收敛两种情形——无人持有时重试即抢到，行不存在时补行再抢
-            if (provisioner.findHolder(lockName) == null) {
-                provisioner.unseed(lockName);
-                provisioner.seedIfNeeded(lockName);
-                return acquireOnce(lockName);
-            }
-            return false;
+            // 未抢到：先问存储就绪器是否行丢失（自愈编排是供给职责，互斥语义不掺和）——
+            // 已自愈则重试一次，行健在即他方持有
+            return provisioner.healIfRowLost(lockName) && acquireOnce(lockName);
         } catch (RuntimeException e) {
             // 锁不可用不阻断调用方（fail-open——宁可多实例竞争也别停摆）
             log.warn("[starsite-lock] 争锁异常（fail-open 继续）: lock={}, err={}", lockName, e.getMessage());

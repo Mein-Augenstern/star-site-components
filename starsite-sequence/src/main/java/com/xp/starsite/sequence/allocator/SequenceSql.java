@@ -15,19 +15,31 @@
  */
 package com.xp.starsite.sequence.allocator;
 
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.Properties;
+
 /**
- * sequence 表 SQL 方言抽象：把全部 SQL 语句从分配器实现中外提——语句集中可见、
- * 方言可替换（MySQL 默认实现；适配其他数据库/ORM 时实现本接口经
- * starter 让位注入即可，MyBatis 迁移时各语句可逐条对照搬入 mapper XML）。
+ * sequence 表 SQL 方言抽象：把全部租约 SQL 语句从分配器实现中外提——
+ * 语句集中可见、方言可替换（MySQL 默认实现；适配其他数据库/ORM 时实现本接口
+ * 经 starter 让位注入即可，MyBatis 迁移时各语句可逐条对照搬入 mapper XML）。
  * <p>
- * 设计约定：表名占位 {@code {table}}；参数一律 {@code ?}；语句本身不含业务值。
+ * 设计约定：
+ * <ul>
+ *   <li><b>SQL 配置外置铁律</b>：Java 代码零 SQL 字符串——MySQL 默认方言的语句在
+ *       {@code resources/sql/mysql/sequence-mysql.properties}（key 与本接口方法
+ *       一一对应），{@link MySql} 只做加载与缺键校验</li>
+ *   <li>表名占位统一为 {@code {table}}（由分配器替换，表名经白名单校验防注入）</li>
+ *   <li>参数一律 {@code ?} 占位符，值由调用方绑定——语句本身不含业务值</li>
+ * </ul>
  *
  * @author muyi
  * @date 2026/10/25
  */
 public interface SequenceSql {
 
-    /** 建表语句（幂等 IF NOT EXISTS；表规范：id 物理主键 + service_name 唯一键 + gmt_*）。 */
+    /** 建表语句（幂等 IF NOT EXISTS；表规范：id 物理主键 + uk service_name + gmt_*）。 */
     String createTable();
 
     /** 播种全局池计数行（参数：GLOBAL_POOL_KEY, 'pool'；__global__ 行 id=1 自举保留）。 */
@@ -46,53 +58,56 @@ public interface SequenceSql {
     String resetGlobalPool();
 
     /**
-     * MySQL 8 默认方言（与 MyBatis 适配版 SequenceMapper.xml 同一表形态：id 主键 + uk_service_name）。
+     * MySQL 8 默认方言：从 {@code sql/mysql/sequence-mysql.properties} 加载语句
+     * （SQL 配置外置——语句内容与索引注释见该文件，本类零 SQL 字符串）。
+     * 缺键/缺文件在首次取语句时快速失败，不静默降级。
      */
     class MySql implements SequenceSql {
 
-        @Override
-        public String createTable() {
-            return """
-                    CREATE TABLE IF NOT EXISTS {table} (
-                      id           BIGINT NOT NULL COMMENT '主键（审计行由发号器生成；__global__ 行固定为 1）',
-                      service_name VARCHAR(64) NOT NULL COMMENT '服务名（__global__=全局池计数行，其余为实例占用记录）',
-                      worker_id    INT NOT NULL DEFAULT 0 COMMENT '该行机器位（全局池行=已分配到的最大值）',
-                      instance     VARCHAR(128) DEFAULT NULL COMMENT '最近占用实例标识',
-                      gmt_create   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                      gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                      PRIMARY KEY (id),
-                      UNIQUE KEY uk_{table}_service_name (service_name)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='雪花 worker-id 分配序列表'""";
+        /** 方言配置路径（classpath 相对） */
+        private static final String PATH = "sql/mysql/sequence-mysql.properties";
+
+        /** 已加载语句（UTF-8；静态加载一次复用） */
+        private static final Properties STATEMENTS = load();
+
+        /**
+         * 加载方言配置文件。
+         *
+         * @return 语句表
+         * @throws IllegalStateException 文件缺失或读取失败（组件装配期暴露而非运行期）
+         */
+        private static Properties load() {
+            Properties p = new Properties();
+            try (java.io.InputStream in = MySql.class.getClassLoader().getResourceAsStream(PATH)) {
+                if (in == null) {
+                    throw new IllegalStateException("MySQL 方言配置缺失: " + PATH);
+                }
+                p.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                throw new IllegalStateException("MySQL 方言配置加载失败: " + PATH, e);
+            }
+            return p;
         }
 
-        @Override
-        public String seedGlobalPool() {
-            return "INSERT IGNORE INTO {table} (id, service_name, worker_id, instance) VALUES (1, ?, 0, ?)";
+        /**
+         * 取语句并校验存在。
+         *
+         * @param key 语句 key（与方法名一致）
+         * @return 语句原文（含 {table} 占位）
+         */
+        private static String stmt(String key) {
+            String v = STATEMENTS.getProperty(key);
+            if (v == null || v.isBlank()) {
+                throw new IllegalStateException("MySQL 方言语句缺失: " + PATH + "#" + key);
+            }
+            return v;
         }
 
-        @Override
-        public String takeFromGlobalPool() {
-            // LAST_INSERT_ID(expr)：UPDATE 命中时把自增结果绑回会话，下一步 SELECT 可取
-            return "UPDATE {table} SET worker_id = LAST_INSERT_ID(worker_id + 1), "
-                    + "instance = ?, gmt_modified = NOW() WHERE service_name = ?";
-        }
-
-        @Override
-        public String selectLastInsertId() {
-            return "SELECT LAST_INSERT_ID()";
-        }
-
-        @Override
-        public String recordOwnership() {
-            return "INSERT INTO {table} (id, service_name, worker_id, instance) "
-                    + "VALUES (?, ?, ?, ?) "
-                    + "ON DUPLICATE KEY UPDATE worker_id = VALUES(worker_id), "
-                    + "instance = VALUES(instance), gmt_modified = NOW()";
-        }
-
-        @Override
-        public String resetGlobalPool() {
-            return "UPDATE {table} SET worker_id = 0, instance = ?, gmt_modified = NOW() WHERE service_name = ?";
-        }
+        @Override public String createTable() { return stmt("createTable"); }
+        @Override public String seedGlobalPool() { return stmt("seedGlobalPool"); }
+        @Override public String takeFromGlobalPool() { return stmt("takeFromGlobalPool"); }
+        @Override public String selectLastInsertId() { return stmt("selectLastInsertId"); }
+        @Override public String recordOwnership() { return stmt("recordOwnership"); }
+        @Override public String resetGlobalPool() { return stmt("resetGlobalPool"); }
     }
 }

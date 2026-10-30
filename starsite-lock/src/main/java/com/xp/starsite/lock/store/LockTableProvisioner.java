@@ -108,13 +108,22 @@ public final class LockTableProvisioner {
     }
 
     /**
-     * 作废某锁名的播种记忆（自愈路径专用）：行丢失被证实后清除陈旧提示，
-     * 使下次 {@link #seedIfNeeded} 重新播种。
+     * 行丢失自愈（存储供给职责——DbLockClient 的互斥语义不掺和恢复编排）：
+     * 争锁未命中后调用，校验锁行存活性；行丢失（外部删行/表重建致播种记忆陈旧）
+     * 则作废记忆并重播种，返回 true 提示调用方可重试争锁。
+     * findHolder==null 的二义（行不存在/无人持有）由幂等播种天然收敛——
+     * 无人持有时重播种为无操作，调用方重试即抢到。
      *
      * @param lockName 锁名
+     * @return true 已自愈（重播种完成，值得重试争锁）；false 行健在（未抢到即他方持有）
      */
-    public void unseed(String lockName) {
+    public boolean healIfRowLost(String lockName) {
+        if (findHolder(lockName) != null) {
+            return false;
+        }
         seeded.remove(lockName);
+        seedIfNeeded(lockName);
+        return true;
     }
 
     /**
