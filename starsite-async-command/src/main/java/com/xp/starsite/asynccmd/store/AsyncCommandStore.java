@@ -143,8 +143,8 @@ public interface AsyncCommandStore {
      *
      * @param limit 返回条数上限（条）
      * @return 命令列表（id 倒序，最新在前）；不足 limit 条时返回全部
-     * @throws RuntimeException 存储访问失败时（异常约定见类注释）
-     */
+     * @throws RuntimeException 存储访问失败时（异常约定见类注释） * <p>列表路径不携带 payload 大列（三形态等价；需要载荷走 findById/findByToken）。
+ */
     List<AsyncCommand> selectRecent(int limit);
 
     /**
@@ -165,7 +165,7 @@ public interface AsyncCommandStore {
      * @param offset  行偏移（0 起；注意是偏移不是页码，页码换算由调用方完成）
      * @param size    页大小（条）
      * @return 当前页命令（id 倒序，最新在前）；无数据返回空列表
-     * @throws RuntimeException 存储访问失败时（异常约定见类注释）
-     */
+     * @throws RuntimeException 存储访问失败时（异常约定见类注释） * <p>列表路径不携带 payload 大列（三形态等价；需要载荷走 findById/findByToken）。
+ */
     List<AsyncCommand> selectPage(String status, String cmdType, long offset, int size);
 }

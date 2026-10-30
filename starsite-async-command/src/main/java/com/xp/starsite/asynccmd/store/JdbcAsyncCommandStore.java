@@ -58,16 +58,44 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** SQL 方言（语句全部来自这里，本类零硬编码 SQL） */
     private final AsyncCommandSql sql;
 
+    /** 时间源（悬挂回收阈值计算；测试注入假时钟用——与 claim 的调用方时钟同源） */
+    private final com.xp.starsite.asynccmd.clock.TimeSource time;
+
     /** 主键 id 生成器（starsite-sequence 组件的 next()——组件表物理主键标准来源） */
     private final java.util.function.LongSupplier idGenerator;
 
-    /** 行映射器：下划线列名 → 驼峰字段（静态复用） */
+    /** 行映射器：下划线列名 → 驼峰字段（静态复用；详情/执行路径全列含 payload） */
     private static final RowMapper<AsyncCommand> MAPPER = (rs, i) -> {
         AsyncCommand c = new AsyncCommand();
         c.setId(rs.getLong("id"));
         c.setCmdType(rs.getString("cmd_type"));
         c.setBizKey(rs.getString("biz_key"));
         c.setPayload(rs.getString("payload"));
+        c.setStatus(rs.getString("status"));
+        c.setMaxRetry(rs.getInt("max_retry"));
+        c.setRetryCount(rs.getInt("retry_count"));
+        c.setNextRunAt(rs.getTimestamp("next_run_at") == null
+                ? null : rs.getTimestamp("next_run_at").toLocalDateTime());
+        c.setLastError(rs.getString("last_error"));
+        c.setOwner(rs.getString("owner"));
+        c.setClaimToken(rs.getString("claim_token"));
+        c.setGmtCreate(rs.getTimestamp("gmt_create") == null
+                ? null : rs.getTimestamp("gmt_create").toLocalDateTime());
+        c.setGmtModified(rs.getTimestamp("gmt_modified") == null
+                ? null : rs.getTimestamp("gmt_modified").toLocalDateTime());
+        return c;
+    };
+
+    /**
+     * 列表行映射器（selectRecent/selectPage 专用）：不读 payload 列——列表语句显式列清单
+     * 不含该大列（单行最大 64KB），用全列映射器会因列缺失抛 SQLException。
+     * payload 在列表结果中为 null，需要载荷走 findById/findByToken。
+     */
+    private static final RowMapper<AsyncCommand> LIST_MAPPER = (rs, i) -> {
+        AsyncCommand c = new AsyncCommand();
+        c.setId(rs.getLong("id"));
+        c.setCmdType(rs.getString("cmd_type"));
+        c.setBizKey(rs.getString("biz_key"));
         c.setStatus(rs.getString("status"));
         c.setMaxRetry(rs.getInt("max_retry"));
         c.setRetryCount(rs.getInt("retry_count"));
@@ -105,6 +133,24 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
      */
     public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, AsyncCommandSql sql, boolean initDdl,
                                  java.util.function.LongSupplier idGenerator) {
+        this(jdbc, tableName, sql, initDdl, idGenerator,
+                com.xp.starsite.asynccmd.clock.TimeSource.system());
+    }
+
+    /**
+     * 全参构造（显式时间源——测试注入假时钟构造悬挂场景）。
+     *
+     * @param jdbc      JDBC 模板
+     * @param tableName 命令表名（仅字母数字下划线）
+     * @param sql       SQL 方言（语句来源；自定义方言实现其他数据库/ORM 适配）
+     * @param initDdl   true 时构造期自动建表（IF NOT EXISTS 增量安全）；false 交由迁移脚本管理
+     * @param idGenerator 主键 id 生成器（sequence 组件的 next()；insert 前为命令分配物理主键）
+     * @param time      时间源（reclaimStale 阈值计算；与 claim 的调用方时钟同源）
+     * @throws IllegalArgumentException 表名为 null 或含白名单外字符
+     */
+    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, AsyncCommandSql sql, boolean initDdl,
+                                 java.util.function.LongSupplier idGenerator,
+                                 com.xp.starsite.asynccmd.clock.TimeSource time) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
@@ -112,6 +158,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         this.table = tableName;
         this.sql = sql;
         this.idGenerator = idGenerator;
+        this.time = time;
         if (initDdl) {
             ensureTable();
         }
@@ -197,9 +244,9 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} 悬挂判定与回写都用库时钟（claim 判业务到期，这里判"DB 眼里多久没动静"） */
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
-        // 阈值时刻由应用时钟计算后参数绑定（消 INTERVAL 方言差异）
+        // 阈值时刻由注入时钟计算后参数绑定（消 INTERVAL 方言差异；与 claim 同源可测）
         return jdbc.update(render(sql.reclaimStale()),
-                java.time.LocalDateTime.now().minusSeconds(staleAfterSeconds), limit);
+                time.now().minusSeconds(staleAfterSeconds), limit);
     }
 
     /** {@inheritDoc} */
@@ -227,7 +274,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} */
     @Override
     public List<AsyncCommand> selectRecent(int limit) {
-        return jdbc.query(render(sql.selectRecent()), MAPPER, limit);
+        return jdbc.query(render(sql.selectRecent()), LIST_MAPPER, limit);
     }
 
     /** {@inheritDoc} 可选过滤经白名单拼 WHERE 片段（status/cmdType 为值参数绑定，非拼接） */
@@ -249,7 +296,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         System.arraycopy(filtered, 0, args, 0, filtered.length);
         args[filtered.length] = size;
         args[filtered.length + 1] = offset;
-        return jdbc.query(stmt.toString(), MAPPER, args);
+        return jdbc.query(stmt.toString(), LIST_MAPPER, args);
     }
 
     /**

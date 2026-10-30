@@ -186,6 +186,15 @@ class MyBatisAsyncCommandStoreTest {
         assertThat(store.countPage(null, null)).isEqualTo(3);
         assertThat(store.countPage("PENDING", "page")).isEqualTo(2);
         assertThat(store.selectPage(null, "other", 0, 10)).hasSize(1);
+
+        // 列表/详情分列：列表不携带 payload 大列（显式列清单），详情按 id 取全量
+        assertThat(store.selectPage(null, null, 0, 10))
+                .allSatisfy(c -> assertThat(c.getPayload()).isNull());
+        assertThat(store.selectRecent(10))
+                .allSatisfy(c -> assertThat(c.getPayload()).isNull());
+        AsyncCommand first = store.selectPage(null, "page", 0, 1).get(0);
+        AsyncCommand detail = store.findById(first.getId());
+        assertThat(detail.getPayload()).isEqualTo("{}");
     }
 
     /** 记录执行的假执行器 */

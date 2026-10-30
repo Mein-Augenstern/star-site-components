@@ -242,7 +242,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         return rows.values().stream()
                 .sorted(Comparator.comparingLong(AsyncCommand::getId).reversed())
                 .limit(limit)
-                .map(this::copy)
+                .map(this::copyAsListItem)   // 列表不携带 payload 大列（与表形态显式列清单等价）
                 .collect(Collectors.toList());
     }
 
@@ -273,7 +273,7 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
                 .sorted(Comparator.comparingLong(AsyncCommand::getId).reversed())
                 .skip(offset)
                 .limit(size)
-                .map(this::copy)
+                .map(this::copyAsListItem)  // 列表不携带 payload 大列（与表形态显式列清单等价）
                 .collect(Collectors.toList());
     }
 
@@ -293,6 +293,19 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
             out = out.stream().filter(c -> cmdType.equals(c.getCmdType())).collect(Collectors.toList());
         }
         return out;
+    }
+
+    /**
+     * 列表项快照：全字段拷贝后 payload 置空——与表形态（selectRecent/selectPage 显式列清单
+     * 不含 payload 大列）行为等价；需要载荷的路径走 findById/findByToken。
+     *
+     * @param src 源命令
+     * @return payload 为空的快照
+     */
+    private AsyncCommand copyAsListItem(AsyncCommand src) {
+        AsyncCommand c = copy(src);
+        c.setPayload(null);
+        return c;
     }
 
     /**

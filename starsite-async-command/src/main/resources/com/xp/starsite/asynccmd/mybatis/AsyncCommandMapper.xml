@@ -63,8 +63,10 @@
         SELECT COUNT(*) FROM ${table} WHERE status = 'PENDING' AND next_run_at &lt;= #{now}
     </select>
 
+    <!-- 列表路径显式列清单（不含 payload 大列：单行最大 64KB，列表页不需要；
+         详情/执行路径经 selectById/findByToken 取全量） -->
     <select id="selectRecent" resultType="com.xp.starsite.asynccmd.model.AsyncCommand">
-        SELECT * FROM ${table} ORDER BY id DESC LIMIT #{limit}
+        SELECT id, cmd_type, biz_key, status, max_retry, retry_count, next_run_at, last_error, owner, claim_token, gmt_create, gmt_modified FROM ${table} ORDER BY id DESC LIMIT #{limit}
     </select>
 
     <select id="countPage" resultType="long">
@@ -73,8 +75,9 @@
         <if test="cmdType != null and cmdType != ''">AND cmd_type = #{cmdType}</if>
     </select>
 
+    <!-- 列表路径显式列清单（同 selectRecent：不拉 payload 大列） -->
     <select id="selectPage" resultType="com.xp.starsite.asynccmd.model.AsyncCommand">
-        SELECT * FROM ${table} WHERE 1 = 1
+        SELECT id, cmd_type, biz_key, status, max_retry, retry_count, next_run_at, last_error, owner, claim_token, gmt_create, gmt_modified FROM ${table} WHERE 1 = 1
         <if test="statusCode != null and statusCode != ''">AND status = #{statusCode}</if>
         <if test="cmdType != null and cmdType != ''">AND cmd_type = #{cmdType}</if>
         ORDER BY id DESC LIMIT #{size} OFFSET #{offset}

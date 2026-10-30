@@ -167,7 +167,8 @@ public interface AsyncCommandSql {
 
         @Override
         public String selectRecent() {
-            return "SELECT * FROM {table} ORDER BY id DESC LIMIT ?";
+            // 列表路径不拉 payload 大列（单行最大 64KB；详情/执行走 findById/findByToken 全列）
+            return "SELECT id, cmd_type, biz_key, status, max_retry, retry_count, next_run_at, last_error, owner, claim_token, gmt_create, gmt_modified FROM {table} ORDER BY id DESC LIMIT ?";
         }
 
         @Override
@@ -177,7 +178,8 @@ public interface AsyncCommandSql {
 
         @Override
         public String selectPage() {
-            return "SELECT * FROM {table} WHERE 1 = 1";
+            // 列表路径不拉 payload 大列（与 selectRecent 同口径）
+            return "SELECT id, cmd_type, biz_key, status, max_retry, retry_count, next_run_at, last_error, owner, claim_token, gmt_create, gmt_modified FROM {table} WHERE 1 = 1";
         }
     }
 }
