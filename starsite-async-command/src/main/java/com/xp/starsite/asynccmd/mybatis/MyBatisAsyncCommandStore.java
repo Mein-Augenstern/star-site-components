@@ -20,6 +20,7 @@ import com.xp.starsite.asynccmd.model.CommandStatus;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,7 +57,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     private final boolean initDdl;
 
     /** 主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
-    private final java.util.function.LongSupplier idGenerator;
+    private final LongSupplier idGenerator;
 
     /**
      * 全参构造。
@@ -68,7 +69,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
     public MyBatisAsyncCommandStore(AsyncCommandMapper mapper, String tableName, boolean initDdl,
-                                    java.util.function.LongSupplier idGenerator) {
+                                    LongSupplier idGenerator) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }

@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.xp.starsite.sequence.clock.TimeSource;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -195,7 +196,7 @@ class SnowflakeIdGeneratorTest {
         int threads = 8;
         int perThread = 12_500;
         var ids = java.util.Collections.synchronizedSet(new HashSet<Long>());
-        var latch = new java.util.concurrent.CountDownLatch(threads);
+        var latch = new CountDownLatch(threads);
         for (int t = 0; t < threads; t++) {
             new Thread(() -> {
                 try {

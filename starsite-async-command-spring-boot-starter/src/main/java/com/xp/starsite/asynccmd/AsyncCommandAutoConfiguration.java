@@ -33,6 +33,8 @@ import com.xp.starsite.asynccmd.store.AsyncCommandSql;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.JdbcAsyncCommandStore;
+import com.xp.starsite.lock.client.LockClient;
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import org.slf4j.Logger;
@@ -87,7 +89,7 @@ public class AsyncCommandAutoConfiguration {
     @ConditionalOnMissingBean
     public AsyncCommandStore asyncCommandStore(AsyncCommandProperties props,
                                                ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
-                                               ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider,
+                                               ObjectProvider<StarsiteIdGenerator> idGenProvider,
                                                AsyncCommandSql sql) {
         // 枚举 switch 表达式：MEMORY/JDBC 两分支穷尽且均以 yield 终止，无需 default
         return switch (props.getStore()) {
@@ -103,7 +105,7 @@ public class AsyncCommandAutoConfiguration {
                                     + "无 DB 单机场景请配置 starsite.async-command.store=memory");
                 }
                 // 组件表规范：物理主键一律由 sequence 组件生成（无 AUTO_INCREMENT）
-                com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+                StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
                 if (idGen == null) {
                     throw new IllegalStateException(
                             "starsite.async-command.store=jdbc 需要 StarsiteIdGenerator"
@@ -170,7 +172,7 @@ public class AsyncCommandAutoConfiguration {
                                                        AsyncCommandProperties props,
                                                        ExecutorRegistry registry,
                                                        AsyncCommandMetrics metrics,
-                                                       ObjectProvider<com.xp.starsite.lock.client.LockClient> lockProvider,
+                                                       ObjectProvider<LockClient> lockProvider,
                                                        Environment env) {
         // start/stop 由下方 SmartLifecycle 包装托管（容器最后启动、最先停止）
         AsyncCommandScheduler scheduler =
@@ -181,7 +183,7 @@ public class AsyncCommandAutoConfiguration {
         ScheduleMode mode = props.getScheduleMode();
         scheduler.setScheduleMode(mode);
         if (mode == ScheduleMode.LEADER) {
-            com.xp.starsite.lock.client.LockClient lock = lockProvider.getIfAvailable();
+            LockClient lock = lockProvider.getIfAvailable();
             if (lock == null) {
                 log.warn("[starsite-async-command] LEADER 模式但容器中无 LockClient Bean"
                         + "——退化为 COMPETING（引 starsite-lock-spring-boot-starter 并确保装配即选主）");

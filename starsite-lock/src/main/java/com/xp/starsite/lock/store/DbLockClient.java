@@ -17,6 +17,7 @@ package com.xp.starsite.lock.store;
 
 import com.xp.starsite.lock.client.LockClient;
 import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -63,7 +64,7 @@ public class DbLockClient implements LockClient {
     private final long ttlMs;
 
     /** 时钟（TTL 到期判定；测试注入假时钟确定性构造过期场景） */
-    private final java.time.Clock clock;
+    private final Clock clock;
 
     /**
      * 构造（系统时钟）。
@@ -77,7 +78,7 @@ public class DbLockClient implements LockClient {
      */
     public DbLockClient(ScheduleLockMapper mapper, LockTableProvisioner provisioner,
                         String tableName, String ownerId, long ttlMs) {
-        this(mapper, provisioner, tableName, ownerId, ttlMs, java.time.Clock.systemDefaultZone());
+        this(mapper, provisioner, tableName, ownerId, ttlMs, Clock.systemDefaultZone());
     }
 
     /**
@@ -92,7 +93,7 @@ public class DbLockClient implements LockClient {
      * @throws IllegalArgumentException 表名非法
      */
     public DbLockClient(ScheduleLockMapper mapper, LockTableProvisioner provisioner,
-                        String tableName, String ownerId, long ttlMs, java.time.Clock clock) {
+                        String tableName, String ownerId, long ttlMs, Clock clock) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }

@@ -21,6 +21,7 @@ import com.xp.starsite.asynccmd.client.AsyncCommandClient;
 import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
+import com.xp.starsite.lock.client.LockClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -118,15 +119,15 @@ class AsyncCommandAutoConfigurationTest {
      */
     @Test
     void LEADER模式_有LockClientBean_自动接线调度锁() {
-        com.xp.starsite.lock.client.LockClient stub =
-                new com.xp.starsite.lock.client.LockClient() {
+        LockClient stub =
+                new LockClient() {
                     @Override public boolean tryLock(String lockName) { return true; }
                     @Override public void unlock(String lockName) { /* no-op */ }
                 };
         runner.withPropertyValues(
                         "starsite.async-command.store=memory",
                         "starsite.async-command.schedule-mode=leader")
-                .withBean(com.xp.starsite.lock.client.LockClient.class, () -> stub)
+                .withBean(LockClient.class, () -> stub)
                 .run(ctx -> assertThat(ctx.getBean(AsyncCommandScheduler.class).getScheduleLock())
                         .isSameAs(stub));
     }

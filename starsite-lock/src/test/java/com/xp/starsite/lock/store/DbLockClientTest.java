@@ -20,6 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.time.Clock;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
@@ -37,8 +41,8 @@ class DbLockClientTest {
     private static javax.sql.DataSource dataSource;
 
     /** 测试 id 生成序列（各用例的种子行主键互不冲突） */
-    private static final java.util.concurrent.atomic.AtomicLong TEST_ID_SEQ =
-            new java.util.concurrent.atomic.AtomicLong(0);
+    private static final AtomicLong TEST_ID_SEQ =
+            new AtomicLong(0);
 
     /**
      * 建库 + 建锁表。
@@ -85,8 +89,8 @@ class DbLockClientTest {
     /**
      * 构造锁表就绪器（每客户端独立——实例内种子记忆互不共享，与生产多实例形态一致）。
      */
-    private static com.xp.starsite.lock.store.LockTableProvisioner provisioner() throws Exception {
-        return new com.xp.starsite.lock.store.LockTableProvisioner(
+    private static LockTableProvisioner provisioner() throws Exception {
+        return new LockTableProvisioner(
                 mapper(), "starsite_lock", TEST_ID_SEQ::incrementAndGet);
     }
 
@@ -279,7 +283,7 @@ class DbLockClientTest {
     @Test
     void 种子幂等_SQL只执行一次() throws Exception {
         ScheduleLockMapper real = mapper();
-        java.util.concurrent.atomic.AtomicInteger seedCalls = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicInteger seedCalls = new AtomicInteger();
         ScheduleLockMapper counting = (ScheduleLockMapper) java.lang.reflect.Proxy.newProxyInstance(
                 ScheduleLockMapper.class.getClassLoader(),
                 new Class<?>[]{ScheduleLockMapper.class},
@@ -289,8 +293,8 @@ class DbLockClientTest {
                     }
                     return method.invoke(real, args);
                 });
-        com.xp.starsite.lock.store.LockTableProvisioner countingProvisioner =
-                new com.xp.starsite.lock.store.LockTableProvisioner(
+        LockTableProvisioner countingProvisioner =
+                new LockTableProvisioner(
                         counting, "starsite_lock", TEST_ID_SEQ::incrementAndGet);
         DbLockClient lock = new DbLockClient(counting, countingProvisioner, "starsite_lock",
                 "sower", 30_000);
@@ -345,8 +349,8 @@ class DbLockClientTest {
     @Test
     void 并发争锁_恰一胜() throws Exception {
         int threads = 8;
-        java.util.concurrent.CountDownLatch startGate = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicInteger winners = new java.util.concurrent.atomic.AtomicInteger();
+        CountDownLatch startGate = new CountDownLatch(1);
+        AtomicInteger winners = new AtomicInteger();
         Thread[] pool = new Thread[threads];
         for (int i = 0; i < threads; i++) {
             String owner = "racer-" + i;
@@ -379,8 +383,8 @@ class DbLockClientTest {
                 ScheduleLockMapper.class.getClassLoader(),
                 new Class<?>[]{ScheduleLockMapper.class},
                 (proxy, method, args) -> { throw new IllegalStateException("db down"); });
-        com.xp.starsite.lock.store.LockTableProvisioner boomProvisioner =
-                new com.xp.starsite.lock.store.LockTableProvisioner(
+        LockTableProvisioner boomProvisioner =
+                new LockTableProvisioner(
                         boom, "starsite_lock", TEST_ID_SEQ::incrementAndGet);
         DbLockClient lock = new DbLockClient(boom, boomProvisioner, "starsite_lock",
                 "x", 30_000);
@@ -390,7 +394,7 @@ class DbLockClientTest {
     /**
      * 可推进假时钟：TTL 到期判定的确定性构造（免真实等待）。
      */
-    static final class MutableClock extends java.time.Clock {
+    static final class MutableClock extends Clock {
 
         /** 当前虚拟时刻（volatile：测试线程推进，被测线程读） */
         private volatile java.time.Instant instant;
@@ -419,7 +423,7 @@ class DbLockClientTest {
         }
 
         @Override
-        public java.time.Clock withZone(java.time.ZoneId zone) {
+        public Clock withZone(java.time.ZoneId zone) {
             return this;
         }
 

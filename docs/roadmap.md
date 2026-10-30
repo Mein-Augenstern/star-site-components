@@ -14,6 +14,9 @@
 ## 待办（按优先级）
 
 - [ ] sequence：Redis 租约实现（无 MySQL 场景）、K8s StatefulSet 序号直取
+- [ ] sequence：运维能力（SequenceAdminClient：listWorkerIds 巡检 workerId 分配 /
+      getCurrentPoolValue 查全局池计数 / resetWorkerId 强制归还卡死的 workerId）——
+      与 lock 的 LockAdminClient 同模式（独立接口 + admin-enabled 开关）
 - [ ] lock：看门狗自动续期（长任务持锁跨 TTL 场景——自动续期线程/租约延长，替代手工多次 tryLock 续期）
 - [ ] async-command：深分页游标化（selectPage 的 OFFSET → `WHERE id < lastId` keyset，配套
       admin 端点 lastId 参数——OFFSET 深翻页线性变慢，2026-10 SQL 审计挂账）

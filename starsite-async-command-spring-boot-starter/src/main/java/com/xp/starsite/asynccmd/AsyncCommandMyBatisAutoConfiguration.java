@@ -18,6 +18,7 @@ package com.xp.starsite.asynccmd;
 import com.xp.starsite.asynccmd.mybatis.AsyncCommandMapper;
 import com.xp.starsite.asynccmd.mybatis.MyBatisAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
 import org.slf4j.Logger;
@@ -74,8 +75,8 @@ public class AsyncCommandMyBatisAutoConfiguration {
     @ConditionalOnProperty(prefix = "starsite.async-command", name = "store", havingValue = "jdbc", matchIfMissing = true)
     public AsyncCommandStore myBatisAsyncCommandStore(AsyncCommandMapper mapper,
                                                       AsyncCommandProperties props,
-                                                      ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider) {
-        com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+                                                      ObjectProvider<StarsiteIdGenerator> idGenProvider) {
+        StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
         if (idGen == null) {
             throw new IllegalStateException("MyBatis 存储需要 starsite-sequence 组件提供 StarsiteIdGenerator"
                     + "（组件表物理主键标准来源）；请引 starsite-sequence-spring-boot-starter");

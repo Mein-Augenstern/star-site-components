@@ -27,6 +27,7 @@ import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,8 +55,8 @@ class MyBatisAsyncCommandStoreTest {
     private static SqlSessionFactory sqlSessionFactory;
 
     /** 测试 id 生成序列（模拟 sequence 组件发号——物理主键来源语义等价） */
-    private static final java.util.concurrent.atomic.AtomicLong TEST_ID_SEQ =
-            new java.util.concurrent.atomic.AtomicLong(0);
+    private static final AtomicLong TEST_ID_SEQ =
+            new AtomicLong(0);
 
     /**
      * 建库与 MyBatis 装配：EmbeddedH2 → SqlSessionFactory（驼峰映射开启）→ 注册 Mapper。

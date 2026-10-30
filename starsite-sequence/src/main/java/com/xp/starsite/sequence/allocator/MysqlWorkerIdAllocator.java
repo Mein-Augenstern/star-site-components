@@ -15,11 +15,13 @@
  */
 package com.xp.starsite.sequence.allocator;
 
+import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
@@ -92,7 +94,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     private final SequenceSql sql;
 
     /** 审计行主键 id 生成器（缺省为服务名派生 workerId 的自举雪花——跨服务唯一，无需先有正式发号器） */
-    private final java.util.function.LongSupplier idGenerator;
+    private final LongSupplier idGenerator;
 
     /**
      * 构造 MySQL 租约分配器（审计行 id 用服务名派生 workerId 的自举雪花）。
@@ -150,7 +152,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
     public MysqlWorkerIdAllocator(DataSource dataSource, String tableName, String serviceName,
                                   String instanceTag, boolean initDdl, int workerIdBits,
                                   WraparoundPolicy wraparoundPolicy, SequenceSql sql,
-                                  java.util.function.LongSupplier idGenerator) {
+                                  LongSupplier idGenerator) {
         if (dataSource == null) {
             throw new IllegalArgumentException("mysql 模式需要 DataSource（检查数据源配置）");
         }
@@ -177,12 +179,12 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @param serviceName 服务名（派生 workerId 的种子）
      * @return 自举发号 supplier
      */
-    private static java.util.function.LongSupplier bootstrapIdGenerator(String serviceName) {
+    private static LongSupplier bootstrapIdGenerator(String serviceName) {
         long bootstrapWorkerId = Math.floorMod(serviceName.hashCode(), 1024);
-        com.xp.starsite.sequence.generator.SnowflakeIdGenerator bootstrap =
-                new com.xp.starsite.sequence.generator.SnowflakeIdGenerator(
+        SnowflakeIdGenerator bootstrap =
+                new SnowflakeIdGenerator(
                         bootstrapWorkerId, 1767225600000L, 10, 12, 2000,
-                        com.xp.starsite.sequence.generator.SnowflakeIdGenerator.BackwardPolicy.CLAMP);
+                        SnowflakeIdGenerator.BackwardPolicy.CLAMP);
         return bootstrap::nextId;
     }
 

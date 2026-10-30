@@ -18,6 +18,7 @@ package com.xp.starsite.lock.store;
 import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +57,7 @@ public final class LockTableProvisioner {
     private final String tableName;
 
     /** 种子行主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
-    private final java.util.function.LongSupplier idGenerator;
+    private final LongSupplier idGenerator;
 
     /**
      * 已播种的锁名（<b>纯性能提示</b>，正确性不依赖——论证见类注释）：
@@ -73,7 +74,7 @@ public final class LockTableProvisioner {
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
     public LockTableProvisioner(ScheduleLockMapper mapper, String tableName,
-                                java.util.function.LongSupplier idGenerator) {
+                                LongSupplier idGenerator) {
         if (tableName == null || !tableName.matches("[A-Za-z0-9_]+")) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }

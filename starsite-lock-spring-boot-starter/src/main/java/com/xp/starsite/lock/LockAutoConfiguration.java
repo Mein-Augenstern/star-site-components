@@ -15,10 +15,14 @@
  */
 package com.xp.starsite.lock;
 
+import com.xp.starsite.lock.client.LockAdminClient;
 import com.xp.starsite.lock.client.LockClient;
 import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
 import com.xp.starsite.lock.redis.RedisLockClient;
+import com.xp.starsite.lock.store.DbLockAdminClient;
 import com.xp.starsite.lock.store.DbLockClient;
+import com.xp.starsite.lock.store.LockTableProvisioner;
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -66,7 +70,7 @@ public class LockAutoConfiguration {
     public LockClient lockClient(LockProperties props,
                                  ObjectProvider<ScheduleLockMapper> mapperProvider,
                                  ObjectProvider<StringRedisTemplate> redisTemplateProvider,
-                                 ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider,
+                                 ObjectProvider<StarsiteIdGenerator> idGenProvider,
                                  Environment env) {
         if (props.getOwnerId() == null || props.getOwnerId().isBlank()) {
             String appName = env.getProperty("spring.application.name", "unknown");
@@ -82,7 +86,7 @@ public class LockAutoConfiguration {
                                     + "或配置 @MapperScan 包含 com.xp.starsite.lock.mybatis）");
                 }
                 // 组件表规范：物理主键一律由 sequence 组件生成（无 AUTO_INCREMENT）
-                com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+                StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
                 if (idGen == null) {
                     throw new IllegalStateException(
                             "starsite.lock.mode=db 需要 StarsiteIdGenerator"
@@ -90,8 +94,8 @@ public class LockAutoConfiguration {
                                     + " starsite-sequence-spring-boot-starter");
                 }
                 // 存储就绪器（建表/播种）与锁客户端（互斥语义）职责分离，共享同一表名
-                com.xp.starsite.lock.store.LockTableProvisioner provisioner =
-                        new com.xp.starsite.lock.store.LockTableProvisioner(
+                LockTableProvisioner provisioner =
+                        new LockTableProvisioner(
                                 mapper, props.getTableName(), idGen::next);
                 if (props.isInitDdl()) {
                     provisioner.ensureTable();
@@ -125,7 +129,7 @@ public class LockAutoConfiguration {
     @ConditionalOnMissingBean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
             prefix = "starsite.lock", name = "admin-enabled", havingValue = "true")
-    public com.xp.starsite.lock.client.LockAdminClient lockAdminClient(
+    public LockAdminClient lockAdminClient(
             LockProperties props,
             ObjectProvider<ScheduleLockMapper> mapperProvider) {
         if (props.getMode() != com.xp.starsite.lock.LockProperties.Mode.DB) {
@@ -139,6 +143,6 @@ public class LockAutoConfiguration {
                     "starsite.lock.admin-enabled=true 需要 ScheduleLockMapper Bean（同 db 模式前置条件）");
         }
         log.info("[starsite-lock] 运维门面就绪：强制释放/巡检/诊断（table={}）", props.getTableName());
-        return new com.xp.starsite.lock.store.DbLockAdminClient(mapper, props.getTableName());
+        return new DbLockAdminClient(mapper, props.getTableName());
     }
 }

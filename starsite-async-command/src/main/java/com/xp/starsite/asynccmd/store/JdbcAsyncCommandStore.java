@@ -19,6 +19,7 @@ import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,7 +63,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     private final com.xp.starsite.asynccmd.clock.TimeSource time;
 
     /** 主键 id 生成器（starsite-sequence 组件的 next()——组件表物理主键标准来源） */
-    private final java.util.function.LongSupplier idGenerator;
+    private final LongSupplier idGenerator;
 
     /** 行映射器：下划线列名 → 驼峰字段（静态复用；详情/执行路径全列含 payload） */
     private static final RowMapper<AsyncCommand> MAPPER = (rs, i) -> {
@@ -117,7 +118,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
      * @param jdbc      JDBC 模板
      * @param tableName 命令表名（仅字母数字下划线）
      */
-    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, java.util.function.LongSupplier idGenerator) {
+    public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, LongSupplier idGenerator) {
         this(jdbc, tableName, new AsyncCommandSql.MySql(), true, idGenerator);
     }
 
@@ -132,7 +133,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
     public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, AsyncCommandSql sql, boolean initDdl,
-                                 java.util.function.LongSupplier idGenerator) {
+                                 LongSupplier idGenerator) {
         this(jdbc, tableName, sql, initDdl, idGenerator,
                 com.xp.starsite.asynccmd.clock.TimeSource.system());
     }
@@ -149,7 +150,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
      * @throws IllegalArgumentException 表名为 null 或含白名单外字符
      */
     public JdbcAsyncCommandStore(JdbcTemplate jdbc, String tableName, AsyncCommandSql sql, boolean initDdl,
-                                 java.util.function.LongSupplier idGenerator,
+                                 LongSupplier idGenerator,
                                  com.xp.starsite.asynccmd.clock.TimeSource time) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);

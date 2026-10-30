@@ -16,8 +16,11 @@
 package com.xp.starsite.sequence;
 
 import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
+import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 import com.xp.starsite.sequence.mybatis.MyBatisMysqlWorkerIdAllocator;
 import com.xp.starsite.sequence.mybatis.SequenceMapper;
+import java.util.function.LongSupplier;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.mybatis.spring.annotation.MapperScan;
@@ -83,7 +86,7 @@ public class SequenceMyBatisAutoConfiguration {
             Environment env,
             SqlSessionFactory sqlSessionFactory,
             ObjectProvider<PlatformTransactionManager> transactionManager,
-            ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider) {
+            ObjectProvider<StarsiteIdGenerator> idGenProvider) {
         log.info("[starsite-sequence] mysql 租约分配器：mybatis（消费方 MyBatis 生态原生生效）");
         String appName = env.getProperty("spring.application.name", "unknown");
         String instanceTag = props.getInstanceTag() != null && !props.getInstanceTag().isBlank()
@@ -93,8 +96,8 @@ public class SequenceMyBatisAutoConfiguration {
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager.getObject());
         // 审计行主键 id 生成器：优先 sequence 门面；缺省回退服务名派生 workerId 的自举雪花
         // （固定值如恒为 1 会让多服务审计行在主键互撞并经 ON DUPLICATE KEY 交叉覆盖，不可用）
-        com.xp.starsite.sequence.facade.StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
-        java.util.function.LongSupplier idGenerator = idGen != null
+        StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
+        LongSupplier idGenerator = idGen != null
                 ? idGen::next
                 : bootstrapIdGenerator(appName);
         return new MyBatisMysqlWorkerIdAllocator(
@@ -109,12 +112,12 @@ public class SequenceMyBatisAutoConfiguration {
      * @param appName 服务名（派生 workerId 的种子）
      * @return 自举发号 supplier
      */
-    private static java.util.function.LongSupplier bootstrapIdGenerator(String appName) {
+    private static LongSupplier bootstrapIdGenerator(String appName) {
         long bootstrapWorkerId = Math.floorMod(appName.hashCode(), 1024);
-        com.xp.starsite.sequence.generator.SnowflakeIdGenerator bootstrap =
-                new com.xp.starsite.sequence.generator.SnowflakeIdGenerator(
+        SnowflakeIdGenerator bootstrap =
+                new SnowflakeIdGenerator(
                         bootstrapWorkerId, 1767225600000L, 10, 12, 2000,
-                        com.xp.starsite.sequence.generator.SnowflakeIdGenerator.BackwardPolicy.CLAMP);
+                        SnowflakeIdGenerator.BackwardPolicy.CLAMP);
         return bootstrap::nextId;
     }
 }

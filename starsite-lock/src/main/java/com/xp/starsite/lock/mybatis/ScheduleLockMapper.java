@@ -15,6 +15,7 @@
  */
 package com.xp.starsite.lock.mybatis;
 
+import com.xp.starsite.lock.client.LockAdminClient.LockInfo;
 import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Param;
 
@@ -104,7 +105,7 @@ public interface ScheduleLockMapper {
      * @param tableName 锁表名
      * @return 持锁信息列表（locked_by 非空的行）
      */
-    java.util.List<com.xp.starsite.lock.client.LockAdminClient.LockInfo> selectHeldLocks(
+    java.util.List<LockInfo> selectHeldLocks(
             @Param("tableName") String tableName);
 
     /**
@@ -114,6 +115,6 @@ public interface ScheduleLockMapper {
      * @param lockName  锁名
      * @return 锁信息；行不存在返回 null
      */
-    com.xp.starsite.lock.client.LockAdminClient.LockInfo selectLockInfo(
+    LockInfo selectLockInfo(
             @Param("tableName") String tableName, @Param("lockName") String lockName);
 }

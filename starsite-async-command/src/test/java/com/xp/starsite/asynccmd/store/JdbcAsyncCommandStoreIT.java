@@ -21,6 +21,7 @@ import com.xp.starsite.asynccmd.model.AsyncCommand;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -135,7 +136,7 @@ class JdbcAsyncCommandStoreIT {
         ds.setUsername(dbUser());
         ds.setPassword(dbPassword());
         // IT 用递增计数器模拟 sequence 组件发号（物理主键来源语义等价）
-        java.util.concurrent.atomic.AtomicLong seq = new java.util.concurrent.atomic.AtomicLong(0);
+        AtomicLong seq = new AtomicLong(0);
         return new JdbcAsyncCommandStore(new JdbcTemplate(ds), table,
                 new AsyncCommandSql.MySql(), true, seq::incrementAndGet);
     }

@@ -16,6 +16,7 @@
 package com.xp.starsite.sequence.mybatis;
 
 import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.slf4j.Logger;
@@ -66,7 +67,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
     private final long maxWorkerId;
 
     /** 审计行主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
-    private final java.util.function.LongSupplier idGenerator;
+    private final LongSupplier idGenerator;
 
     /** 回绕策略名（RESET / FAIL） */
     private final String wraparoundPolicy;
@@ -88,7 +89,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
                                          TransactionTemplate txTemplate, String tableName,
                                          String serviceName, String instanceTag,
                                          int workerIdBits, String wraparoundPolicy,
-                                         java.util.function.LongSupplier idGenerator) {
+                                         LongSupplier idGenerator) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }

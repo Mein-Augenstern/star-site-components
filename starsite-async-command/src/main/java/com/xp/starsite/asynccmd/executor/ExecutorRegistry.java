@@ -19,6 +19,7 @@ package com.xp.starsite.asynccmd.executor;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -65,7 +66,7 @@ public class ExecutorRegistry {
      *
      * @return 只读类型集合；首次调用会触发路由解析（存在重复 type 时在此抛出）
      */
-    public java.util.Set<String> types() {
+    public Set<String> types() {
         return java.util.Collections.unmodifiableSet(routes().keySet());
     }
 
