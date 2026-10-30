@@ -6,10 +6,32 @@
 
   <groupId>com.xp.starsite</groupId>
   <artifactId>star-site-components</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <packaging>pom</packaging>
   <name>star-site-components</name>
-  <description>star-site 系列通用组件库：雪花序列（sequence）、异步命令（async-command）、分布式锁（lock）三组件，core/starter/mybatis 三层结构，单机与分布式双形态，微服务引 jar + 配置即用</description>
+  <url>https://github.com/Mein-Augenstern/star-site-components</url>
+  <description>Lightweight distributed components for Spring Boot 3: snowflake ID generator, distributed lock (reentrant), async task queue with retry — DB-first, only needs MySQL</description>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>muyi</id>
+      <name>muyi</name>
+      <url>https://github.com/Mein-Augenstern</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <url>https://github.com/Mein-Augenstern/star-site-components</url>
+    <connection>scm:git:git://github.com/Mein-Augenstern/star-site-components.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com:Mein-Augenstern/star-site-components.git</developerConnection>
+  </scm>
 
   <modules>
     <module>starsite-sequence</module>

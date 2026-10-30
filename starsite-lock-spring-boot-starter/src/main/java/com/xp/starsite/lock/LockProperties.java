@@ -30,14 +30,14 @@ public class LockProperties extends LockCoreConfig {
     /** 组件总开关（false 时完全不装配）。 */
     private boolean enabled = true;
 
-    /** 存储形态：db（MyBatis Mapper）/ redis（StringRedisTemplate）。 */
-    private Mode mode = Mode.DB;
+    /** 存储形态：mysql（MyBatis Mapper + MySQL 表）/ redis（StringRedisTemplate + key）。键名与 sequence/async-command 统一为 mode。 */
+    private Mode mode = Mode.MYSQL;
 
-    /** 自动建锁表（仅 db 模式；IF NOT EXISTS 增量安全）。 */
+    /** 自动建锁表（仅 mysql 模式；IF NOT EXISTS 增量安全）。 */
     private boolean initDdl = true;
 
-    /** 存储形态枚举：DB（MyBatis Mapper + 表）与 REDIS（StringRedisTemplate + key）。 */
-    public enum Mode { DB, REDIS }
+    /** 存储形态枚举：MYSQL（MyBatis Mapper + 表）与 REDIS（StringRedisTemplate + key）——取值与 sequence/async-command 统一词汇表。 */
+    public enum Mode { MYSQL, REDIS }
 
     /** 读取组件总开关。@return true 启用（默认） */
     public boolean isEnabled() { return enabled; }

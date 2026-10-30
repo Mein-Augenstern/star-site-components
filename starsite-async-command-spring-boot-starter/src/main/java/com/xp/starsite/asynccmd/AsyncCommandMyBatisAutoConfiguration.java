@@ -40,7 +40,7 @@ import org.springframework.context.annotation.Bean;
  * 消费方的 MyBatis 拦截器/分页插件/SQL 日志对命令表原生生效。
  * <p>
  * 三重不误伤：无 MyBatis 类（classpath）、无会话工厂 Bean（只有依赖没引 starter）、
- * store=memory（内存形态与 SQL 载体无关）时本装配均整体不生效，默认装配兜底。
+ * mode=standalone（内存形态与 SQL 载体无关）时本装配均整体不生效，默认装配兜底。
  * <p>
  * 排序链：@AutoConfigureAfter MybatisAutoConfiguration（会话工厂就绪后再判 @ConditionalOnBean）→
  * @AutoConfigureBefore 默认装配（先注册 MyBatis 版存储，默认装配的 @ConditionalOnMissingBean 让位）。
@@ -72,7 +72,7 @@ public class AsyncCommandMyBatisAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(AsyncCommandStore.class)
-    @ConditionalOnProperty(prefix = "starsite.async-command", name = "store", havingValue = "jdbc", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "starsite.async-command", name = "mode", havingValue = "jdbc", matchIfMissing = true)
     public AsyncCommandStore myBatisAsyncCommandStore(AsyncCommandMapper mapper,
                                                       AsyncCommandProperties props,
                                                       ObjectProvider<StarsiteIdGenerator> idGenProvider) {

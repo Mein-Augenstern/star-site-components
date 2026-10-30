@@ -10,7 +10,7 @@ async-command 的 LEADER 选主也走它。
 ```yaml
 starsite:
   lock:
-    mode: db              # 默认；需 MyBatis 环境 + DataSource + sequence starter（锁行主键发号）
+    mode: mysql              # 默认；需 MyBatis 环境 + DataSource + sequence starter（锁行主键发号）
     # mode: redis         # 需 StringRedisTemplate
     table-name: starsite_lock
     ttl-ms: 30000         # 持锁 TTL（过期即让位——锁持有者崩溃后最长等一个 TTL）

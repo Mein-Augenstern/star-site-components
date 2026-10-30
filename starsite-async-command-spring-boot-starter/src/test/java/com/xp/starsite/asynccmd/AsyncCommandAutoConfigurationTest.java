@@ -46,7 +46,7 @@ class AsyncCommandAutoConfigurationTest {
      */
     @Test
     void memory形态_无DataSource完整装配_生命周期容器托管() {
-        runner.withPropertyValues("starsite.async-command.store=memory")
+        runner.withPropertyValues("starsite.async-command.mode=standalone")
                 .withBean("exec", AsyncCommandExecutor.class, () -> new AsyncCommandExecutor() {
                     @Override public String type() { return "demo"; }
                     @Override public void execute(AsyncCommand cmd) { }
@@ -70,25 +70,25 @@ class AsyncCommandAutoConfigurationTest {
 
     /**
      * 用例：jdbc 形态缺 DataSource 快速失败。
-     * <p>验证点：store=jdbc 且容器中无 JdbcTemplate 时装配失败，且异常信息明确提示改用 store=memory。
+     * <p>验证点：mode=mysql 且容器中无 JdbcTemplate 时装配失败，且异常信息明确提示改用 mode=standalone。
      */
     @Test
     void jdbc形态_缺DataSource_快速失败提示memory() {
-        runner.withPropertyValues("starsite.async-command.store=jdbc")
+        runner.withPropertyValues("starsite.async-command.mode=mysql")
                 .run(ctx -> assertThat(ctx).hasFailed()
                         .getFailure()
-                        .hasMessageContaining("store=memory"));
+                        .hasMessageContaining("mode=standalone"));
     }
 
     /**
      * 用例：jdbc 形态缺 StarsiteIdGenerator 快速失败。
-     * <p>验证点：store=jdbc、JdbcTemplate 在容器中，但未引入 starsite-sequence 组件时装配失败，
+     * <p>验证点：mode=mysql、JdbcTemplate 在容器中，但未引入 starsite-sequence 组件时装配失败，
      * 异常信息明确提示引入 starsite-sequence-spring-boot-starter（物理主键无来源不可降级）。
      */
     @Test
     void jdbc形态_缺IdGenerator_快速失败提示sequence() {
         // 占位 DataSource：JdbcTemplate 仅需存在（装配在 idGen 检查前不会真正连库）
-        runner.withPropertyValues("starsite.async-command.store=jdbc")
+        runner.withPropertyValues("starsite.async-command.mode=mysql")
                 .withBean(org.springframework.jdbc.core.JdbcTemplate.class, () ->
                         new org.springframework.jdbc.core.JdbcTemplate(
                                 new org.springframework.jdbc.datasource.SimpleDriverDataSource()))
@@ -104,7 +104,7 @@ class AsyncCommandAutoConfigurationTest {
     @Test
     void 关开关_不装配() {
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "starsite.async-command.enabled=false")
                 .run(ctx -> {
                     assertThat(ctx).doesNotHaveBean(AsyncCommandClient.class);
@@ -125,7 +125,7 @@ class AsyncCommandAutoConfigurationTest {
                     @Override public void unlock(String lockName) { /* no-op */ }
                 };
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "starsite.async-command.schedule-mode=leader")
                 .withBean(LockClient.class, () -> stub)
                 .run(ctx -> assertThat(ctx.getBean(AsyncCommandScheduler.class).getScheduleLock())
@@ -140,7 +140,7 @@ class AsyncCommandAutoConfigurationTest {
     @Test
     void LEADER模式_无LockClientBean_退化装配不阻断() {
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "starsite.async-command.schedule-mode=leader")
                 .run(ctx -> {
                     assertThat(ctx).hasSingleBean(AsyncCommandScheduler.class);
@@ -155,7 +155,7 @@ class AsyncCommandAutoConfigurationTest {
     @Test
     void owner默认取应用名() {
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "spring.application.name=demo-service")
                 .run(ctx -> {
                     AsyncCommandClient client = ctx.getBean(AsyncCommandClient.class);

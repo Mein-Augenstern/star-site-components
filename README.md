@@ -76,7 +76,7 @@ starsite:
   async-command:
     store: jdbc              # MySQL-backed task queue with retry
   lock:
-    mode: db                 # MySQL unique-key distributed lock
+    mode: mysql                 # MySQL unique-key distributed lock
 ```
 
 No `@Import`, no `@EnableScheduling` — auto-configuration handles everything.

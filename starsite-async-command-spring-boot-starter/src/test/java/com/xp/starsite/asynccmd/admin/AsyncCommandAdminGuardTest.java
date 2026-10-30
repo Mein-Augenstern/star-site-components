@@ -82,7 +82,7 @@ class AsyncCommandAdminGuardTest {
     @Test
     void 配置admin_token_装配内置守卫() {
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "starsite.async-command.admin-enabled=true",
                         "starsite.async-command.admin-token=t-ok")
                 .run(ctx ->
@@ -93,7 +93,7 @@ class AsyncCommandAdminGuardTest {
     void 自定义守卫Bean_内置守卫让位() {
         AsyncCommandAdminGuard custom = request -> { /* 自定义放行 */ };
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "starsite.async-command.admin-enabled=true",
                         "starsite.async-command.admin-token=t-ok")
                 .withBean("customGuard", AsyncCommandAdminGuard.class, () -> custom)
@@ -104,7 +104,7 @@ class AsyncCommandAdminGuardTest {
     @Test
     void 未配token且无自定义守卫_不装配守卫Bean_控制器兜底ALLOW_ALL() {
         runner.withPropertyValues(
-                        "starsite.async-command.store=memory",
+                        "starsite.async-command.mode=standalone",
                         "starsite.async-command.admin-enabled=true")
                 .run(ctx ->
                         assertThat(ctx).doesNotHaveBean(AsyncCommandAdminGuard.class));

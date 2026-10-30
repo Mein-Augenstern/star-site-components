@@ -36,7 +36,7 @@ class AsyncCommandHealthIndicatorTest {
     /** 上下文测试运行器：固定 memory 存储形态拉起自动装配，逐用例读取健康端点 Bean 断言 */
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(AsyncCommandAutoConfiguration.class))
-            .withPropertyValues("starsite.async-command.store=memory");
+            .withPropertyValues("starsite.async-command.mode=standalone");
 
     /** 注入的应用上下文（ApplicationContextRunner 场景下保留字段以兼容后续用例扩展） */
     @Autowired

@@ -55,8 +55,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * starsite-async-command 自动装配（starter 模块，仅粘合；命令/存储/调度本体在 core）：
  * 引 jar + 配置即用，无需 @Import / @EnableScheduling。
  * <pre>
- * DB 服务（单机或分布式）：starsite.async-command.store=jdbc（默认，需 DataSource）
- * 无 DB 单机：starsite.async-command.store=memory
+ * DB 服务（单机或分布式）：starsite.async-command.mode=mysql（默认，需 DataSource）
+ * 无 DB 单机：starsite.async-command.mode=standalone
  * 管控端点：starsite.async-command.admin-enabled=true（默认关，Web 应用才生效）
  * </pre>
  * 应用自定义 Store/Client/Scheduler Bean 时让位（@ConditionalOnMissingBean）；
@@ -82,7 +82,7 @@ public class AsyncCommandAutoConfiguration {
      * @param jdbcTemplateProvider JdbcTemplate 惰性提供者（仅 jdbc 形态使用，容器中可能不存在）
      * @param idGenProvider id 生成器提供者（jdbc 形态必填——命令表物理主键标准来源）
      * @return 命令存储实例（jdbc 形态返回 {@link JdbcAsyncCommandStore}，memory 形态返回 {@link InMemoryAsyncCommandStore}）
-     * @throws IllegalStateException store=jdbc 但容器中无 JdbcTemplate（缺 DataSource）或缺
+     * @throws IllegalStateException mode=mysql 但容器中无 JdbcTemplate（缺 DataSource）或缺
      *                               StarsiteIdGenerator（主键无来源）时快速失败
      */
     @Bean
@@ -91,24 +91,24 @@ public class AsyncCommandAutoConfiguration {
                                                ObjectProvider<JdbcTemplate> jdbcTemplateProvider,
                                                ObjectProvider<StarsiteIdGenerator> idGenProvider,
                                                AsyncCommandSql sql) {
-        // 枚举 switch 表达式：MEMORY/JDBC 两分支穷尽且均以 yield 终止，无需 default
-        return switch (props.getStore()) {
-            case MEMORY -> {
-                log.info("[starsite-async-command] 存储形态：memory（单机无 DB；重启丢命令）");
+        // 枚举 switch 表达式：STANDALONE/MYSQL 两分支穷尽且均以 yield 终止，无需 default
+        return switch (props.getMode()) {
+            case STANDALONE -> {
+                log.info("[starsite-async-command] 存储形态：standalone（单机无 DB；重启丢命令）");
                 yield new InMemoryAsyncCommandStore();
             }
-            case JDBC -> {
+            case MYSQL -> {
                 JdbcTemplate jdbc = jdbcTemplateProvider.getIfAvailable();
                 if (jdbc == null) {
                     throw new IllegalStateException(
-                            "starsite.async-command.store=jdbc 需要 JdbcTemplate（DataSource）；"
-                                    + "无 DB 单机场景请配置 starsite.async-command.store=memory");
+                            "starsite.async-command.mode=mysql 需要 JdbcTemplate（DataSource）；"
+                                    + "无 DB 单机场景请配置 starsite.async-command.mode=standalone");
                 }
                 // 组件表规范：物理主键一律由 sequence 组件生成（无 AUTO_INCREMENT）
                 StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
                 if (idGen == null) {
                     throw new IllegalStateException(
-                            "starsite.async-command.store=jdbc 需要 StarsiteIdGenerator"
+                            "starsite.async-command.mode=mysql 需要 StarsiteIdGenerator"
                                     + "（starsite-sequence 组件）生成命令表物理主键；请引入"
                                     + " starsite-sequence-spring-boot-starter");
                 }

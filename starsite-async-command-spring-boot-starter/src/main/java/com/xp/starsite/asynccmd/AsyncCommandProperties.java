@@ -23,11 +23,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 异步命令配置（前缀 starsite.async-command）——继承 core 的 {@link AsyncCommandConfig} 完成绑定，
  * 本类只追加装配形态相关项。
  * <p>
- * 存储双形态：
+ * 双形态（键名 mode，与 sequence/lock 组件统一）：
  * <ul>
- *   <li><b>jdbc</b>（默认）：表存储 + 令牌认领——单机单实例与分布式多实例同语义，
+ *   <li><b>mysql</b>（默认）：表存储 + 令牌认领——单机单实例与分布式多实例同语义，
  *       多实例并发认领靠 {@code UPDATE ... claim_token} 互斥，谁写入算谁。</li>
- *   <li><b>memory</b>：进程内存队列，无 DB 场景（本地开发/小型工具/单机服务）。
+ *   <li><b>standalone</b>：进程内存队列，无 DB 场景（本地开发/小型工具/单机服务）。
  *       重启丢命令，不适用于有可靠性要求的链路。</li>
  * </ul>
  *
@@ -40,13 +40,13 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
     /** 组件总开关（默认 true；false 时 starter 完全不装配任何 Bean） */
     private boolean enabled = true;
 
-    /** 存储形态（默认 JDBC；取值语义见 {@link Store} 各常量说明） */
-    private Store store = Store.JDBC;
+    /** 存储形态（默认 MYSQL；取值语义见 {@link Mode} 各常量说明；键名与 sequence/lock 统一为 mode） */
+    private Mode mode = Mode.MYSQL;
 
-    /** 命令表名（仅 jdbc 形态生效；默认 async_command；每服务独立库/独立表名即可多服务共存） */
+    /** 命令表名（仅 mysql 形态生效；默认 async_command；每服务独立库/独立表名即可多服务共存） */
     private String tableName = "async_command";
 
-    /** 自动建表开关（仅 jdbc 形态生效；默认 true，CREATE TABLE IF NOT EXISTS 增量安全；false = 交由迁移脚本管理） */
+    /** 自动建表开关（仅 mysql 形态生效；默认 true，CREATE TABLE IF NOT EXISTS 增量安全；false = 交由迁移脚本管理） */
     private boolean initDdl = true;
 
     /** 管控端点开关（默认 false；true 且 Web 应用时才装配管控端点，建议仅内网/网关白名单可达） */
@@ -69,21 +69,21 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
     private long scheduleLockTtlMs = 30000;
 
     /**
-     * 存储形态枚举：决定命令落库方式与可用部署拓扑。
+     * 存储形态枚举：决定命令落库方式与可用部署拓扑（取值与 sequence/lock 组件统一词汇表）。
      */
-    public enum Store {
+    public enum Mode {
 
         /**
          * 表存储 + 令牌认领：需容器中存在 DataSource/JdbcTemplate；
          * 单机单实例与分布式多实例同语义，多实例并发认领靠 UPDATE claim_token 互斥，谁写入算谁。
          */
-        JDBC,
+        MYSQL,
 
         /**
          * 进程内存队列：无需任何 DB，适用于本地开发/小型工具/单机服务；
          * 重启即丢失全部未完成命令，不适用于有可靠性要求的链路。
          */
-        MEMORY
+        STANDALONE
     }
 
     /**
@@ -103,28 +103,28 @@ public class AsyncCommandProperties extends AsyncCommandConfig {
     /**
      * 读取存储形态。
      *
-     * @return 当前存储形态（默认 {@link Store#JDBC}）
+     * @return 当前存储形态（默认 {@link Mode#MYSQL}）
      */
-    public Store getStore() { return store; }
+    public Mode getMode() { return mode; }
 
     /**
      * 设置存储形态。
      *
-     * @param store 存储形态：JDBC（需 DataSource）或 MEMORY（无 DB、重启丢命令）
+     * @param mode 存储形态：MYSQL（需 DataSource）或 STANDALONE（无 DB、重启丢命令）
      */
-    public void setStore(Store store) { this.store = store; }
+    public void setMode(Mode mode) { this.mode = mode; }
 
     /**
      * 读取命令表名。
      *
-     * @return 命令表名（仅 jdbc 形态生效；默认 async_command）
+     * @return 命令表名（仅 mysql 形态生效；默认 async_command）
      */
     public String getTableName() { return tableName; }
 
     /**
      * 设置命令表名。
      *
-     * @param tableName 命令表名（仅 jdbc 形态生效；多服务共存时每服务配独立库/独立表名）
+     * @param tableName 命令表名（仅 mysql 形态生效；多服务共存时每服务配独立库/独立表名）
      */
     public void setTableName(String tableName) { this.tableName = tableName; }
 

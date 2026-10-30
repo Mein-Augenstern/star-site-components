@@ -37,7 +37,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 /**
  * 分布式锁自动装配：引 jar + 配置即用。
  * <pre>
- * DB 模式（默认）：starsite.lock.mode=db（需 MyBatis 环境 + DataSource）
+ * DB 模式（默认）：starsite.lock.mode=mysql（需 MyBatis 环境 + DataSource）
  * Redis 模式：starsite.lock.mode=redis（需 StringRedisTemplate）
  * </pre>
  * 应用自定义 {@link LockClient} Bean 时让位（@ConditionalOnMissingBean）。
@@ -77,11 +77,11 @@ public class LockAutoConfiguration {
             props.setOwnerId(appName + "@" + ProcessHandle.current().pid());
         }
         return switch (props.getMode()) {
-            case DB -> {
+            case MYSQL -> {
                 ScheduleLockMapper mapper = mapperProvider.getIfAvailable();
                 if (mapper == null) {
                     throw new IllegalStateException(
-                            "starsite.lock.mode=db 需要 ScheduleLockMapper Bean（"
+                            "starsite.lock.mode=mysql 需要 ScheduleLockMapper Bean（"
                                     + "消费方需有 mybatis-spring-boot-starter + DataSource，"
                                     + "或配置 @MapperScan 包含 com.xp.starsite.lock.mybatis）");
                 }
@@ -89,7 +89,7 @@ public class LockAutoConfiguration {
                 StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
                 if (idGen == null) {
                     throw new IllegalStateException(
-                            "starsite.lock.mode=db 需要 StarsiteIdGenerator"
+                            "starsite.lock.mode=mysql 需要 StarsiteIdGenerator"
                                     + "（starsite-sequence 组件）生成锁行物理主键；请引入"
                                     + " starsite-sequence-spring-boot-starter");
                 }
@@ -110,7 +110,7 @@ public class LockAutoConfiguration {
                 if (redis == null) {
                     throw new IllegalStateException(
                             "starsite.lock.mode=redis 需要 StringRedisTemplate Bean；"
-                                    + "无 Redis 场景请配置 starsite.lock.mode=db");
+                                    + "无 Redis 场景请配置 starsite.lock.mode=mysql");
                 }
                 log.info("[starsite-lock] 存储形态：redis（prefix={}，owner={}）",
                         props.getRedisKeyPrefix(), props.getOwnerId());
@@ -132,7 +132,7 @@ public class LockAutoConfiguration {
     public LockAdminClient lockAdminClient(
             LockProperties props,
             ObjectProvider<ScheduleLockMapper> mapperProvider) {
-        if (props.getMode() != com.xp.starsite.lock.LockProperties.Mode.DB) {
+        if (props.getMode() != com.xp.starsite.lock.LockProperties.Mode.MYSQL) {
             log.warn("[starsite-lock] admin-enabled=true 仅支持 db 模式（当前 {}）——运维 Bean 不装配",
                     props.getMode());
             return null;
