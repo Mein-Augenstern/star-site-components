@@ -189,6 +189,37 @@ DataSource + sequence starter + mapper-locations）；fail-fast 消息本就含�
 lock 互斥 ~110 ops/s（存储点查 UPDATE 串行）；async 消化 80/s/实例（追赶上限公式实测吻合，
 横向加实例线性扩展）。容量速查表见 full-benchmark.md「极限摸高压测」章。
 
+## 故障注入发现（2026-10-31，单机 + 双实例小集群）
+
+### OBS-106 [P1] DB 故障的失效形态是静默挂起（JDBC 超时未配是根因）
+
+**发现场景**：docker pause/stop MySQL 注入。stop 后 docker-proxy 仍接受 TCP 但不转发，
+MySQL 驱动默认 `connectTimeout=0`（无限）→ 请求**无限挂起**（45s/75s 无响应、无 5xx、
+无连接拒绝）；pause 形态 TCP 不断 → 执行中语句无限等（40s 慢 SQL 洪峰恢复瞬间统一完成）。
+Tomcat 线程被慢性占用，actuator/health 挂死（编排器将判 Pod 不健康连环重启）。
+
+**修复（bench-service 已落地验证）**：JDBC URL 追加 `connectTimeout=5000&socketTimeout=30000`
+→ health 精确 30.0s 返回 500、业务端点 60s 有界显性报错。**生产部署清单必含此二参数**；
+组件侧 README 部署段应显式提示（待办）。
+
+### OBS-107 [P2] fail-open 防报错不防挂起；恢复瞬间存在互斥击穿窗口
+
+**发现场景**：DB 故障期间 lock 的 fail-open（争锁异常→放行）不触发（挂起不抛异常）；
+**恢复瞬间**挂起连接集中报错 → fail-open **并发放行**（实测同锁名 16 个请求同刻放行）。
+多实例语义下 = 所有等待实例同时进入临界区（分布式实证：双实例同形态，DB 恢复瞬间双方
+均可能获"锁"）。
+
+**建议**：lock.md 已声明 fail-open 语义；生产建议补两点——业务侧幂等兜底 + 可考虑
+`fail-fast` 可选开关（争锁异常时返回 false 拒绝而非放行，牺牲可用性保互斥）。
+
+### OBS-108 [P2] actuator/health 挂死是编排级联故障的引信
+
+**发现场景**：DB stop + 200 线程风暴期间：health 000 挂死（DataSource 指标挂起），而纯内存
+端点 /api/bench/id 仍 200/9ms——部分降级而非全站崩。
+
+**建议**：K8s 部署时 readiness/liveness 探针不要用聚合 health（DB 抖动会连环重启全部实例）；
+用 liveness=进程级、readiness=分组 health（management.endpoint.health.group）分离。
+
 ## 组件缺陷模式总结（回写 component-builder/reviewer）
 
 | 模式 | 实战例 |
