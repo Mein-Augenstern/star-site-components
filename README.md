@@ -2,20 +2,19 @@
 
 [![CI](https://github.com/Mein-Augenstern/star-site-components/actions/workflows/ci.yml/badge.svg)](https://github.com/Mein-Augenstern/star-site-components/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
+[![Java](https://img.shields.io/badge/Java-17+-orange.svg)](https://openjdk.org/projects/jdk/17/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2+-brightgreen.svg)](https://spring.io/projects/spring-boot)
 
-**[中文文档](README.zh-CN.md)**
+**[English](README.en.md)**
 
-Lightweight distributed components for Spring Boot 3 — **DB-first, only needs MySQL**.
+star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spring-boot-starter（装配）**的开源标准结构，
+三个组件均同时考虑**单机与分布式**两种运行形态。引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
 
-Three production-proven components that compose together:
-
-| Component | What it does | Single machine | Distributed | Docs |
+| 组件 | 一句话 | 单机 | 分布式 | 详细文档 |
 |---|---|---|---|---|
-| **sequence** | Snowflake ID generator (clock-backward safe) | Fixed worker ID | MySQL atomic lease | [docs/sequence.md](docs/sequence.md) |
-| **async-command** | Async task queue (retry, dead letter, batch) | In-memory queue | MySQL token claim | [docs/async-command.md](docs/async-command.md) |
-| **lock** | Distributed lock (reentrant, timed wait, self-healing) | — | DB unique key / Redis hash | [docs/lock.md](docs/lock.md) |
+| **sequence** | 雪花 ID（时钟回拨钳制） | 固定机器位 | MySQL `__global__` 池原子租约 | [docs/sequence.md](docs/sequence.md) |
+| **async-command** | 异步命令（令牌认领 / 退避重试 / 死信） | memory 队列 | MySQL 表令牌认领 | [docs/async-command.md](docs/async-command.md) |
+| **lock** | 分布式锁（可重入 / 限时等待 / 自愈） | —（天然多实例） | DB 唯一键 / Redis hash | [docs/lock.md](docs/lock.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -23,39 +22,10 @@ starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
 ```
 
-- JDK 17+ · Spring Boot 3.2+ · Zero Lombok in core · Apache-2.0
+- JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
+- 当前全量 **123 项单测**（6 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 
-| JDK | Supported | Note |
-|---|---|---|
-| 17 | ✅ | Minimum (Spring Boot 3 requirement) |
-| 21 | ✅ | Recommended |
-| 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
-- **123 unit tests** + Testcontainers MySQL integration tests
-- Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
-
-## Why This Exists
-
-Most distributed lock libraries need Redis. Most task schedulers need a dedicated server. Most ID generators need a separate service.
-
-**If you already have MySQL, you're done** — add three starters and get all three capabilities with zero additional infrastructure.
-
-| Alternative | Requires | This project |
-|---|---|---|
-| Redisson (10k★) | Redis cluster | MySQL (already have it) |
-| ShedLock (3.5k★) | Redis / JDBC / ZooKeeper | MySQL only |
-| XXL-Job (27k★) | Dedicated scheduler + DB | Embedded, no extra server |
-| Leaf (4.5k★) | Dedicated Leaf server | Embedded starter |
-
-## Quick Start
-
-**From source (until Maven Central publish):**
-
-```bash
-git clone https://github.com/Mein-Augenstern/star-site-components.git
-cd star-site-components && ./mvnw install -DskipTests
-```
-
-**Add dependencies:**
+## 快速开始
 
 ```xml
 <dependency>
@@ -75,45 +45,47 @@ cd star-site-components && ./mvnw install -DskipTests
 </dependency>
 ```
 
-```yaml
-starsite:
-  sequence:
-    mode: mysql              # auto-leases workerId from sys_sequence table
-  async-command:
-    mode: mysql              # MySQL-backed task queue with retry
-  lock:
-    mode: mysql                 # MySQL unique-key distributed lock
-```
+无需 `@Import`、无需 `@EnableScheduling`——自动装配完成一切。非 Spring Boot 项目引 core 手工组装。
+消费方 classpath 有 MyBatis 时**零配置自动切换** MyBatis 存储路径；无 DB 的 WebFlux 网关设
+`starsite.async-command.enabled=false` + `starsite.lock.enabled=false`。
 
-No `@Import`, no `@EnableScheduling` — auto-configuration handles everything.
+## 组件表规范（三组件统一铁律）
 
-For MyBatis consumers: same-package Mapper XML auto-discovery — zero `mapper-locations` config needed.
-For no-DB gateway: set `starsite.async-command.enabled=false` + `starsite.lock.enabled=false`.
+- **物理主键 id 由 sequence 组件发号**（禁 AUTO_INCREMENT）
+- **标准时间列 `gmt_create` / `gmt_modified`**
+- **SQL 配置外置铁律**：MyBatis 走 Mapper XML（同包路径=零配置）；JDBC 方言走 `resources/sql/mysql/<组件>-mysql.xml`；Redis Lua 走 `resources/sql/*.lua`——Java 零 SQL 字符串
+- **高频路径全索引命中**（如 async_command 认领/幂等/认领取回三件套，lock 全点查 uk）
+- **分布式状态存储端**：跨实例共享状态必须存存储端（lock 重入计数=hold_count 列 / Redis hash），Pod 本地仅性能提示缓存且带自愈
+- **列表/详情分列**：大列（payload TEXT）不进列表查询
 
-## Key Design Decisions
+## 设计模式速览
 
-| Decision | Why |
+| 模式 | 落点 |
 |---|---|
-| Store-side reentrant counting | Lock hold count lives in DB column / Redis hash — not Pod memory |
-| SQL externalized to XML | DBAs can audit; dialect switching without Java changes |
-| Index completeness tests | Unit tests assert PK + unique indexes exist (DDL drift caught at CI) |
-| List/detail column separation | TEXT columns (64KB payload) excluded from list queries |
-| Fail-open on lock errors | Better to have competing instances than a stalled system |
+| 策略 | WorkerIdAllocator / AsyncCommandStore / LockClient——`mode`/`store` 一行配置切形态 |
+| 门面 | StarsiteIdGenerator / AsyncCommandClient / LockClient——业务只面对一个入口 |
+| 适配器 | starter 的 SmartLifecycle 托管（core 零 Spring 依赖） |
+| 乐观并发 | DB 令牌认领 / lock_name 唯键单行 UPDATE |
 
-Full decision log: [docs/design.md](docs/design.md)
+`@ConditionalOnMissingBean` 全量让位 · `@ConditionalOnClass` 按 classpath 装配 · 健康检查被动上报。
 
-## Build & Test
+## 构建与测试
 
 ```bash
-./mvnw verify          # Spotless + all unit tests
-./mvnw verify -Pit     # + Testcontainers MySQL integration tests
-./mvnw spotless:apply  # Auto-fix style
+mvn verify          # Spotless 门禁 + 全量单测（120 项）
+./mvnw verify -Pit     # 真库 IT（Testcontainers MySQL）
+./mvnw spotless:apply  # 规范自动修复
 ```
 
-## Contributing
+## 代码规范
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). CI must be green to merge.
+Spotless 门禁（许可头/导入/空白）· **每个公开方法含 getter/setter 须有 javadoc**（孤例即缺陷） ·
+注释写"为什么" · CI 红=不合。详见 [component-builder skill](https://github.com/Mein-Augenstern/constellation/blob/main/skills/component-builder/SKILL.md)。
 
-## License
+## 后续规划
 
-[Apache-2.0](LICENSE)
+已交付：async 四件套（批量/指标/鉴权/调度三模式）· backend 生产接入 · lock 三件套（可重入/限时等待/自愈）· SQL/脚本配置外置 + 索引门禁 + 列表分列
+
+待办：sequence Redis 租约 · lock 看门狗续期 · async 深分页游标化 · 0.1.0 正式版发布
+
+[← 完整规划清单](docs/roadmap.md) · [← 设计决策记录](docs/design.md)
