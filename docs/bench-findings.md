@@ -220,6 +220,36 @@ Tomcat 线程被慢性占用，actuator/health 挂死（编排器将判 Pod 不�
 **建议**：K8s 部署时 readiness/liveness 探针不要用聚合 health（DB 抖动会连环重启全部实例）；
 用 liveness=进程级、readiness=分组 health（management.endpoint.health.group）分离。
 
+## 分片形态实装发现（2026-10-31，ShardingSphere Proxy 5.4.1 · 1库×10表）
+
+### OBS-109 [P1] 嵌入式 ShardingSphere-JDBC 与 Spring Boot 3.2 同 classpath 三重冲突
+
+**发现场景**：分片实装先走嵌入式 JDBC（5.5.3 → 5.4.1 两轮），依次撞上：
+① 5.5.3 SPI 拆包空洞（URLLoader/Hikari 属性同义词未随发布 jar 提供，StorageUnit NPE）；
+② 5.4.1 snakeyaml 1.x vs Boot 3.2 的 2.x（Representer 构造器 NoSuchMethodError，不可调和）；
+③ javax JAXB 缺失（JDK 11+ 移除）+ Standalone JDBC 仓储扫描 classpath `sql` 目录 XML
+并 JAXB 解组（与组件方言 XML 根元素 `<dialect>` 冲突）。
+
+**处置**：转 **Proxy 独立进程形态**——应用视其为普通 MySQL，三组件依赖与 SQL 零改动，
+与 Boot 版本彻底解耦（组件仅保留 0.2.2 的 reclaim 两步法兼容性演进）。代价：吞吐
+-15~30%（proxy 跳 + SQL 解析改写）。**教训入册：集成重量级中间件优先进程边界，
+classpath 混部是版本地狱的入口**。
+
+### OBS-110 [P2] UPDATE..LIMIT 是分片中间件的兼容性红线（组件已演进两步法）
+
+**发现场景**：分片下调度器每 tick 报 bad SQL grammar——ShardingSphere ERROR 20046：
+`UPDATE ... LIMIT can not support route to multiple data nodes`（全局 LIMIT 语义在
+多分片路由下不成立，每片 LIMIT n 还是全局 n 无法定义）。
+
+**处置（0.2.2）**：崩溃回收改两步法（SELECT id LIMIT → IN 回收）：SELECT..LIMIT 广播
+后按片归并（每片各取 limit 条，上限=limit×片数，语义无害）；IN 回收按 id 等值命中
+各自分片；单表形态行为不变。JDBC/MyBatis 双路径同步。
+
+**红线清单（组件 SQL 审计新增门禁项）**：分片友好 SQL 约束——
+① 不用 UPDATE/DELETE..LIMIT；② 批量操作用显式 id 集（IN 全参数绑定）；
+③ 幂等/点查必须带分片键（lock_name/biz_key）以精确路由；④ 不带分片键的语句
+（认领/回收/聚合）接受广播语义并评估放大系数。
+
 ## 组件缺陷模式总结（回写 component-builder/reviewer）
 
 | 模式 | 实战例 |

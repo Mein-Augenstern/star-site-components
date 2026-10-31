@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-10-31
+
+分片形态实装（distributed-sharding.md 路线 A · ShardingSphere Proxy 5.4.1）产出的兼容性演进。
+
+### Changed
+- **崩溃回收改两步法**（`UPDATE..LIMIT` → `SELECT id LIMIT` + `IN` 回收）：单条
+  UPDATE..LIMIT 不被分片中间件支持（ShardingSphere ERROR 20046——全局 LIMIT 语义在
+  多分片路由下不成立）。两步法 SELECT..LIMIT 广播后按片归并（每片各取 limit 条），
+  单表形态行为不变。JDBC 与 MyBatis 两路径同步（三形态等价铁律）。
+- **方言 XML 路径迁移** `resources/sql/mysql/` → `resources/dialect/mysql/`：
+  ShardingSphere Standalone JDBC 仓储按 classpath `sql` 目录枚举并 JAXB 解组 XML
+  （期待其自身 `<sql>` 方言脚本），与组件 `<dialect>` 根元素正面冲突。迁移后语义更准
+  （方言配置而非 SQL 脚本），DDL `.sql` 与 Lua 不受影响。
+
+### Verified（1 库 × 10 表实机，经 Gateway 生产链路）
+- 分片均衡：200 条命令均匀落 10 片（19~21 条/片，偏差 <10%）
+- 互斥路由：锁名 hash 散布多片（同键恒定同片，互斥语义与单表等价）
+- 租约/LAST_INSERT_ID 过 proxy 正常（workerId 全局唯一分配）
+- fan-out 认领广播 + 满批追赶在分片下正常（951 条积压清零，0 错误）
+- 吞吐代价：proxy 形态较直连 -20~30%（独立进程网络跳 + SQL 解析改写，符合社区经验）
+
 ## [0.2.1] — 2026-10-31
 
 生产链路压测（Gateway → bench-service → MySQL 实机）产出的修复与增强批次。

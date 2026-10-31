@@ -15,9 +15,9 @@
 
 ### 分布式存储三阶段（[方案设计](distributed-sharding.md)，2026-10-31 立项）
 
-- [ ] **0.3.0 Phase 1**：ShardingSpec/RouteResolver 抽象 · sequence 控制面数据源 + 号段模式 ·
-      lock 确定性路由（ShardingDbLockClient）· async fan-out 逐分片认领 ·
-      10 库 10 表全量验收 · Redis Cluster 适配验证
+- [x] **Phase 1（0.2.2 已实装验证）**：载体定为 ShardingSphere Proxy 5.4.1（嵌入式因三重
+      classpath 冲突被否，OBS-109）——组件零改动 + reclaim 两步法演进；1库×10表全量验收
+      （均衡<10%/互斥等价/租约正常/fan-out 追赶清零/Gateway 0 错误），吞吐代价 -15~30%
 - [ ] **0.4.0 Phase 2**：shard-affinity 分片亲和（控制面心跳注册表/故障接管）·
       admin fan-out 聚合 + 游标分页 · 百库百表压测 · route-by:biz · 扩容再平衡专项
 - [ ] **0.5.0 Phase 3**：OceanBase 方言包（分区表 DDL + round-robin 认领分区裁剪）·

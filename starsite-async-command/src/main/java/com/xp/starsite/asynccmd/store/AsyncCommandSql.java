@@ -24,7 +24,7 @@ package com.xp.starsite.asynccmd.store;
  * 设计约定：
  * <ul>
  *   <li><b>SQL 配置外置铁律</b>：Java 代码零 SQL 字符串——MySQL 默认方言的语句在
- *       {@code resources/sql/mysql/async-command-mysql.xml}（{@code <statement id>}
+ *       {@code resources/dialect/mysql/async-command-mysql.xml}（{@code <statement id>}
  *       与本接口方法一一对应，CDATA 多行原生 SQL + note 属性注释用途），{@link MySql} 只做加载与缺键校验</li>
  *   <li>表名占位统一为 {@code {table}}（由存储层替换，表名经白名单校验防注入）</li>
  *   <li>参数一律 {@code ?} 占位符，值由调用方绑定——语句本身不含任何业务值；
@@ -58,8 +58,14 @@ public interface AsyncCommandSql {
     /** 按 id 原子认领（IMMEDIATE 模式，参数：token, id；认领条数 &gt; 0 即成功）。 */
     String claimById();
 
-    /** 崩溃回收：悬挂 RUNNING 回 PENDING（参数：threshold, limit；阈值时刻由存储层注入时钟计算）。 */
+    /** 崩溃回收（旧形态，单表专用）：悬挂 RUNNING 回 PENDING（参数：threshold, limit）。分片形态用两步法。 */
     String reclaimStale();
+
+    /** 崩溃回收两步法·第 1 步：选悬挂 id（参数：threshold, limit；SELECT..LIMIT 分片友好——广播后按片归并）。 */
+    String selectStaleIds();
+
+    /** 崩溃回收两步法·第 2 步：按 id IN 回收（占位符 {idPlaceholders} 由存储层按条数渲染，值全参数绑定）。 */
+    String reclaimByIds();
 
     /** 状态回写（status, claimToken, retryCount, nextRunAt, lastError, id）。 */
     String updateState();
@@ -89,14 +95,14 @@ public interface AsyncCommandSql {
     String pageOrderLimit();
 
     /**
-     * MySQL 8 默认方言：从 {@code sql/mysql/async-command-mysql.xml} 加载语句
+     * MySQL 8 默认方言：从 {@code dialect/mysql/async-command-mysql.xml} 加载语句
      * （SQL 配置外置——语句内容与索引注释见该文件，本类零 SQL 字符串）。
      * 缺键/缺文件在首次取语句时快速失败（IllegalStateException），不静默降级。
      */
     class MySql implements AsyncCommandSql {
 
         /** 方言配置路径（classpath 相对） */
-        private static final String PATH = "sql/mysql/async-command-mysql.xml";
+        private static final String PATH = "dialect/mysql/async-command-mysql.xml";
 
         /** 已加载语句（statement id → SQL；静态加载一次复用） */
         private static final java.util.Map<String, String> STATEMENTS = load();
@@ -163,6 +169,8 @@ public interface AsyncCommandSql {
         @Override public String findByToken() { return stmt("findByToken"); }
         @Override public String claimById() { return stmt("claimById"); }
         @Override public String reclaimStale() { return stmt("reclaimStale"); }
+        @Override public String selectStaleIds() { return stmt("selectStaleIds"); }
+        @Override public String reclaimByIds() { return stmt("reclaimByIds"); }
         @Override public String updateState() { return stmt("updateState"); }
         @Override public String countByStatus() { return stmt("countByStatus"); }
         @Override public String countBacklogDue() { return stmt("countBacklogDue"); }

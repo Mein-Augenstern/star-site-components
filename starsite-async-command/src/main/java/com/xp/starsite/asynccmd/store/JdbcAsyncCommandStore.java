@@ -317,12 +317,28 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         return jdbc.update(render(sql.claimById()), token, id) > 0;
     }
 
-    /** {@inheritDoc} 悬挂判定与回写都用库时钟（claim 判业务到期，这里判"DB 眼里多久没动静"） */
+    /**
+     * {@inheritDoc} 悬挂判定与回写都用库时钟（claim 判业务到期，这里判"DB 眼里多久没动静"）。
+     * <p>
+     * 两步法（分片兼容，0.2.2）：SELECT id LIMIT → 按 id IN 回收。旧版单条
+     * {@code UPDATE ... LIMIT} 不被分片中间件支持（ShardingSphere ERROR 20046——
+     * 全局 LIMIT 语义在多分片路由下不成立）；两步法的 SELECT..LIMIT 广播后按片归并
+     * （每片各取 limit 条，分片形态批量上限 = limit × 分片数，语义无害），IN 回收
+     * 按 id 等值命中各自分片。单表形态行为不变（同库两步，批量上限同为 limit）。
+     */
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
         // 阈值时刻由注入时钟计算后参数绑定（消 INTERVAL 方言差异；与 claim 同源可测）
-        return jdbc.update(render(sql.reclaimStale()),
-                time.now().minusSeconds(staleAfterSeconds), limit);
+        java.time.LocalDateTime threshold = time.now().minusSeconds(staleAfterSeconds);
+        java.util.List<Long> staleIds = jdbc.queryForList(
+                render(sql.selectStaleIds()), Long.class, threshold, limit);
+        if (staleIds.isEmpty()) {
+            return 0;
+        }
+        // IN 占位符按选中条数生成（占位符非值——全部参数绑定，无拼接）
+        String placeholders = String.join(",", java.util.Collections.nCopies(staleIds.size(), "?"));
+        return jdbc.update(render(sql.reclaimByIds()).replace("{idPlaceholders}", placeholders),
+                staleIds.toArray());
     }
 
     /** {@inheritDoc} */

@@ -24,7 +24,7 @@ package com.xp.starsite.sequence.allocator;
  * 设计约定：
  * <ul>
  *   <li><b>SQL 配置外置铁律</b>：Java 代码零 SQL 字符串——MySQL 默认方言的语句在
- *       {@code resources/sql/mysql/sequence-mysql.xml}（{@code <statement id>}
+ *       {@code resources/dialect/mysql/sequence-mysql.xml}（{@code <statement id>}
  *       与本接口方法一一对应，CDATA 多行原生 SQL + note 属性注释用途），{@link MySql} 只做加载与缺键校验</li>
  *   <li>表名占位统一为 {@code {table}}（由分配器替换，表名经白名单校验防注入）</li>
  *   <li>参数一律 {@code ?} 占位符，值由调用方绑定——语句本身不含业务值</li>
@@ -54,14 +54,14 @@ public interface SequenceSql {
     String resetGlobalPool();
 
     /**
-     * MySQL 8 默认方言：从 {@code sql/mysql/sequence-mysql.xml} 加载语句
+     * MySQL 8 默认方言：从 {@code dialect/mysql/sequence-mysql.xml} 加载语句
      * （SQL 配置外置——语句内容与索引注释见该文件，本类零 SQL 字符串）。
      * 缺键/缺文件在首次取语句时快速失败，不静默降级。
      */
     class MySql implements SequenceSql {
 
         /** 方言配置路径（classpath 相对） */
-        private static final String PATH = "sql/mysql/sequence-mysql.xml";
+        private static final String PATH = "dialect/mysql/sequence-mysql.xml";
 
         /** 已加载语句（statement id → SQL；静态加载一次复用） */
         private static final java.util.Map<String, String> STATEMENTS = load();

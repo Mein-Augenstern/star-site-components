@@ -94,7 +94,8 @@ public interface AsyncCommandMapper {
     int claimById(@Param("table") String table, @Param("token") String token, @Param("id") long id);
 
     /**
-     * 崩溃回收：悬挂 RUNNING 回 PENDING（阈值时刻由 Store 以应用时钟计算后绑定）。
+     * 崩溃回收（旧形态，单表专用）：悬挂 RUNNING 回 PENDING（UPDATE..LIMIT 不被分片
+     * 中间件支持，分片形态用 {@link #selectStaleIds}+{@link #reclaimByIds} 两步法）。
      *
      * @param table     表名
      * @param threshold 悬挂判定阈值时刻
@@ -103,6 +104,27 @@ public interface AsyncCommandMapper {
      */
     int reclaimStale(@Param("table") String table,
                      @Param("threshold") LocalDateTime threshold, @Param("limit") int limit);
+
+    /**
+     * 崩溃回收两步法·第 1 步：选出悬挂 RUNNING 的 id（SELECT..LIMIT 分片友好）。
+     *
+     * @param table     表名
+     * @param threshold 悬挂判定阈值时刻
+     * @param limit     每轮上限（分片形态下每分片各取 limit 条）
+     * @return 悬挂命令 id 列表
+     */
+    java.util.List<Long> selectStaleIds(@Param("table") String table,
+                                        @Param("threshold") LocalDateTime threshold,
+                                        @Param("limit") int limit);
+
+    /**
+     * 崩溃回收两步法·第 2 步：按显式 id 集回收（foreach 全参数绑定）。
+     *
+     * @param table 表名
+     * @param ids   悬挂命令 id 集
+     * @return 回收条数
+     */
+    int reclaimByIds(@Param("table") String table, @Param("ids") java.util.List<Long> ids);
 
     /**
      * 状态回写。

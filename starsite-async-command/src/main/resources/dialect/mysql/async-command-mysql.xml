@@ -73,10 +73,27 @@ WHERE id = ? AND status = 'PENDING' AND next_run_at <= NOW()
         ]]>
     </statement>
 
-    <statement id="reclaimStale" note="崩溃回收：悬挂 RUNNING 回 PENDING（阈值时刻参数绑定，消 INTERVAL 方言差异）">
+    <statement id="reclaimStale" note="崩溃回收（旧形态，保留兼容）：悬挂 RUNNING 回 PENDING。
+        注意：UPDATE...LIMIT 不被分片中间件支持（ShardingSphere ERROR 20046——全局 LIMIT 语义
+        在多分片路由下不成立），分片形态（proxy/嵌入式）须用 selectStaleIds+reclaimByIds 两步法">
         <![CDATA[
 UPDATE {table} SET status = 'PENDING', claim_token = NULL, gmt_modified = NOW()
 WHERE status = 'RUNNING' AND gmt_modified < ? LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="selectStaleIds" note="崩溃回收两步法·第 1 步：选出悬挂 RUNNING 的 id（分片友好：
+        SELECT..LIMIT 广播后按片归并，每片各取 limit 条——分片形态下批量上限=limit×分片数，语义无害）">
+        <![CDATA[
+SELECT id FROM {table} WHERE status = 'RUNNING' AND gmt_modified < ? ORDER BY id LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="reclaimByIds" note="崩溃回收两步法·第 2 步：按显式 id 集回收（IN 列表全参数绑定，
+        占位符数量由存储层按选中条数生成——不拼接任何值；分片下按 id 等值命中各自分片）">
+        <![CDATA[
+UPDATE {table} SET status = 'PENDING', claim_token = NULL, gmt_modified = NOW()
+WHERE id IN ({idPlaceholders})
         ]]>
     </statement>
 

@@ -61,17 +61,17 @@ cd star-site-components && ./mvnw install -DskipTests
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-sequence-spring-boot-starter</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-async-command-spring-boot-starter</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-lock-spring-boot-starter</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 ```
 

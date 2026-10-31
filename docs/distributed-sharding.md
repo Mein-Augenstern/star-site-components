@@ -1,8 +1,22 @@
 # 分布式存储方案：Redis Cluster / 分库分表 / OceanBase（2026-10-31 立项）
 
-> 状态：<b>方案设计（待评审）</b> · 目标版本 0.3.0 → 0.5.0 分三阶段
+> 状态：<b>Phase 1 已实装验证（0.2.2）</b> · 载体已定为 **Apache ShardingSphere Proxy 5.4.1**
+> （嵌入式 JDBC 因三重 classpath 冲突被否，见 bench-findings OBS-109）
 > 范围：三组件（sequence / lock / async-command）的存储层分布式化。
 > 场景梯度：**10 库 10 表 → 百库百表 → OB 存储原生分布式**。
+
+## Phase 1 实装结论（2026-10-31，1 库 × 10 表实机）
+
+- **形态**：bench-service → ShardingSphere Proxy(13307, sharding_db) → MySQL；三组件
+  依赖与 SQL 零改动（仅 0.2.2 的 reclaim 两步法兼容演进）
+- **验证**：分片均衡偏差 <10%、锁路由同键恒定同片（互斥等价）、workerId 租约过 proxy
+  正常、fan-out 认领+满批追赶 951 条清零 0 错误、Gateway 全场景 0 错误
+- **代价**：吞吐 -15~30%（proxy 独立进程网络跳 + SQL 解析改写）
+- **组件演进（0.2.2）**：reclaim 两步法（UPDATE..LIMIT 分片红线）+ 方言 XML 迁
+  dialect/ 目录（classpath sql/ 扫描冲突）
+- **star-site-backend 落地**：bench-service 已跑分片形态；proxy 配置在
+  backend `docker/sharding-proxy/`（server.yaml + config-sharding.yaml + ext-lib mysql 驱动）
+- 数据详见 full-benchmark.md「分片形态压测」章
 
 ## 0. 总体原则（先立规矩）
 

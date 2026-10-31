@@ -48,6 +48,20 @@
         LIMIT #{limit}
     </update>
 
+    <!-- 崩溃回收两步法（分片兼容，0.2.2）：UPDATE..LIMIT 不被分片中间件支持
+         （ShardingSphere ERROR 20046）；SELECT..LIMIT 广播按片归并 + 显式 id IN 回收 -->
+    <select id="selectStaleIds" resultType="long">
+        SELECT id FROM ${table}
+        WHERE status = 'RUNNING' AND gmt_modified &lt; #{threshold}
+        ORDER BY id LIMIT #{limit}
+    </select>
+
+    <update id="reclaimByIds">
+        UPDATE ${table} SET status = 'PENDING', claim_token = NULL, gmt_modified = NOW()
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
     <update id="updateState" parameterType="com.xp.starsite.asynccmd.model.AsyncCommand">
         UPDATE ${table} SET status = #{cmd.status}, claim_token = #{cmd.claimToken},
                             retry_count = #{cmd.retryCount}, next_run_at = #{cmd.nextRunAt},

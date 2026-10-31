@@ -209,7 +209,11 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} 悬挂阈值由注入时钟计算（与 JdbcAsyncCommandStore 同源可测，8de4ac8 对齐） */
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
-        return mapper.reclaimStale(table, time.now().minusSeconds(staleAfterSeconds), limit);
+        // 两步法（分片兼容，0.2.2）：与 JdbcAsyncCommandStore 同语义——旧单条 UPDATE..LIMIT
+        // 不被分片中间件支持（ShardingSphere ERROR 20046），SELECT id LIMIT + IN 回收
+        LocalDateTime threshold = time.now().minusSeconds(staleAfterSeconds);
+        java.util.List<Long> staleIds = mapper.selectStaleIds(table, threshold, limit);
+        return staleIds.isEmpty() ? 0 : mapper.reclaimByIds(table, staleIds);
     }
 
     /** {@inheritDoc} */

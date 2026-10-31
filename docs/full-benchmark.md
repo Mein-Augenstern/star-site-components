@@ -207,3 +207,40 @@ health 从无限挂死→**精确 30.0s 返回 500**；lock 端点从无限挂�
   解法：lock 换 redis 形态（MySQL 故障免疫）或接受 fail-open 语义并确保业务幂等
 - 三组件全部故障形态可归纳为一句话：**不崩则已，崩必静默**——超时参数 + 细粒度健康检查
   （db 状态与 liveness 分离）是单机/小集群的两剂解药
+
+## 分片形态压测（2026-10-31，ShardingSphere Proxy 5.4.1 · 1 库 × 10 表实机）
+
+路径：客户端 → Gateway(8080) → bench-service(18090) → **ShardingSphere Proxy(13307, sharding_db)** → MySQL(star_site)。
+starsite_lock ← lock_name / async_command ← biz_key（INLINE hash-mod 10 片）；sys_sequence 走 single。
+三组件依赖与 SQL 零改动（0.2.2 的 reclaim 两步法除外——UPDATE..LIMIT 分片不兼容）。
+
+### 语义验收（分片正确性 P2/P3）
+
+| 验收项 | 结果 |
+|---|---|
+| 分片均衡（200 条命令 → 10 片） | 19~21 条/片，**偏差 <10%** ✅ |
+| 锁路由 | 5 锁名散布 5 片（同键恒定同片=互斥语义等价） ✅ |
+| workerId 租约（LAST_INSERT_ID 过 proxy） | workerId=10/11 全局唯一 ✅ |
+| fan-out 认领 + 满批追赶 | 951 条积压清零、0 错误 ✅ |
+| 全场景 Gateway 压测 | 15 场景 0 错误 ✅ |
+
+### 分片 vs 单表吞吐（16 线程，同日同负载条件）
+
+| 场景 | 直连单表 | 分片 Proxy | 代价 |
+|---|---|---|---|
+| ID 生成 | ~682 | 577 | -15% |
+| lock 获取/释放 | ~100 | 78 | -22%（每条 UPDATE 过 proxy 解析改写路由） |
+| async 提交 | ~330 | 276 | -16% |
+| async 幂等提交 | ~550 | 378 | -31%（幂等 count + insert 双语句放大解析开销） |
+
+**结论**：proxy 形态吞吐代价 **-15~30%**（独立进程网络跳 + SQL 解析改写，符合社区
+proxy vs 直连经验值 20-40% 的下沿），换来应用侧**零侵入**（无 classpath 冲突、无
+ShardingSphere 依赖、任意 Spring Boot 版本可接）。生产选型：写吞吐敏感且可控 classpath
+的场景可再评估嵌入式 JDBC（需解决 snakeyaml/JAXB 冲突），其余场景 proxy 是正确边界。
+
+### 嵌入式 JDBC 形态的三重冲突（实装实证，选型依据）
+
+1. snakeyaml 1.x（ShardingSphere 5.4）vs 2.x（Boot 3.2）——NoSuchMethodError，不可调和
+2. javax JAXB 依赖（JDK 11+ 移除）——需补两个 runtime 依赖
+3. Standalone JDBC 仓储扫描 classpath `sql` 目录 XML 并 JAXB 解组——与组件方言 XML
+   路径冲突（组件已迁移 dialect/ 目录规避，见 0.2.2 CHANGELOG）
