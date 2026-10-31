@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseBody;
 
 /**
  * 管控端点（默认关闭：starsite.async-command.admin-enabled=true 且 Web 应用才装配）。
@@ -35,11 +35,16 @@ import org.springframework.web.bind.annotation.RestController;
  * 并在装配时打 WARN（仅适合本地开发）。守卫抛异常 = 请求拒绝（异常消息作为响应体）。
  * <p>
  * 纵深防御：即便配置了守卫，也建议保持仅内网/网关白名单可达（路径默认 /api/admin/async/**）。
+ * <p>
+ * 故意不加 @RestController/@Controller（bench 压测发现）：本类经自动装配的 @Bean 注册，
+ * 类上若带 stereotype 注解，宿主应用 scanBasePackages 扫到组件包时会绕过
+ * admin-enabled 条件直接实例化——构造参数 AsyncCommandAdminService 默认不装配，导致启动失败。
+ * MVC 识别用类级 @RequestMapping，JSON 序列化用类级 @ResponseBody，二者均非 stereotype。
  *
  * @author muyi
  * @date 2026/10/25
  */
-@RestController
+@ResponseBody
 @RequestMapping("${starsite.async-command.admin-base-path:/api/admin/async}")
 public class AsyncCommandAdminController {
 
