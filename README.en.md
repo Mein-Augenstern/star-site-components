@@ -61,17 +61,17 @@ cd star-site-components && ./mvnw install -DskipTests
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-sequence-spring-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.1</version>
 </dependency>
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-async-command-spring-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.1</version>
 </dependency>
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-lock-spring-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.1</version>
 </dependency>
 ```
 
@@ -98,9 +98,21 @@ For no-DB gateway: set `starsite.async-command.enabled=false` + `starsite.lock.e
 | SQL externalized to XML | DBAs can audit; dialect switching without Java changes |
 | Index completeness tests | Unit tests assert PK + unique indexes exist (DDL drift caught at CI) |
 | List/detail column separation | TEXT columns (64KB payload) excluded from list queries |
-| Fail-open on lock errors | Better to have competing instances than a stalled system |
+| Fail-open on lock errors | Better to have competing instances than a stalled system — note: a **mutex-breach window exists at DB recovery** (fault-injection verified); business side should stay idempotent or use redis mode |
 
 Full decision log: [docs/design.md](docs/design.md)
+
+## Production Deployment Checklist (fault-injection verified)
+
+- **Always set JDBC timeouts** — add `connectTimeout=5000&socketTimeout=30000` to the datasource URL.
+  Without them, a DB outage manifests as **silent infinite hangs** (no 5xx, no rejections) and
+  `actuator/health` hangs, which triggers cascading Pod restarts under Kubernetes (OBS-106)
+- **Pool sizing** — `instances × max-pool-size ≤ MySQL max_connections`; note raising the pool
+  only reduces tail latency, it does not raise throughput (the real ceiling is single-node DB writes, OBS-104)
+- **Split K8s probes** — liveness at process level, readiness via health groups; a shared health
+  probe restarts every instance on DB jitter (OBS-108)
+
+Full data: [benchmark report](docs/benchmark-report.html) · [full-benchmark.md](docs/full-benchmark.md) · [findings](docs/bench-findings.md)
 
 ## Build & Test
 

@@ -82,10 +82,23 @@ mvn verify          # Spotless 门禁 + 全量单测（120 项）
 Spotless 门禁（许可头/导入/空白）· **每个公开方法含 getter/setter 须有 javadoc**（孤例即缺陷） ·
 注释写"为什么" · CI 红=不合。详见 [component-builder skill](https://github.com/Mein-Augenstern/constellation/blob/main/skills/component-builder/SKILL.md)。
 
+## 生产部署清单（压测实证）
+
+- **JDBC 超时必配**（故障注入 OBS-106）：URL 加 `connectTimeout=5000&socketTimeout=30000`——
+  否则 DB 故障表现为**静默无限挂起**（无 5xx 无拒绝），health 挂死会引发编排连环重启
+- **连接池按容量公式**：实例数 × 池上限 ≤ MySQL max_connections；加池只降尾延不提吞吐
+  （真瓶颈在 DB 单机写入，OBS-104）
+- **K8s 探针分离**：liveness 用进程级，readiness 用分组 health——避免 DB 抖动连环重启全实例（OBS-108）
+- **lock fail-open 语义**：DB 故障恢复瞬间存在互斥击穿窗口（OBS-107），业务侧需幂等兜底或切 redis 形态
+
+容量速查与故障形态详见 [性能压测报告](docs/benchmark-report.html) · [完整数据](docs/full-benchmark.md) · [问题清单](docs/bench-findings.md)
+
 ## 后续规划
 
-已交付：async 四件套（批量/指标/鉴权/调度三模式）· backend 生产接入 · lock 三件套（可重入/限时等待/自愈）· SQL/脚本配置外置 + 索引门禁 + 列表分列
+已交付：async 四件套（批量/指标/鉴权/调度三模式 + 满批追赶）· lock 五件套（可重入/限时等待自适退避/看门狗/运维侧门/自愈）·
+sequence 三形态（standalone/MySQL 租约/Redis 租约）· 结构校验 fail-fast（BUG-009）· SQL/脚本配置外置 + 索引门禁 ·
+backend 生产接入（12 服务）· 生产链路压测 + 极限摸高 + 故障注入全档案 · v0.2.1 已发布
 
-待办：sequence Redis 租约 · lock 看门狗续期 · async 深分页游标化 · 0.1.0 正式版发布
+待办：**Maven Central 发布**（解锁他人全新构建，BUG-010）· lock fail-fast 可选开关 · async 深分页游标化 · 官方 site 文档
 
 [← 完整规划清单](docs/roadmap.md) · [← 设计决策记录](docs/design.md)
