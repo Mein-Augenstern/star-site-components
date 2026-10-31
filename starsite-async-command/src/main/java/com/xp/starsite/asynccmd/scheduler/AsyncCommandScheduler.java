@@ -83,6 +83,15 @@ public class AsyncCommandScheduler {
     /** 共享池线程编号（线程名可回溯） */
     private static final AtomicInteger POOL_SEQ = new AtomicInteger();
 
+    /** 终态清理的低频间隔（小时）——清理与认领不同频：低频批量，避免每 tick 都扫过期 */
+    private static final int PURGE_INTERVAL_HOURS = 1;
+
+    /** 单窗口清理追赶轮数上限（20 × batch=500 = 1 万行/窗口；防极端积压长占调度线程） */
+    private static final int MAX_PURGE_ROUNDS = 20;
+
+    /** 上次终态清理时刻（LocalDateTime 比较走注入时钟——假时钟可测） */
+    private volatile java.time.LocalDateTime lastPurgeAt;
+
     /** 命令存储：悬挂回收/令牌认领/状态回写的落地通道 */
     private final AsyncCommandStore store;
     /** 状态回写客户端：成功/重试/死信终态由它落库 */
@@ -288,6 +297,40 @@ public class AsyncCommandScheduler {
     }
 
     /**
+     * 终态行低频清理（retention/OBS-111：终态行无清理将无限累积——loop 压测实证单日
+     * 即堆近 4000 行）。默认关闭（不动用户数据的安全默认）；开启后每小时检查一轮，
+     * 两步法批量删除（存储层保证分片兼容），大积压分多轮消化。
+     */
+    private void purgeTerminalIfNeeded() {
+        if (!config.isRetentionEnabled()) {
+            return;
+        }
+        java.time.LocalDateTime now = time.now();
+        if (lastPurgeAt != null && lastPurgeAt.plusHours(PURGE_INTERVAL_HOURS).isAfter(now)) {
+            return;
+        }
+        lastPurgeAt = now;
+        try {
+            // 满批追赶（对齐 OBS-101 认领追赶语义）：单窗口连续批量直到不满批或达轮数上限
+            // ——大积压（如 loop 压测单日数千行）一窗口清完，而非线性拖 7+ 小时
+            int total = 0;
+            int purged;
+            int rounds = 0;
+            do {
+                purged = store.purgeExpired(config.getRetentionDays(), config.getRetentionBatchSize());
+                total += purged;
+            } while (purged == config.getRetentionBatchSize() && ++rounds < MAX_PURGE_ROUNDS);
+            if (total > 0) {
+                log.info("starsite-async purged {} terminal cmds (retention={}d, {} rounds)",
+                        total, config.getRetentionDays(), rounds + 1);
+            }
+        } catch (Exception e) {
+            // 清理失败不致命（下一窗口重试），但必须可见
+            log.warn("starsite-async retention purge failed: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 争调度锁（LEADER 模式）。锁存储异常按 fail-open 放行本轮：
      * 宁可多实例竞争认领（认领是行级原子操作，竞争安全）也不停摆调度。
      *
@@ -324,6 +367,7 @@ public class AsyncCommandScheduler {
             if (reclaimed > 0) {
                 log.warn("starsite-async reclaimed {} stale RUNNING cmds", reclaimed);
             }
+            purgeTerminalIfNeeded();
             for (int round = 0; round < MAX_DRAIN_ROUNDS; round++) {
                 String token = UUID.randomUUID().toString();
                 int claimed = store.claim(token, config.getBatchSize(), time.now());

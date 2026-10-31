@@ -392,6 +392,24 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
+     * {@inheritDoc} 两步法批量删除（DELETE..LIMIT 与 UPDATE..LIMIT 同为分片红线
+     * ERROR 20046，OBS-111/110 同源）：SELECT 过期终态 id LIMIT → IN 删除，
+     * 全程参数绑定（IN 占位符按选中条数生成，不拼接值）。
+     */
+    @Override
+    public int purgeExpired(int retentionDays, int batchSize) {
+        java.time.LocalDateTime threshold = time.now().minusDays(retentionDays);
+        java.util.List<Long> expiredIds = jdbc.queryForList(
+                render(sql.selectExpiredTerminalIds()), Long.class, threshold, batchSize);
+        if (expiredIds.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(expiredIds.size(), "?"));
+        return jdbc.update(render(sql.deleteByIds()).replace("{idPlaceholders}", placeholders),
+                expiredIds.toArray());
+    }
+
+    /**
      * 向语句追加可选过滤片段：status/cmdType 非空时各追加一段
      * {@code AND col = ?}，值进参数数组（参数绑定，无值拼接）。
      *

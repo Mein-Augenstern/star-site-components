@@ -134,4 +134,17 @@
         SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
         WHERE UPPER(TABLE_NAME) = UPPER(#{tableName})
     </select>
+
+    <!-- 终态清理两步法（retention/OBS-111）：DELETE..LIMIT 与 UPDATE..LIMIT 同为分片红线
+         （ERROR 20046）——SELECT..LIMIT 广播按片归并 + 显式 id IN 删除 -->
+    <select id="selectExpiredTerminalIds" resultType="long">
+        SELECT id FROM ${table}
+        WHERE status IN ('SUCCESS', 'DEAD') AND gmt_modified &lt; #{threshold}
+        ORDER BY id LIMIT #{limit}
+    </select>
+
+    <delete id="deleteByIds">
+        DELETE FROM ${table} WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
 </mapper>

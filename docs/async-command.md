@@ -119,11 +119,14 @@ starsite:
 | `schedule-mode` | COMPETING | COMPETING / LEADER / EXTERNAL |
 | `schedule-lock-ttl-ms` | 30000 | LEADER 选主锁 TTL |
 | `poll-interval-ms` | 5000 | 调度轮询间隔 |
-| `batch-size` | 10 | 单轮认领批量 |
+| `batch-size` | 50 | 单轮认领批量（满批追赶，上限 8 轮/tick） |
 | `stale-after-seconds` | 300 | RUNNING 悬挂判定 |
 | `default-max-retry` | 5 | 重试上限（超限 DEAD） |
 | `backoff-base-seconds` | 60 | 退避基数 |
 | `backoff-max-seconds` | 3600 | 退避封顶 |
+| `retention-enabled` | false | 终态行清理开关（**生产强烈建议开启**——终态行无清理将无限累积，OBS-111） |
+| `retention-days` | 7 | 终态保留天数（对账/审计需求定下限） |
+| `retention-batch-size` | 500 | 单轮清理批量（满批追赶，单窗口最多 20 轮） |
 | `shared-pool-core-size` | 4 | 共享池核心线程 |
 | `shared-pool-max-size` | 16 | 共享池最大线程 |
 | `shared-pool-queue-capacity` | 1000 | 共享池队列（满则 CallerRuns 反压） |

@@ -203,4 +203,25 @@ public interface AsyncCommandMapper {
      * @return 实际列名清单（MySQL/H2 的 INFORMATION_SCHEMA 通用）
      */
     java.util.List<String> selectColumns(@Param("tableName") String tableName);
+
+    /**
+     * 终态清理两步法·第 1 步（retention/OBS-111）：选过期 SUCCESS/DEAD 的 id。
+     *
+     * @param table     表名
+     * @param threshold 过期阈值时刻（gmt_modified 早于此值）
+     * @param limit     单轮上限
+     * @return 过期终态命令 id 列表
+     */
+    java.util.List<Long> selectExpiredTerminalIds(@Param("table") String table,
+                                                  @Param("threshold") java.time.LocalDateTime threshold,
+                                                  @Param("limit") int limit);
+
+    /**
+     * 终态清理两步法·第 2 步：按显式 id 集删除（foreach 全参数绑定）。
+     *
+     * @param table 表名
+     * @param ids   过期终态命令 id 集
+     * @return 删除条数
+     */
+    int deleteByIds(@Param("table") String table, @Param("ids") java.util.List<Long> ids);
 }

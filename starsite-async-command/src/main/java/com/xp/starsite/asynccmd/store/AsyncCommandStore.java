@@ -168,4 +168,17 @@ public interface AsyncCommandStore {
      * @throws RuntimeException 存储访问失败时（异常约定见类注释） * <p>列表路径不携带 payload 大列（三形态等价；需要载荷走 findById/findByToken）。
  */
     List<AsyncCommand> selectPage(String status, String cmdType, long offset, int size);
+
+    /**
+     * 清理过期终态行（retention 特性，OBS-111：终态行无清理将无限累积）。
+     * 删除 SUCCESS/DEAD 且 gmt_modified 早于 now-retentionDays 的行，两步法批量
+     * （SELECT id LIMIT → DELETE IN——DELETE..LIMIT 与 UPDATE..LIMIT 同为分片红线）；
+     * PENDING/RUNNING 永不清理。
+     *
+     * @param retentionDays 保留天数（终态行超过该天数被清理）
+     * @param batchSize     单轮批量上限（控长事务；大积压分多轮消化）
+     * @return 实际清理条数
+     * @throws RuntimeException 存储访问失败时
+     */
+    int purgeExpired(int retentionDays, int batchSize);
 }

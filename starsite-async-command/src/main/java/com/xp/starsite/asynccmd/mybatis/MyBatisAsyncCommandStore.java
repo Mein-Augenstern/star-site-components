@@ -216,6 +216,14 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
         return staleIds.isEmpty() ? 0 : mapper.reclaimByIds(table, staleIds);
     }
 
+    /** {@inheritDoc} 两步法删除（与 JdbcAsyncCommandStore 同语义，OBS-111 retention） */
+    @Override
+    public int purgeExpired(int retentionDays, int batchSize) {
+        java.util.List<Long> expired = mapper.selectExpiredTerminalIds(
+                table, time.now().minusDays(retentionDays), batchSize);
+        return expired.isEmpty() ? 0 : mapper.deleteByIds(table, expired);
+    }
+
     /** {@inheritDoc} */
     @Override
     public int updateState(AsyncCommand cmd) {

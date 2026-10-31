@@ -111,6 +111,12 @@ public interface AsyncCommandSql {
     /** 分页排序片段：id 倒序 + LIMIT/OFFSET（值参数绑定）。 */
     String pageOrderLimit();
 
+    /** 终态清理两步法·第 1 步：选过期 SUCCESS/DEAD 的 id（参数：threshold, limit）。 */
+    String selectExpiredTerminalIds();
+
+    /** 终态清理两步法·第 2 步：按 id IN 删除（占位符 {idPlaceholders} 由存储层按条数渲染）。 */
+    String deleteByIds();
+
     /**
      * MySQL 8 默认方言：从 {@code dialect/mysql/async-command-mysql.xml} 加载语句
      * （SQL 配置外置——语句内容与索引注释见该文件，本类零 SQL 字符串）。
@@ -197,5 +203,7 @@ public interface AsyncCommandSql {
         @Override public String filterStatus() { return stmt("filter.status"); }
         @Override public String filterCmdType() { return stmt("filter.cmdType"); }
         @Override public String pageOrderLimit() { return stmt("page.orderLimit"); }
+        @Override public String selectExpiredTerminalIds() { return stmt("selectExpiredTerminalIds"); }
+        @Override public String deleteByIds() { return stmt("deleteByIds"); }
     }
 }

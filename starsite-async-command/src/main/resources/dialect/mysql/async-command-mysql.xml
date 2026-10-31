@@ -145,4 +145,18 @@ FROM {table} WHERE 1 = 1
         <![CDATA[ ORDER BY id DESC LIMIT ? OFFSET ? ]]>
     </statement>
 
+    <statement id="selectExpiredTerminalIds" note="终态清理两步法·第 1 步（retention/OBS-111）：选过期 SUCCESS/DEAD 的 id。
+        DELETE..LIMIT 与 UPDATE..LIMIT 同为分片红线（ERROR 20046）——SELECT..LIMIT 广播按片归并；
+        走 idx_status_next 前缀扫 status 再过滤 gmt_modified（终态行占比随 retention 衰减）">
+        <![CDATA[
+SELECT id FROM {table} WHERE status IN ('SUCCESS', 'DEAD') AND gmt_modified < ? ORDER BY id LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="deleteByIds" note="终态清理两步法·第 2 步：按显式 id 集删除（IN 全参数绑定，占位符由存储层渲染）">
+        <![CDATA[
+DELETE FROM {table} WHERE id IN ({idPlaceholders})
+        ]]>
+    </statement>
+
 </dialect>

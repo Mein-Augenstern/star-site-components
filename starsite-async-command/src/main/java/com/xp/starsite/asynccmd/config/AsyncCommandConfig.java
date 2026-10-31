@@ -46,6 +46,24 @@ public class AsyncCommandConfig {
     /** 退避基数秒（第 n 次重试等待 base * 2^n）。 */
     private long backoffBaseSeconds = 60;
 
+    /**
+     * 终态行清理开关（默认关——不动用户数据是组件的安全默认；生产强烈建议开启）。
+     * <p>为什么需要：SUCCESS/DEAD 行若无清理将无限累积（loop 压测实证：单日压测即堆
+     * 近 4000 行），表膨胀导致认领索引 IO 放大与磁盘增长（OBS-111）。
+     */
+    private boolean retentionEnabled = false;
+
+    /**
+     * 终态行保留天数（默认 7）。SUCCESS/DEAD 且 gmt_modified 早于 now-保留期 的行
+     * 被低频批量清理（每小时检查一轮，两步法批量删除、分片友好）。
+     */
+    private int retentionDays = 7;
+
+    /**
+     * 单轮清理批量上限（默认 500）。控单事务行数防长事务锁表；大积压分多轮每小时消化。
+     */
+    private int retentionBatchSize = 500;
+
     /** 退避封顶秒（指数增长上界，防止长退避把命令"冻住"过久）。 */
     private long backoffMaxSeconds = 3600;
 
@@ -60,6 +78,19 @@ public class AsyncCommandConfig {
 
     /** 共享池队列容量（满后 CallerRuns 反压到提交/调度线程，不丢任务）。 */
     private int sharedPoolQueueCapacity = 1000;
+
+    /** 获取终态清理开关。@return false（默认）= 终态行永久保留；生产建议开启 */
+    public boolean isRetentionEnabled() { return retentionEnabled; }
+    /** 设置终态清理开关。@param retentionEnabled true 后每小时低频清理过期终态行 */
+    public void setRetentionEnabled(boolean retentionEnabled) { this.retentionEnabled = retentionEnabled; }
+    /** 获取终态保留天数。@return SUCCESS/DEAD 行超过该天数后被清理 */
+    public int getRetentionDays() { return retentionDays; }
+    /** 设置终态保留天数。@param retentionDays 正整数（对账/审计需求决定下限） */
+    public void setRetentionDays(int retentionDays) { this.retentionDays = retentionDays; }
+    /** 获取单轮清理批量。@return 单轮 DELETE 上限（控长事务） */
+    public int getRetentionBatchSize() { return retentionBatchSize; }
+    /** 设置单轮清理批量。@param retentionBatchSize 大积压分多轮每小时消化 */
+    public void setRetentionBatchSize(int retentionBatchSize) { this.retentionBatchSize = retentionBatchSize; }
 
     /**
      * 获取调度轮询间隔。

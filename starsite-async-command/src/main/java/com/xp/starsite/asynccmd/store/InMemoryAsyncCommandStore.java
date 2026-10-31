@@ -286,6 +286,24 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
+     * {@inheritDoc} 内存形态：按 gmt_modified 过期判定删除终态行（PENDING/RUNNING 永不清理），
+     * 供 standalone 形态语义等价与调度器测试复用。
+     */
+    @Override
+    public synchronized int purgeExpired(int retentionDays, int batchSize) {
+        java.time.LocalDateTime threshold = time.now().minusDays(retentionDays);
+        java.util.List<Long> expired = rows.values().stream()
+                .filter(c -> AsyncCommand.SUCCESS.equals(c.getStatus()) || AsyncCommand.DEAD.equals(c.getStatus()))
+                .filter(c -> c.getGmtModified() != null && c.getGmtModified().isBefore(threshold))
+                .sorted(Comparator.comparingLong(AsyncCommand::getId))
+                .limit(batchSize)
+                .map(AsyncCommand::getId)
+                .collect(Collectors.toList());
+        expired.forEach(rows::remove);
+        return expired.size();
+    }
+
+    /**
      * 按可选条件过滤（须在锁内调用：读的是内部行集合）。
      *
      * @param status  状态过滤（null 或空白 = 不过滤）

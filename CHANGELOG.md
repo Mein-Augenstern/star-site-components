@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] — 2026-10-31
+
+Loop 压测（8 轮循环 + 环境采样）产出的完整性修复。
+
+### Added
+- **retention 终态行清理（OBS-111）**：loop 压测实证 SUCCESS/DEAD 行无清理机制、
+  单日堆近 4000 行、表无限累积。新增 `starsite.async-command.retention-enabled /
+  retention-days(7) / retention-batch-size(500)`——默认关（不动用户数据的安全默认，
+  生产强烈建议开启）；调度器每小时窗口低频触发，两步法批量删除（分片红线合规）+
+  满批追赶（单窗口最多 20 轮，真机验证 3451 条积压单窗口 7 轮清光）；
+  PENDING/RUNNING 永不清理；JDBC/InMemory/MyBatis 三实现等价。
+
 ## [0.2.2] — 2026-10-31
 
 分片形态实装（distributed-sharding.md 路线 A · ShardingSphere Proxy 5.4.1）产出的兼容性演进。
