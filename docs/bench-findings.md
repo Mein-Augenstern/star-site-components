@@ -168,6 +168,27 @@ buildx `--build-context m2repo=~/.m2/repository` 注入组件产物（临时 Doc
 **处置（0.2.1）**：docs/lock.md 标注 mysql 形态完整依赖清单（mybatis-spring-boot-starter +
 DataSource + sequence starter + mapper-locations）；fail-fast 消息本就含修复指引，保留。
 
+### OBS-104 [P3] Hikari 默认 10 连接是 128 并发的第一个排队点（但不是吞吐瓶颈）
+
+**发现场景**：极限摸高——async 提交 128 线程时 `hikaricp.connections.active=10/10`、
+`pending=112`（actuator 实时采样），吞吐平台 ~390 ops/s、P99 769ms、零错误。
+
+**A/B 归因**：池 10→20 后 P99 769→463ms 但吞吐不涨（345→333）——排队缓解、吞吐天花板
+在 MySQL 单机写入（同机 Docker 卷 fsync）。**加池≠加吞吐**，生产应按
+「实例数 × 池上限 ≤ MySQL max_connections」配池并明确诉求是降尾延还是提吞吐。
+
+**处置**：bench-service yml 显式 `maximum-pool-size=20` 并注释容量公式（本仓库）；组件侧
+无代码改动（连接池归属宿主装配，组件不越界）。
+
+### OBS-105 [观察] 三组件超限形态均为「优雅排队」而非「错误崩溃」
+
+**发现场景**：摸高至各路径饱和后仍翻倍（ID 256 线程 / async 128 / lock 128）+ 10000 条洪峰。
+
+**结论**：全路径 0 5xx、0 超时、0 数据不一致、容器 0 重启 0 OOM；超限表现为延迟线性上涨
+（排队论形态，lock 的 P50=并发/吞吐精确吻合）。两个硬上限均属设计本质而非缺陷：
+lock 互斥 ~110 ops/s（存储点查 UPDATE 串行）；async 消化 80/s/实例（追赶上限公式实测吻合，
+横向加实例线性扩展）。容量速查表见 full-benchmark.md「极限摸高压测」章。
+
 ## 组件缺陷模式总结（回写 component-builder/reviewer）
 
 | 模式 | 实战例 |
