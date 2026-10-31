@@ -13,16 +13,22 @@
 
 ## 待办（按优先级）
 
-- [ ] sequence：Redis 租约实现（无 MySQL 场景）、K8s StatefulSet 序号直取
-- [ ] sequence：运维能力（SequenceAdminClient：listWorkerIds 巡检 workerId 分配 /
-      getCurrentPoolValue 查全局池计数 / resetWorkerId 强制归还卡死的 workerId）——
-      与 lock 的 LockAdminClient 同模式（独立接口 + admin-enabled 开关）
-- [ ] lock：看门狗自动续期（长任务持锁跨 TTL 场景——自动续期线程/租约延长，替代手工多次 tryLock 续期）
-- [ ] async-command：深分页游标化（selectPage 的 OFFSET → `WHERE id < lastId` keyset，配套
-      admin 端点 lastId 参数——OFFSET 深翻页线性变慢，2026-10 SQL 审计挂账）
-- [ ] async-command：reclaimStale 专用索引 (status, gmt_modified)——悬挂 RUNNING 常态化
-      （表百万行级）时再上，当前靠 idx_status_next 前缀回表够用
-- [ ] lock：TTL 到期判定的跨 Pod 时钟偏差治理——当前各 Pod 应用时钟判过期（依赖 NTP 对齐），
-      备选 DB 时钟判定但破坏假时钟可测性，需权衡后定案
-- [ ] 0.1.0 正式版发布：当前 0.1.0-SNAPSHOT 仅本地 m2（backend CI 靠 checkout 组件仓装包），
-      稳定后 tag + Release Notes，评估发布到托管仓库（GitHub Packages / 中央仓）
+### 分布式存储三阶段（[方案设计](distributed-sharding.md)，2026-10-31 立项）
+
+- [ ] **0.3.0 Phase 1**：ShardingSpec/RouteResolver 抽象 · sequence 控制面数据源 + 号段模式 ·
+      lock 确定性路由（ShardingDbLockClient）· async fan-out 逐分片认领 ·
+      10 库 10 表全量验收 · Redis Cluster 适配验证
+- [ ] **0.4.0 Phase 2**：shard-affinity 分片亲和（控制面心跳注册表/故障接管）·
+      admin fan-out 聚合 + 游标分页 · 百库百表压测 · route-by:biz · 扩容再平衡专项
+- [ ] **0.5.0 Phase 3**：OceanBase 方言包（分区表 DDL + round-robin 认领分区裁剪）·
+      OB 实机验收 · Redis hash tag 全量落地 · 分布式部署章节进 README
+
+### 既有挂账
+
+- [ ] **Maven Central 发布**（BUG-010，最高优先）：组件未发仓导致 backend Docker 全新构建断链
+- [ ] lock：fail-fast 可选开关（OBS-107——DB 故障恢复瞬间互斥击穿窗口的保守选项）
+- [ ] sequence：K8s StatefulSet 序号直取（有状态集场景免租约）
+- [ ] sequence：运维能力（SequenceAdminClient——与 LockAdminClient 同模式）
+- [ ] async-command：深分页游标化（与 Phase 2 admin 聚合分页一并交付）
+- [ ] async-command：reclaimStale 专用索引 (status, gmt_modified)——表百万行级时再上
+- [ ] lock：TTL 到期判定的跨 Pod 时钟偏差治理（依赖 NTP 对齐 vs DB 时钟判定的可测性权衡）

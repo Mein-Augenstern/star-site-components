@@ -99,6 +99,7 @@ Spotless 门禁（许可头/导入/空白）· **每个公开方法含 getter/se
 sequence 三形态（standalone/MySQL 租约/Redis 租约）· 结构校验 fail-fast（BUG-009）· SQL/脚本配置外置 + 索引门禁 ·
 backend 生产接入（12 服务）· 生产链路压测 + 极限摸高 + 故障注入全档案 · v0.2.1 已发布
 
-待办：**Maven Central 发布**（解锁他人全新构建，BUG-010）· lock fail-fast 可选开关 · async 深分页游标化 · 官方 site 文档
+待办：**分布式存储三阶段**（[方案已立项](docs/distributed-sharding.md)：Redis Cluster / 10 库 10 表 → 百库百表 / OceanBase）·
+**Maven Central 发布**（解锁他人全新构建，BUG-010）· lock fail-fast 可选开关 · async 深分页游标化
 
-[← 完整规划清单](docs/roadmap.md) · [← 设计决策记录](docs/design.md)
+[← 完整规划清单](docs/roadmap.md) · [← 设计决策记录](docs/design.md) · [← 分布式存储方案](docs/distributed-sharding.md)
