@@ -10,7 +10,7 @@
 ```yaml
 starsite:
   async-command:
-    store: jdbc          # 默认；表自动创建（async_command，可配表名）；需 sequence starter 发主键
+    mode: mysql          # 默认；表自动创建（async_command，可配表名）；需 sequence starter 发主键
 ```
 
 多实例部署时各实例独立令牌认领（`UPDATE ... claim_token` 互斥），同一命令只会被一个实例执行。
@@ -20,7 +20,7 @@ starsite:
 ```yaml
 starsite:
   async-command:
-    store: memory        # 进程内存队列（重启丢命令，可靠性链路用 jdbc）
+    mode: standalone     # 进程内存队列（重启丢命令，可靠性链路用 mysql）
 ```
 
 ## 使用
@@ -113,8 +113,8 @@ starsite:
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | true | 总开关 |
-| `store` | jdbc | jdbc / memory |
-| `table-name` | async_command | jdbc 命令表 |
+| `mode` | mysql | mysql / standalone |
+| `table-name` | async_command | mysql 命令表 |
 | `init-ddl` | true | 自动建表 |
 | `schedule-mode` | COMPETING | COMPETING / LEADER / EXTERNAL |
 | `schedule-lock-ttl-ms` | 30000 | LEADER 选主锁 TTL |

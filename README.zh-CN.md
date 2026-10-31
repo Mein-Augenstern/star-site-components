@@ -18,7 +18,7 @@ starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
 ```
 
-- JDK 21 · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
+- JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
 - 当前全量 **123 项单测**（6 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 
 ## 快速开始
@@ -69,8 +69,8 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 
 ```bash
 mvn verify          # Spotless 门禁 + 全量单测（120 项）
-mvn verify -Pit     # 真库 IT（Testcontainers MySQL）
-mvn spotless:apply  # 规范自动修复
+./mvnw verify -Pit     # 真库 IT（Testcontainers MySQL）
+./mvnw spotless:apply  # 规范自动修复
 ```
 
 ## 代码规范

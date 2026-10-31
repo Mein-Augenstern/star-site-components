@@ -136,7 +136,11 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
                 mapper.takeFromGlobalPool(tableName, instanceTag, GLOBAL_POOL_KEY);
                 return mapper.selectLastInsertId();
             });
-            workerId = reTaken == null ? 1 : reTaken;
+            if (reTaken == null) {
+                // 与 JDBC 版语义对齐：事务内取号失败抛异常（静默默认 1 会与 standalone 默认撞号）
+                throw new IllegalStateException("回绕重取号失败（事务返回 null）——拒绝静默默认 workerId");
+            }
+            workerId = reTaken;
             mapper.recordOwnership(tableName, idGenerator.getAsLong(), serviceName, workerId, instanceTag);
         }
         return workerId;

@@ -45,7 +45,7 @@ public class DbLockClient implements LockClient {
     /** 日志 */
     private static final Logger log = LoggerFactory.getLogger(DbLockClient.class);
 
-    /** 表名白名单（防注入——${tableName} 是 MyBatis 字符串替换） */
+    /** 表名白名单（防注入——${tableName} 是 MyBatis 字符串替换；刻意跨模块复制，勿抽公共模块） */
     private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
     /** MyBatis Mapper */

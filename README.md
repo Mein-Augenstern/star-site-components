@@ -80,7 +80,7 @@ starsite:
   sequence:
     mode: mysql              # auto-leases workerId from sys_sequence table
   async-command:
-    store: jdbc              # MySQL-backed task queue with retry
+    mode: mysql              # MySQL-backed task queue with retry
   lock:
     mode: mysql                 # MySQL unique-key distributed lock
 ```

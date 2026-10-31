@@ -75,7 +75,7 @@ public final class LockTableProvisioner {
      */
     public LockTableProvisioner(ScheduleLockMapper mapper, String tableName,
                                 LongSupplier idGenerator) {
-        if (tableName == null || !tableName.matches("[A-Za-z0-9_]+")) {
+        if (tableName == null || !tableName.matches("[A-Za-z0-9_]+")) { // 刻意内联（与 DbLockClient 同源，跨模块不抽公共）
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
         this.mapper = mapper;

@@ -48,13 +48,14 @@ public class DemoController {
         return Map.of("commandId", cmd.getId(), "status", cmd.getStatus());
     }
 
-    /** Try to acquire a distributed lock */
+    /** Try to acquire a distributed lock (name defaults to "demo-lock") */
     @GetMapping("/lock")
     public Map<String, Object> tryLock(String name) {
-        boolean acquired = lockClient.tryLock(name == null ? "demo-lock" : name);
+        String lockName = (name == null || name.isBlank()) ? "demo-lock" : name;
+        boolean acquired = lockClient.tryLock(lockName);
         if (acquired) {
-            lockClient.unlock(name == null ? "demo-lock" : name);
+            lockClient.unlock(lockName);
         }
-        return Map.of("lockName", name, "acquired", acquired);
+        return Map.of("lockName", lockName, "acquired", acquired);
     }
 }

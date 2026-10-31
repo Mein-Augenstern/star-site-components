@@ -146,12 +146,12 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
-     * 崩溃回收：以 gmtModified（认领时刷新）判定悬挂——RUNNING 且 gmtModified 早于
-     * now - staleAfterSeconds 的行回 PENDING 并清令牌（与 jdbc 实现以库时钟判定的语义对齐）。
+     * 按 id 原子认领（IMMEDIATE 模式）：仅当命令为 PENDING 且已到期时命中，
+     * 置 RUNNING 并打令牌——单锁内"检查+写"天然原子，并发调用不会认领同一条。
      *
-     * @param staleAfterSeconds 悬挂判定阈值（秒）
-     * @param limit             单轮回收上限（条）
-     * @return 实际回收条数
+     * @param id    命令主键
+     * @param token 认领令牌
+     * @return true 认领成功；false 命令不存在 / 非 PENDING / 未到期
      */
     @Override
     public synchronized boolean claimById(long id, String token) {
@@ -170,6 +170,14 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
         return true;
     }
 
+    /**
+     * 崩溃回收：以 gmtModified（认领时刷新）判定悬挂——RUNNING 且 gmtModified 早于
+     * now - staleAfterSeconds 的行回 PENDING 并清令牌（与表形态以注入时钟判定的语义对齐）。
+     *
+     * @param staleAfterSeconds 悬挂判定阈值（秒）
+     * @param limit             单轮回收上限（条）
+     * @return 实际回收条数
+     */
     @Override
     public synchronized int reclaimStale(int staleAfterSeconds, int limit) {
         LocalDateTime threshold = time.now().minusSeconds(staleAfterSeconds);

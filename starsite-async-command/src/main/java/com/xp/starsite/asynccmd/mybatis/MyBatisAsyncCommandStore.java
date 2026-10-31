@@ -59,8 +59,11 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** 主键 id 生成器（starsite-sequence 组件——组件表物理主键标准来源） */
     private final LongSupplier idGenerator;
 
+    /** 时间源（悬挂回收阈值计算；测试注入假时钟——与 JdbcAsyncCommandStore 同源，8de4ac8 对齐） */
+    private final com.xp.starsite.asynccmd.clock.TimeSource time;
+
     /**
-     * 全参构造。
+     * 便捷构造（系统时钟）。
      *
      * @param mapper  MyBatis Mapper
      * @param tableName 命令表名（仅字母数字下划线）
@@ -70,6 +73,23 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
      */
     public MyBatisAsyncCommandStore(AsyncCommandMapper mapper, String tableName, boolean initDdl,
                                     LongSupplier idGenerator) {
+        this(mapper, tableName, initDdl, idGenerator,
+                com.xp.starsite.asynccmd.clock.TimeSource.system());
+    }
+
+    /**
+     * 全参构造（显式时间源——测试注入假时钟构造悬挂场景）。
+     *
+     * @param mapper  MyBatis Mapper
+     * @param tableName 命令表名（仅字母数字下划线）
+     * @param initDdl     true 时构造期自动建表（失败只记 warn 不阻断——表可能由 DBA/迁移脚本管理）
+     * @param idGenerator 主键 id 生成器（sequence 组件的 next()；insert 前为命令分配物理主键）
+     * @param time      时间源（reclaimStale 阈值计算；与调度器时钟同源）
+     * @throws IllegalArgumentException 表名为 null 或含白名单外字符
+     */
+    public MyBatisAsyncCommandStore(AsyncCommandMapper mapper, String tableName, boolean initDdl,
+                                    LongSupplier idGenerator,
+                                    com.xp.starsite.asynccmd.clock.TimeSource time) {
         if (tableName == null || !SAFE_IDENTIFIER.matcher(tableName).matches()) {
             throw new IllegalArgumentException("tableName 仅允许字母数字下划线: " + tableName);
         }
@@ -77,6 +97,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
         this.table = tableName;
         this.initDdl = initDdl;
         this.idGenerator = idGenerator;
+        this.time = time;
         if (initDdl) {
             ensureTable();
         }
@@ -137,10 +158,10 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
         return mapper.claimById(table, token, id) > 0;
     }
 
-    /** {@inheritDoc} */
+    /** {@inheritDoc} 悬挂阈值由注入时钟计算（与 JdbcAsyncCommandStore 同源可测，8de4ac8 对齐） */
     @Override
     public int reclaimStale(int staleAfterSeconds, int limit) {
-        return mapper.reclaimStale(table, java.time.LocalDateTime.now().minusSeconds(staleAfterSeconds), limit);
+        return mapper.reclaimStale(table, time.now().minusSeconds(staleAfterSeconds), limit);
     }
 
     /** {@inheritDoc} */

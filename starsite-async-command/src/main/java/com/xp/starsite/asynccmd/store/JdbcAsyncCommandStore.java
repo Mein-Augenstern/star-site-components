@@ -189,7 +189,7 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         }
     }
 
-    /** {@inheritDoc} 自增 id 经 GeneratedKeyHolder 回填 */
+    /** {@inheritDoc} id 由 sequence 组件预生成显式写入（无 AUTO_INCREMENT / GeneratedKeyHolder） */
     @Override
     public void insert(AsyncCommand cmd) {
         // 组件表物理主键标准来源：starsite-sequence 组件（去 AUTO_INCREMENT）

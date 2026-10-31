@@ -54,7 +54,7 @@ public interface SequenceSql {
     String resetGlobalPool();
 
     /**
-     * MySQL 8 默认方言：从 {@code sql/mysql/sequence-mysql.properties} 加载语句
+     * MySQL 8 默认方言：从 {@code sql/mysql/sequence-mysql.xml} 加载语句
      * （SQL 配置外置——语句内容与索引注释见该文件，本类零 SQL 字符串）。
      * 缺键/缺文件在首次取语句时快速失败，不静默降级。
      */

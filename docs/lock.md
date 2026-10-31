@@ -50,7 +50,7 @@ class NightlyJob {
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | true | 总开关 |
-| `mode` | db | db / redis |
+| `mode` | mysql | mysql / redis |
 | `table-name` | starsite_lock | db 锁表（通用互斥，不绑定调度场景） |
 | `ttl-ms` | 30000 | 持锁 TTL |
 | `owner-id` | 应用名@pid | 持锁者标识 |
