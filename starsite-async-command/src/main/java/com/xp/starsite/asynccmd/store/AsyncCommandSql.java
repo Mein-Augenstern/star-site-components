@@ -37,7 +37,24 @@ package com.xp.starsite.asynccmd.store;
  */
 public interface AsyncCommandSql {
 
-    /** 建表语句（幂等 IF NOT EXISTS；{table} 为表名占位）。 */
+    /**
+     * 建表语句（幂等 IF NOT EXISTS；{table} 为表名占位）。
+     * <p>
+     * 表结构语义（语句内容在 {@code dialect/mysql/async-command-mysql.xml}，生产 DDL
+     * 见 {@code sql/mysql/async_command_ddl.sql}）：
+     * <ul>
+     *   <li>{@code id}：物理主键由 starsite-sequence 组件发号——<b>禁 AUTO_INCREMENT</b>
+     *       （分布式发号全局有序，自增列在多写入点会撞号）</li>
+     *   <li>索引三件套（均有明确查询锚点，防慢 SQL 门禁项）：
+     *       {@code idx_status_next}（认领：状态+到期扫）、{@code idx_type_biz}
+     *       （幂等计数：同类型同业务键）、{@code idx_claim_token}（认领取回：
+     *       按令牌取本批，一批共用令牌故非唯一）</li>
+     *   <li>{@code gmt_*} 标准时间列：悬挂回收（reclaimStale）以 gmt_modified 判死</li>
+     * </ul>
+     * 分片形态注记：分片键为 biz_key——提交/幂等带分片键精确路由单片；认领/回收
+     * 不带分片键广播全分片（fan-out，1库×10表实装验证 0.2.2）；UPDATE..LIMIT 在
+     * 分片中间件下不可用（ERROR 20046），回收走两步法语句。
+     */
     String createTable();
 
     /** 新建命令（参数：id, cmd_type, biz_key, payload, status, max_retry, retry_count, next_run_at, owner）。 */

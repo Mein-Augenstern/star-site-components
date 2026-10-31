@@ -35,7 +35,24 @@ package com.xp.starsite.sequence.allocator;
  */
 public interface SequenceSql {
 
-    /** 建表语句（幂等 IF NOT EXISTS；表规范：id 物理主键 + uk service_name + gmt_*）。 */
+    /**
+     * 建表语句（幂等 IF NOT EXISTS；表规范：id 物理主键 + uk service_name 唯一键 + gmt_* 标准时间列）。
+     * <p>
+     * 表结构语义（语句内容在 {@code dialect/mysql/sequence-mysql.xml}，生产 DDL 与索引
+     * 注释见 {@code sql/mysql/sys_sequence_ddl.sql}）：
+     * <ul>
+     *   <li>{@code __global__} 行 = 全局池计数行——workerId 从这一行原子自增取出，
+     *       全平台唯一分配（各服务独立计数会立刻跨服务撞号，故不做每服务独立计数）</li>
+     *   <li>其余行 = 各服务实例的占用审计记录（谁在何时占用过哪个机器位），只审计
+     *       不参与分配语义</li>
+     *   <li>列 {@code id}：物理主键由本组件发号——但建表种子时尚无号可用（鸡生蛋），
+     *       故 {@code __global__} 行固定保留 id=1 作自举值，审计行 id 才走发号器</li>
+     *   <li>{@code uk_service_name} 唯一键：取号/重置等值命中的索引锚 + 审计行
+     *       upsert 幂等锚（同服务重启不膨胀审计行）</li>
+     * </ul>
+     * 分片形态注记：经 ShardingSphere Proxy 执行时，sys_sequence 未配置分片规则则走
+     * single table 单库——1库×10表实装已验证（0.2.2）。
+     */
     String createTable();
 
     /** 播种全局池计数行（参数：GLOBAL_POOL_KEY, 'pool'；__global__ 行 id=1 自举保留）。 */

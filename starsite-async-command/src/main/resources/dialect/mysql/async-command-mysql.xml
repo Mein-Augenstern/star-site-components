@@ -10,7 +10,7 @@
 -->
 <dialect component="async-command" database="mysql">
 
-    <statement id="createTable" note="建表（幂等；索引三件套：认领/幂等/认领取回）">
+    <statement id="createTable" note="建表（幂等 IF NOT EXISTS）。id 由 sequence 组件发号禁 AUTO_INCREMENT（多写入点自增撞号）；索引三件套各有查询锚（idx_status_next=认领扫、idx_type_biz=幂等计数、idx_claim_token=按令牌取本批）；gmt_modified 为悬挂回收判死锚。分片注记：biz_key 分片键——提交/幂等精确路由，认领/回收广播全分片（fan-out）；UPDATE..LIMIT 分片不可用（ERROR 20046）回收走两步法">
         <![CDATA[
 CREATE TABLE IF NOT EXISTS {table} (
   id           BIGINT UNSIGNED NOT NULL COMMENT '主键（starsite-sequence 组件生成）',

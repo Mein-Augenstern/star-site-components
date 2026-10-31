@@ -10,7 +10,7 @@
 -->
 <dialect component="sequence" database="mysql">
 
-    <statement id="createTable" note="建表（表规范：id 物理主键 + uk service_name + gmt_*；__global__ 种子行 id=1 自举保留）">
+    <statement id="createTable" note="建表（幂等 IF NOT EXISTS）。表语义：__global__ 行=全局池计数（workerId 从此原子自增，全平台唯一——各服务独立计数会跨服务撞号）；其余行=实例占用审计（不参与分配）；__global__ 行 id=1 为自举保留值（建表种子时尚无号可发，鸡生蛋）；uk_service_name=取号/重置索引锚+审计 upsert 幂等锚。生产 DDL 见 sql/mysql/sys_sequence_ddl.sql">
         <![CDATA[
 CREATE TABLE IF NOT EXISTS {table} (
   id           BIGINT      NOT NULL COMMENT '主键（审计行由发号器生成；__global__ 行固定为 1）',
