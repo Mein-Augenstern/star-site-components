@@ -24,17 +24,17 @@
     <dependency>
       <groupId>com.xp.starsite</groupId>
       <artifactId>starsite-sequence-spring-boot-starter</artifactId>
-      <version>0.1.0</version>
+      <version>0.2.0</version>
     </dependency>
     <dependency>
       <groupId>com.xp.starsite</groupId>
       <artifactId>starsite-async-command-spring-boot-starter</artifactId>
-      <version>0.1.0</version>
+      <version>0.2.0</version>
     </dependency>
     <dependency>
       <groupId>com.xp.starsite</groupId>
       <artifactId>starsite-lock-spring-boot-starter</artifactId>
-      <version>0.1.0</version>
+      <version>0.2.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -58,10 +58,9 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
-    <!-- Lock 组件装配类引用 StringRedisTemplate 签名（即使 mode=mysql 也需在 classpath） -->
     <dependency>
-      <groupId>org.springframework.data</groupId>
-      <artifactId>spring-data-redis</artifactId>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-redis</artifactId>
     </dependency>
   </dependencies>
 
