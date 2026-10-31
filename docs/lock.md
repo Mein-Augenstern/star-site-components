@@ -18,6 +18,14 @@ starsite:
     # redis-key-prefix: starsite:lock:
 ```
 
+> **mysql 形态的隐式依赖清单（OBS-103，压测实证）**：`mybatis-spring-boot-starter`
+> + `DataSource` + `starsite-sequence` starter + Mapper XML 扫描
+> （`mybatis.mapper-locations: classpath:com/xp/starsite/**/mybatis/*.xml`）。
+> lock 的 mysql 实现走 MyBatis mapper（ScheduleLockMapper），与 async/sequence 的
+> JDBC 路径不同；缺 MyBatis 装配时启动期即报
+> `starsite.lock.mode=mysql 需要 ScheduleLockMapper Bean`（fail-fast，消息含修复指引）。
+> redis 形态则完全不需要上述依赖。
+
 ```java
 @RequiredArgsConstructor
 class NightlyJob {

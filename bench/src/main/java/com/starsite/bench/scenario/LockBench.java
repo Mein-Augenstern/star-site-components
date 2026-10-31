@@ -37,13 +37,21 @@ public class LockBench {
     static final int CONTENDED_OPS = 1_000;
 
     /**
+     * 种子行主键发号器（类级共享递增）：全场景共用一张 H2 表，固定 id 会主键冲突——
+     * 后到场景的种子 INSERT 失败被 provisioner 吞掉，锁行缺失、tryLock 全部空转
+     * （BUG-006 真因之二：曾用固定 () -> 1L 导致 L3 语义校验 0/1000）。
+     */
+    static final java.util.concurrent.atomic.AtomicLong SEED_ID =
+            new java.util.concurrent.atomic.AtomicLong(0);
+
+    /**
      * L1: 无竞争 acquire/release（单线程，锁始终可用）。
      */
     public static BenchResult uncontended(DataSource ds, SqlSessionFactory factory) throws Exception {
         H2Infra.createLockTable(ds);
         ScheduleLockMapper mapper = H2Infra.lockMapper(factory);
         LockTableProvisioner provisioner = new LockTableProvisioner(
-                mapper, "starsite_lock", () -> 1L);
+                mapper, "starsite_lock", SEED_ID::incrementAndGet);
         DbLockClient lock = new DbLockClient(mapper, provisioner, "starsite_lock", "bench-solo", 30_000);
 
         Histogram acquireHist = new Histogram(3);
@@ -91,7 +99,7 @@ public class LockBench {
             new Thread(() -> {
                 try {
                     ScheduleLockMapper mapper = H2Infra.lockMapper(factory);
-                    LockTableProvisioner prov = new LockTableProvisioner(mapper, "starsite_lock", () -> 1L);
+                    LockTableProvisioner prov = new LockTableProvisioner(mapper, "starsite_lock", SEED_ID::incrementAndGet);
                     DbLockClient lock = new DbLockClient(mapper, prov, "starsite_lock",
                             "thread-" + threadIdx, 30_000);
                     startGate.await();
@@ -139,10 +147,10 @@ public class LockBench {
     public static BenchResult reentrant(DataSource ds, SqlSessionFactory factory) throws Exception {
         H2Infra.createLockTable(ds);
         ScheduleLockMapper mapper = H2Infra.lockMapper(factory);
-        LockTableProvisioner prov = new LockTableProvisioner(mapper, "starsite_lock", () -> 1L);
+        LockTableProvisioner prov = new LockTableProvisioner(mapper, "starsite_lock", SEED_ID::incrementAndGet);
         DbLockClient lock = new DbLockClient(mapper, prov, "starsite_lock", "reentrant", 30_000);
         DbLockClient other = new DbLockClient(H2Infra.lockMapper(factory),
-                new LockTableProvisioner(mapper, "starsite_lock", () -> 1L),
+                new LockTableProvisioner(mapper, "starsite_lock", SEED_ID::incrementAndGet),
                 "starsite_lock", "other", 30_000);
 
         Histogram hist = new Histogram(3);
@@ -155,6 +163,8 @@ public class LockBench {
 
         long start = System.nanoTime();
         int correct = 0;
+        int blockedPhaseFail = 0;
+        int acquirePhaseFail = 0;
         for (int i = 0; i < iterations; i++) {
             long t0 = System.nanoTime();
             lock.tryLock("reentrant-lock");        // 外层
@@ -167,6 +177,8 @@ public class LockBench {
             long t1 = System.nanoTime();
             hist.recordValue(t1 - t0);
             if (otherBlocked && otherCanAcquire) correct++;
+            if (!otherBlocked) blockedPhaseFail++;
+            if (!otherCanAcquire) acquirePhaseFail++;
         }
         long elapsed = System.nanoTime() - start;
         double opsPerSec = iterations / (elapsed / 1_000_000_000.0);
@@ -177,7 +189,8 @@ public class LockBench {
                 hist.getValueAtPercentile(99), hist.getValueAtPercentile(99.9),
                 hist.getMaxValue(), "H2 in-memory, full cycle latency")
                 .pass(correct == iterations ? "reentrant semantics: " + correct + "/" + iterations + " correct"
-                        : "REENTRANT FAILURE: " + correct + "/" + iterations);
+                        : "REENTRANT FAILURE: " + correct + "/" + iterations
+                                + " (blockedPhase=" + blockedPhaseFail + ", acquirePhase=" + acquirePhaseFail + ")");
     }
 
     private static String fmt(long nanos) {

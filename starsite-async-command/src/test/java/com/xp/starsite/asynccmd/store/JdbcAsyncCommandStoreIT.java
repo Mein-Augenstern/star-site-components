@@ -335,6 +335,30 @@ class JdbcAsyncCommandStoreIT {
     }
 
     /**
+     * BUG-009 回归：表<b>存在</b>但结构陈旧（旧版 created_at/updated_at 命名，缺 gmt_* 时间列
+     * 与 claim_token）时启动期抛错——生产实证旧结构下调度器每 5s 报 bad SQL grammar
+     * 且命令永久积压而启动"成功"。
+     */
+    @Test
+    void 结构漂移_表存在缺契约列_启动期抛错() throws Exception {
+        try (java.sql.Connection conn = rawJdbc().getDataSource().getConnection();
+             java.sql.Statement st = conn.createStatement()) {
+            st.execute("DROP TABLE IF EXISTS async_cmd_drift");
+            // 旧版结构：created_at/updated_at 命名，无 gmt_* 标准时间列与 claim_token
+            st.execute("CREATE TABLE async_cmd_drift ("
+                    + "id BIGINT NOT NULL PRIMARY KEY, "
+                    + "cmd_type VARCHAR(64), biz_key VARCHAR(128), payload TEXT, "
+                    + "status VARCHAR(16), max_retry INT, retry_count INT, "
+                    + "next_run_at DATETIME, last_error VARCHAR(500), owner VARCHAR(64), "
+                    + "created_at DATETIME, updated_at DATETIME)");
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> directStore("async_cmd_drift"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GMT_MODIFIED")
+                .hasMessageContaining("async_command_ddl.sql");
+    }
+
+    /**
      * 把命令置为目标终态（清令牌）并回写存储。
      *
      * @param store  目标存储

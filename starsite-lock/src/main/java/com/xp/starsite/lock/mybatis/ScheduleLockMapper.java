@@ -41,6 +41,15 @@ public interface ScheduleLockMapper {
     int createTable(@Param("tableName") String tableName);
 
     /**
+     * 结构校验（BUG-009）：列出锁表实际列名。表名经 {@code #{}} 参数绑定（非 {@code ${}}
+     * 拼接）——元数据查询无注入面；表不存在返回空集（DBA 管理场景由调用方跳过校验）。
+     *
+     * @param tableName 锁表名
+     * @return 实际列名清单（MySQL/H2 的 INFORMATION_SCHEMA 通用）
+     */
+    java.util.List<String> selectColumns(@Param("tableName") String tableName);
+
+    /**
      * 原子争锁：locked_by 为空 / 已过期 / 是自己（续期）三种情形命中。
      * 单条 UPDATE 原子保证多实例并发下只有一个命中。
      *

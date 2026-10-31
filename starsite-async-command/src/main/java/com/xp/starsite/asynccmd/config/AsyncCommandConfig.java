@@ -30,8 +30,12 @@ public class AsyncCommandConfig {
     /** 调度轮询间隔毫秒。误配 0/负值会被调度器按 MIN_POLL_INTERVAL_MS 下限钳位——防打爆数据库。 */
     private long pollIntervalMs = 5000;
 
-    /** 单轮认领批量（条）。过大单轮执行时间变长、悬挂误判风险升高；过小吞吐不足。 */
-    private int batchSize = 10;
+    /**
+     * 单轮认领批量（条）。过大单轮执行时间变长、悬挂误判风险升高；过小吞吐不足。
+     * 默认 50（0.2.1 起，原 10）：配合调度器满批追赶（OBS-101），稳态吞吐 10 条/秒
+     * （50 × 8 轮 / 5s = 追赶上限 80 条/秒），压测实证旧默认 10 时 750 条积压需 6 分钟消化。
+     */
+    private int batchSize = 50;
 
     /** RUNNING 悬挂判定秒数（执行器进程死亡残留，超时回收回 PENDING）。必须大于单条命令最长执行时长，否则活命令被误回收重复执行。 */
     private int staleAfterSeconds = 300;

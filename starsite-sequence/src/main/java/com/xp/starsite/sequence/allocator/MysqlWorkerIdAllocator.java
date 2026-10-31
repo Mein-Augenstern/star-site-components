@@ -17,6 +17,7 @@ package com.xp.starsite.sequence.allocator;
 
 import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -92,6 +93,17 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
 
     /** SQL 方言（全部租约语句来源，本类零硬编码 SQL） */
     private final SequenceSql sql;
+
+    /**
+     * 表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 旧版初始化/组件升级后的
+     * 陈旧结构，运行期必然以更糟的方式失败（如缺 id 列时静默回落 hash workerId 撞号），
+     * 故启动期 fail-fast。表不存在则视为 DBA 管理，跳过校验。
+     */
+    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
+            "ID", "SERVICE_NAME", "WORKER_ID", "INSTANCE", "GMT_CREATE", "GMT_MODIFIED");
+
+    /** 结构校验只做一次（幂等标志；分配器生命周期内表结构不回退） */
+    private volatile boolean schemaVerified = false;
 
     /** 审计行主键 id 生成器（缺省为服务名派生 workerId 的自举雪花——跨服务唯一，无需先有正式发号器） */
     private final LongSupplier idGenerator;
@@ -250,12 +262,74 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * @throws SQLException DDL 或种子行写入失败
      */
     private void ensureTable(Connection conn) throws SQLException {
+        // 校验先于一切：漂移表上 createTable 是 no-op、随后的 seed INSERT 会缺列裸报
+        // Unknown column——校验先行才能给出带迁移指引的 fail-fast（BUG-009）
+        verifyTableColumns(conn);
         try (Statement stmt = conn.createStatement()) {
             stmt.execute(render(sql.createTable()));
             try (PreparedStatement seed = conn.prepareStatement(render(sql.seedGlobalPool()))) {
                 seed.setString(1, GLOBAL_POOL_KEY);
                 seed.setString(2, "pool");
                 seed.executeUpdate();
+            }
+        }
+    }
+
+    /**
+     * 结构校验（BUG-009）：表<b>存在</b>但缺契约列 → 抛错阻断（fail-fast）；
+     * 表不存在 → 只告警不阻断（表交由 DBA/迁移脚本管理，建表 DDL 自会创建全列）。
+     * 校验失败与建表失败的处置差异是刻意的：前者运行期必然以更糟的方式失败
+     * （缺列时报 Unknown column 并可能静默回落 hash workerId——跨服务撞号风险），
+     * 后者可能只是权限或连接抖动。
+     * <p>
+     * 实现走 {@link DatabaseMetaData#getColumns}（JDBC 标准元数据 API）：
+     * 零 SQL 语句、天然参数化，MySQL/H2 皆支持；表名匹配先按原名再按大写
+     * （H2 未加引号标识符存大写，MySQL 依 lower_case_table_names）。
+     *
+     * @param conn 目标库连接
+     * @throws IllegalStateException 表存在但结构陈旧（缺契约列），消息含迁移指引
+     */
+    private void verifyTableColumns(Connection conn) throws SQLException {
+        if (schemaVerified) {
+            return;
+        }
+        java.util.Set<String> actual = new java.util.HashSet<>();
+        collectColumnNames(conn.getMetaData(), tableName, actual);
+        if (actual.isEmpty()) {
+            collectColumnNames(conn.getMetaData(), tableName.toUpperCase(), actual);
+        }
+        if (actual.isEmpty()) {
+            // 空集不置位已验标志：init-ddl 建表后下一轮分配自然补验；
+            // 真是 DBA 管理场景（建表权限缺失）也只每次分配多一条元数据查询
+            log.warn("[starsite-sequence] 表 {} 暂不存在或不可见（init-ddl 将创建或由迁移脚本管理），本轮跳过结构校验", tableName);
+            return;
+        }
+        schemaVerified = true;
+        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/sys_sequence_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
+                    .formatted(tableName, missing));
+        }
+        log.debug("[starsite-sequence] 表 {} 结构校验通过（{} 列契约）", tableName, REQUIRED_COLUMNS.size());
+    }
+
+    /**
+     * 经 JDBC 元数据 API 收集表的列名（统一大写便于大小写无关比对）。
+     *
+     * @param meta  数据库元数据
+     * @param table 表名（原样传入，由调用方负责大小写兜底重试）
+     * @param out   收集目标（追加写入）
+     * @throws SQLException 元数据访问失败
+     */
+    private static void collectColumnNames(DatabaseMetaData meta, String table,
+                                           java.util.Set<String> out) throws SQLException {
+        try (ResultSet rs = meta.getColumns(null, null, table, null)) {
+            while (rs.next()) {
+                String name = rs.getString("COLUMN_NAME");
+                if (name != null) {
+                    out.add(name.toUpperCase());
+                }
             }
         }
     }

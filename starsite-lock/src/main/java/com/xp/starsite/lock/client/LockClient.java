@@ -45,8 +45,11 @@ package com.xp.starsite.lock.client;
  */
 public interface LockClient {
 
-    /** 等待获取形态的轮询重试间隔（毫秒）：DB/Redis 无阻塞通知原语，轮询是唯一可移植形态 */
+    /** 等待获取形态的轮询重试间隔上限（毫秒）：DB/Redis 无阻塞通知原语，轮询是唯一可移植形态 */
     long WAIT_RETRY_INTERVAL_MS = 100;
+
+    /** 等待重试的退避起步间隔（毫秒）：首轮 10ms 起、逐次翻倍，封顶 {@link #WAIT_RETRY_INTERVAL_MS} */
+    long WAIT_BACKOFF_BASE_MS = 10;
 
     /**
      * 非阻塞争锁（成功即获得持有权并刷新 TTL）。
@@ -63,8 +66,11 @@ public interface LockClient {
      * <p>
      * 语义边界（诚实声明）：
      * <ul>
-     *   <li>轮询而非通知——DB 行锁 / Redis 都没有"释放即唤醒"的可移植原语，100ms 间隔是
-     *       延迟与负载的折中；无排队公平性（每次重试都是全新原子争锁，先到不一定先得）</li>
+     *   <li>轮询而非通知——DB 行锁 / Redis 都没有"释放即唤醒"的可移植原语；
+     *       重试间隔自适应退避（OBS-102）：首轮 {@value #WAIT_BACKOFF_BASE_MS}ms 起逐次翻倍、
+     *       封顶 {@value #WAIT_RETRY_INTERVAL_MS}ms——短等待场景（常见）首次重试快 10 倍，
+     *       高争抢下回到 100ms 节奏与负载折中；无排队公平性（每次重试都是全新原子争锁，
+     *       先到不一定先得）</li>
      *   <li>等待期间线程让出（sleep）；被中断时恢复中断标记并返回 false（不吞中断信号）</li>
      *   <li>DB 形态的 fail-open 生效于每一次尝试：存储异常的那次尝试直接返回 true 退出</li>
      *   <li>成功后语义与 {@link #tryLock(String)} 完全一致（TTL 刷新 + 重入计数 +1，
@@ -80,6 +86,7 @@ public interface LockClient {
             return tryLock(lockName);
         }
         long deadline = System.currentTimeMillis() + waitMillis;
+        int attempt = 0;
         while (true) {
             if (tryLock(lockName)) {
                 return true;
@@ -88,12 +95,17 @@ public interface LockClient {
             if (remaining <= 0) {
                 return false;
             }
+            // 自适应退避（OBS-102）：10ms 起步翻倍、封顶 100ms（生产链路压测实证固定 100ms
+            // 在 16 线程争抢下 P95≈3×100ms 的量化长尾；短等待首试重试提速 10 倍）
+            long backoff = Math.min(WAIT_RETRY_INTERVAL_MS,
+                    WAIT_BACKOFF_BASE_MS << Math.min(attempt, 4));
             try {
-                Thread.sleep(Math.min(remaining, WAIT_RETRY_INTERVAL_MS));
+                Thread.sleep(Math.min(remaining, backoff));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
             }
+            attempt++;
         }
     }
 

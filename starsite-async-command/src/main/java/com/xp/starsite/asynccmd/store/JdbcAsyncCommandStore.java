@@ -46,6 +46,18 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     /** 日志（slf4j） */
     private static final Logger log = LoggerFactory.getLogger(JdbcAsyncCommandStore.class);
 
+    /**
+     * 表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 陈旧结构 → 启动期 fail-fast，
+     * 防调度器每轮 tick 以 bad SQL grammar 失败且命令永久积压（与 DDL 文件列集一致，
+     * 与 MyBatisAsyncCommandStore 保持同一契约集）。
+     */
+    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
+            "ID", "CMD_TYPE", "BIZ_KEY", "PAYLOAD", "STATUS", "MAX_RETRY", "RETRY_COUNT",
+            "NEXT_RUN_AT", "LAST_ERROR", "OWNER", "CLAIM_TOKEN", "GMT_CREATE", "GMT_MODIFIED");
+
+    /** 结构校验只做一次（幂等标志） */
+    private volatile boolean schemaVerified = false;
+
     /** 表名白名单（仅字母数字下划线）：表名须拼接进 SQL 无法参数化，白名单校验是防注入的唯一手段 */
     private static final java.util.regex.Pattern SAFE_IDENTIFIER =
             java.util.regex.Pattern.compile("[A-Za-z0-9_]+");
@@ -176,8 +188,9 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
-     * 自动建表（幂等 IF NOT EXISTS）。建表失败只记 warn 不抛出：
-     * 表可能由 DBA/迁移脚本统一管理，真有问题会在首条命令提交时暴露。
+     * 自动建表（幂等 IF NOT EXISTS）+ 结构校验。建表失败只记 warn 不抛出：
+     * 表可能由 DBA/迁移脚本统一管理；但表<b>存在</b>而结构陈旧（缺契约列）时抛错阻断——
+     * 否则调度器每轮 tick 都以 bad SQL grammar 失败且命令永久积压（BUG-009 实证）。
      */
     private void ensureTable() {
         try {
@@ -186,6 +199,68 @@ public class JdbcAsyncCommandStore implements AsyncCommandStore {
         } catch (Exception e) {
             // 建表失败不阻断启动（表可能由 DBA/迁移脚本管理），首条命令提交时即会暴露
             log.warn("[starsite-async-command] 建表检查失败（不阻断启动）: {}", e.getMessage());
+        }
+        verifyTableColumns();
+    }
+
+    /**
+     * 结构校验（BUG-009）：表<b>存在</b>但缺契约列 → 抛错阻断启动（fail-fast）；
+     * 表不存在或校验失败 → 只告警不阻断（表交由 DBA/迁移脚本管理，建表 DDL 自会创建全列）。
+     * 实现走 {@link java.sql.DatabaseMetaData#getColumns}（JDBC 标准元数据 API）：
+     * 零 SQL 语句、天然参数化；表名匹配先按原名再按大写（H2 未加引号标识符存大写）。
+     *
+     * @throws IllegalStateException 表存在但结构陈旧（缺契约列），消息含迁移指引
+     */
+    private void verifyTableColumns() {
+        if (schemaVerified) {
+            return;
+        }
+        javax.sql.DataSource ds = jdbc.getDataSource();
+        if (ds == null) {
+            log.warn("[starsite-async-command] JdbcTemplate 无 DataSource——跳过结构校验");
+            return;
+        }
+        java.util.Set<String> actual = new java.util.HashSet<>();
+        try (java.sql.Connection conn = ds.getConnection()) {
+            collectColumnNames(conn.getMetaData(), table, actual);
+            if (actual.isEmpty()) {
+                collectColumnNames(conn.getMetaData(), table.toUpperCase(), actual);
+            }
+        } catch (Exception e) {
+            log.warn("[starsite-async-command] 结构校验查询失败（跳过校验，不阻断启动）: {}", e.getMessage());
+            return;
+        }
+        schemaVerified = true;
+        if (actual.isEmpty()) {
+            log.warn("[starsite-async-command] 表 {} 不存在或不可见——视为 DBA/迁移脚本管理，跳过结构校验", table);
+            return;
+        }
+        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/async_command_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
+                    .formatted(table, missing));
+        }
+        log.debug("[starsite-async-command] 表 {} 结构校验通过（{} 列契约）", table, REQUIRED_COLUMNS.size());
+    }
+
+    /**
+     * 经 JDBC 元数据 API 收集表的列名（统一大写便于大小写无关比对）。
+     *
+     * @param meta  数据库元数据
+     * @param table 表名（原样传入，由调用方负责大小写兜底重试）
+     * @param out   收集目标（追加写入）
+     * @throws Exception 元数据访问失败
+     */
+    private static void collectColumnNames(java.sql.DatabaseMetaData meta, String table,
+                                           java.util.Set<String> out) throws Exception {
+        try (java.sql.ResultSet rs = meta.getColumns(null, null, table, null)) {
+            while (rs.next()) {
+                String name = rs.getString("COLUMN_NAME");
+                if (name != null) {
+                    out.add(name.toUpperCase());
+                }
+            }
         }
     }
 

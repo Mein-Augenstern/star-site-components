@@ -115,6 +115,25 @@ class DbLockClientTest {
         assertThat(lock.tryLock("first-lock")).isTrue();
     }
 
+    /**
+     * BUG-009 回归：锁表<b>存在</b>但结构陈旧（旧版 DDL 无 hold_count）时
+     * ensureTable 启动期抛错——而非运行期每次争锁都以 SQL 报错失败。
+     */
+    @Test
+    void 结构漂移_表存在缺契约列_启动期抛错() throws Exception {
+        try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS starsite_lock_drift ("
+                    + "id BIGINT NOT NULL PRIMARY KEY, lock_name VARCHAR(64), "
+                    + "locked_by VARCHAR(128), gmt_create TIMESTAMP, gmt_modified TIMESTAMP)");
+        }
+        LockTableProvisioner drifted = new LockTableProvisioner(
+                mapper(), "starsite_lock_drift", TEST_ID_SEQ::incrementAndGet);
+        org.assertj.core.api.Assertions.assertThatThrownBy(drifted::ensureTable)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HOLD_COUNT")
+                .hasMessageContaining("starsite_lock_ddl.sql");
+    }
+
     /** 他方持锁时争锁失败（互斥核心语义） */
     @Test
     void 他方持锁_争锁失败() throws Exception {

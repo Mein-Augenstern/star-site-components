@@ -239,7 +239,9 @@ class AsyncCommandSchedulerTest {
     }
 
     /**
-     * 验证多实例认领互斥：两调度器共享存储、各批量 2 条认领，认领集合不相交，4 条全部落 SUCCESS。
+     * 验证多实例认领互斥：两调度器共享存储，先到的 RUNNING 不会被后到实例重认领，
+     * 认领集合不相交且全部落 SUCCESS。（满批追赶引入后，单 tick 会连认多轮——
+     * 互斥验证改为 B 先不满批认领、A 后到只拿剩余，语义仍是"同一命令只被一个实例执行"）
      */
     @Test
     void 双实例认领互斥_同一命令只被一个实例执行() {
@@ -256,18 +258,67 @@ class AsyncCommandSchedulerTest {
         AsyncCommandScheduler schB = new AsyncCommandScheduler(store, clientB, c,
                 new ExecutorRegistry(() -> List.of(execB)));
 
-        for (int i = 0; i < 4; i++) {
-            clientA.submit("race", "k" + i, "{}");
-        }
-        // 实例 A 先批量认领 2 条
-        schA.tick();
-        // 实例 B 只能认领剩余 2 条（A 已置 RUNNING，不会重叠）
+        // B 先到：2 条不满批（单轮即停），A 后到只能拿新提交的剩余 2 条
+        clientA.submit("race", "k0", "{}");
+        clientA.submit("race", "k1", "{}");
         schB.tick();
+        clientA.submit("race", "k2", "{}");
+        clientA.submit("race", "k3", "{}");
+        schA.tick();
         assertThat(execA.executed).hasSize(2);
         assertThat(execB.executed).hasSize(2);
         // 两实例认领的命令 id 完全不相交
         assertThat(execA.executed).doesNotContainAnyElementsOf(execB.executed);
         assertThat(store.countByStatus(AsyncCommand.SUCCESS)).isEqualTo(4);
+    }
+
+    /**
+     * OBS-101 回归：满批追赶——batch=2、积压 5 条时单 tick 连续认领三轮（2+2+1）清空积压，
+     * 而非旧语义的一 tick 只认一批留 3 条等下个轮询间隔。
+     */
+    @Test
+    void 满批追赶_单tick连续认领清积压() {
+        InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
+        AsyncCommandConfig c = config();
+        c.setBatchSize(2);
+        AsyncCommandClient client = new AsyncCommandClient(store, c);
+        FakeExecutor exec = new FakeExecutor("burst", 0);
+        AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
+                new ExecutorRegistry(() -> List.of(exec)));
+
+        for (int i = 0; i < 5; i++) {
+            client.submit("burst", "k" + i, "{}");
+        }
+        scheduler.tick();
+        assertThat(exec.executed).as("单 tick 应连续认领三轮清空 5 条积压").hasSize(5);
+        assertThat(store.countByStatus(AsyncCommand.SUCCESS)).isEqualTo(5);
+    }
+
+    /**
+     * OBS-101 回归：追赶有界——积压远超单 tick 上限时，一轮 tick 至多认领
+     * {@code MAX_DRAIN_ROUNDS × batchSize} 条，剩余留给后续 tick（防慢执行器场景打爆池队列）。
+     */
+    @Test
+    void 满批追赶_轮数上限有界() {
+        InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
+        AsyncCommandConfig c = config();
+        c.setBatchSize(2);
+        AsyncCommandClient client = new AsyncCommandClient(store, c);
+        FakeExecutor exec = new FakeExecutor("flood", 0);
+        AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
+                new ExecutorRegistry(() -> List.of(exec)));
+
+        for (int i = 0; i < 50; i++) {
+            client.submit("flood", "k" + i, "{}");
+        }
+        scheduler.tick();
+        // 上限轮数 8（包级常量，镜像断言；轮数调整时两处同步）
+        int maxRounds = 8;
+        assertThat(exec.executed).as("单 tick 追加上限 = 8 轮 × 2 条").hasSize(maxRounds * 2);
+        assertThat(store.countByStatus(AsyncCommand.PENDING)).isEqualTo(50 - maxRounds * 2);
+        // 下一轮 tick 继续消化（追赶不丢失剩余积压）
+        scheduler.tick();
+        assertThat(exec.executed).hasSize(maxRounds * 4);
     }
 
     /**

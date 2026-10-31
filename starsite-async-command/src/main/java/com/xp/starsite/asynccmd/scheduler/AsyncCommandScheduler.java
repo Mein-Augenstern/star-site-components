@@ -73,6 +73,13 @@ public class AsyncCommandScheduler {
     /** 优雅停机的排空上限：超时后放弃等待执行中命令落终态，交由重启后的悬挂回收兜底 */
     private static final long STOP_DRAIN_TIMEOUT_MS = 30_000;
 
+    /**
+     * 单 tick 满批追赶的轮数上限（OBS-101）：满批说明仍有积压，连续认领追赶消化；
+     * 上限防慢执行器场景把池队列打爆（池拒绝的命令按失败退避重试，不丢但会抖动）。
+     * 追赶吞吐 = 上限 × batchSize / pollInterval（默认 8 × 10 / 5s = 16 条/秒，为稳态 8 倍）。
+     */
+    static final int MAX_DRAIN_ROUNDS = 8;
+
     /** 共享池线程编号（线程名可回溯） */
     private static final AtomicInteger POOL_SEQ = new AtomicInteger();
 
@@ -301,6 +308,10 @@ public class AsyncCommandScheduler {
     /**
      * 执行单轮调度（public 供测试与运维工具确定性驱动）。
      * 固定顺序：回收悬挂 RUNNING → 令牌认领到期 PENDING → 按类型分组路由执行。
+     * <p>
+     * 满批追赶（OBS-101）：上一轮认领满批说明仍有积压，连续认领直到不满批或达到
+     * {@link #MAX_DRAIN_ROUNDS} 上限——固定间隔×小批量的稳态吞吐（默认 5s×10 条 = 2 条/秒）
+     * 在积压场景自动扩容（上限轮×批量/间隔）；不满批即本轮积压已清，回到固定节奏。
      */
     public void tick() {
         if (!running) {
@@ -313,12 +324,19 @@ public class AsyncCommandScheduler {
             if (reclaimed > 0) {
                 log.warn("starsite-async reclaimed {} stale RUNNING cmds", reclaimed);
             }
-            String token = UUID.randomUUID().toString();
-            if (store.claim(token, config.getBatchSize(), time.now()) == 0) {
-                // 无到期命令，本轮结束
-                return;
+            for (int round = 0; round < MAX_DRAIN_ROUNDS; round++) {
+                String token = UUID.randomUUID().toString();
+                int claimed = store.claim(token, config.getBatchSize(), time.now());
+                if (claimed == 0) {
+                    // 无到期命令，本轮结束
+                    return;
+                }
+                dispatch(emptyIfNull(store.findByToken(token)));
+                if (claimed < config.getBatchSize()) {
+                    // 不满批：本轮到期积压已全部认领，无需追赶
+                    return;
+                }
             }
-            dispatch(emptyIfNull(store.findByToken(token)));
         } finally {
             executingTick = false;
         }

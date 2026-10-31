@@ -197,6 +197,32 @@ class MysqlWorkerIdAllocatorIT {
         assertThat(c).as("全平台单点分配：第三实例的号必须大于前两个").isGreaterThan(2);
     }
 
+    /**
+     * BUG-009 回归：表<b>存在</b>但结构陈旧（旧版 DDL 无 id/gmt_* 列）时取号期抛错
+     * fail-fast——生产实证旧结构会让取号 SQL 报 Unknown column 并静默回落 hash workerId
+     * （跨服务撞号风险）。断言错误消息含缺失列与迁移指引。
+     */
+    @Test
+    void 结构漂移_表存在缺契约列_取号期抛错() throws Exception {
+        String table = "sys_seq_drift";
+        dropTable(table);
+        try (Connection conn = dataSource().getConnection();
+             Statement stmt = conn.createStatement()) {
+            // 旧版结构：无 id 主键、无 gmt_* 标准时间列
+            stmt.execute("CREATE TABLE " + table + " ("
+                    + "service_name VARCHAR(64) NOT NULL PRIMARY KEY, "
+                    + "worker_id INT NOT NULL DEFAULT 0, "
+                    + "instance VARCHAR(128))");
+        }
+        MysqlWorkerIdAllocator drifted = new MysqlWorkerIdAllocator(
+                dataSource(), table, "svc-a", "tag-a", true, 10,
+                MysqlWorkerIdAllocator.WraparoundPolicy.RESET);
+        org.assertj.core.api.Assertions.assertThatThrownBy(drifted::allocate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GMT_MODIFIED")
+                .hasMessageContaining("sys_sequence_ddl.sql");
+    }
+
     /** 池预置 1023（10 位上限）：取到 1024 超限触发 RESET，重置为 0 后重新取号得 1。 */
     @Test
     void 回绕_RESET策略_重置后重新取号() throws Exception {

@@ -27,6 +27,14 @@
         )
     </update>
 
+    <!-- 结构校验（BUG-009）：表名 #{} 参数绑定（元数据查询无注入面）；表不存在返回空集
+         （DBA 管理场景由就绪器跳过校验）；列缺失由就绪器启动期 fail-fast。
+         UPPER 双侧匹配：H2 未加引号标识符存大写，MySQL 依 lower_case_table_names -->
+    <select id="selectColumns" resultType="string">
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE UPPER(TABLE_NAME) = UPPER(#{tableName})
+    </select>
+
     <!-- 种子行：仅当不存在时 INSERT（H2 的 MERGE KEY VALUES 是替换整行的 upsert——
          会把他方持锁状态重置为 NULL，不可用作种子；NOT EXISTS 只插入不覆盖） -->
     <insert id="seedLockRow">

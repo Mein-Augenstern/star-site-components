@@ -57,4 +57,12 @@
             CONSTRAINT uk_${table}_service_name UNIQUE (service_name)
         )
     </update>
+
+    <!-- 结构校验（BUG-009）：表名 #{} 参数绑定（元数据查询无注入面）；表不存在返回空集
+         （DBA 管理场景由调用方跳过校验）；列缺失由分配器启动期 fail-fast 防静默回落。
+         UPPER 双侧匹配：H2 未加引号标识符存大写，MySQL 依 lower_case_table_names -->
+    <select id="selectColumns" resultType="string">
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE UPPER(TABLE_NAME) = UPPER(#{tableName})
+    </select>
 </mapper>

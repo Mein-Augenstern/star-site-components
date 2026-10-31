@@ -111,4 +111,13 @@
             KEY idx_claim_token (claim_token)
         )
     </update>
+
+    <!-- 结构校验（BUG-009）：表名 #{} 参数绑定（元数据查询无注入面）；表不存在返回空集
+         （DBA 管理场景由存储层跳过校验）；列缺失由存储层启动期 fail-fast（生产链路压测
+         实证：旧 created_at/updated_at 结构下调度器每 5s bad SQL grammar 且静默）。
+         UPPER 双侧匹配：H2 未加引号标识符存大写，MySQL 依 lower_case_table_names -->
+    <select id="selectColumns" resultType="string">
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE UPPER(TABLE_NAME) = UPPER(#{tableName})
+    </select>
 </mapper>

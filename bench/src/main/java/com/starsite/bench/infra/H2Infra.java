@@ -99,19 +99,21 @@ public final class H2Infra {
 
     /**
      * 创建 ScheduleLockMapper 代理。
+     * <p>
+     * BUG-006 真因修正：不能 try-with-resources——session 关闭后 mapper 代理每次调用
+     * 都抛 "Executor was closed"，而 DbLockClient 的 fail-open 语义会把存储异常吞掉
+     * 直接放行（tryLock 返回 true），表现为 L3 可重入 0/1000（他方争锁永远"成功"）。
+     * session 由 mapper 生命周期持有不关闭；autocommit=true 保证他方 session
+     * 立即可见本方已提交的持有状态。
      */
     public static ScheduleLockMapper lockMapper(SqlSessionFactory factory) {
-        try (SqlSession session = factory.openSession(true)) {
-            return session.getMapper(ScheduleLockMapper.class);
-        }
+        return factory.openSession(true).getMapper(ScheduleLockMapper.class);
     }
 
     /**
-     * 创建 AsyncCommandMapper 代理。
+     * 创建 AsyncCommandMapper 代理（同 {@link #lockMapper}：session 保持打开由 mapper 持有）。
      */
     public static AsyncCommandMapper asyncMapper(SqlSessionFactory factory) {
-        try (SqlSession session = factory.openSession(true)) {
-            return session.getMapper(AsyncCommandMapper.class);
-        }
+        return factory.openSession(true).getMapper(AsyncCommandMapper.class);
     }
 }

@@ -39,6 +39,16 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
     /** 日志 */
     private static final Logger log = LoggerFactory.getLogger(MyBatisMysqlWorkerIdAllocator.class);
 
+    /**
+     * 表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 陈旧结构，
+     * 取号期 fail-fast（与 JDBC 版 MysqlWorkerIdAllocator 保持同一契约集）。
+     */
+    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
+            "ID", "SERVICE_NAME", "WORKER_ID", "INSTANCE", "GMT_CREATE", "GMT_MODIFIED");
+
+    /** 结构校验只做一次（幂等标志） */
+    private volatile boolean schemaVerified = false;
+
     /** 全局池 key */
     public static final String GLOBAL_POOL_KEY = "__global__";
 
@@ -113,6 +123,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
     @Override
     public long allocate() {
         mapper.createTable(tableName);
+        verifyTableColumns();
         mapper.seedGlobalPool(tableName, GLOBAL_POOL_KEY, "pool");
 
         Long workerId = txTemplate.execute(status -> {
@@ -154,5 +165,40 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
     @Override
     public String describe() {
         return "mybatis-lease(table=%s, service=%s, tag=%s)".formatted(tableName, serviceName, instanceTag);
+    }
+
+    /**
+     * 结构校验（BUG-009，与 JDBC 版 MysqlWorkerIdAllocator 同语义）：
+     * 表<b>存在</b>但缺契约列 → 抛错阻断（运行期必然以更糟的方式失败——缺列时
+     * 静默回落 hash workerId，跨服务撞号）；表不存在或校验查询失败 → 只告警不阻断
+     * （表交由 DBA/迁移脚本管理）。表名经白名单校验，元数据查询全程 #{} 参数绑定。
+     */
+    private void verifyTableColumns() {
+        if (schemaVerified) {
+            return;
+        }
+        java.util.List<String> columns;
+        try {
+            columns = mapper.selectColumns(tableName);
+        } catch (RuntimeException e) {
+            log.warn("[starsite-sequence] 结构校验查询失败（跳过校验，不阻断取号）: {}", e.getMessage());
+            return;
+        }
+        if (columns == null || columns.isEmpty()) {
+            // 空集不置位已验标志：createTable 随后创建的表下一轮分配自然补验
+            log.warn("[starsite-sequence] 表 {} 暂不存在或不可见（建表随后执行或由迁移脚本管理），本轮跳过结构校验", tableName);
+            return;
+        }
+        schemaVerified = true;
+        java.util.Set<String> actual = columns.stream()
+                .map(c -> c.toUpperCase())
+                .collect(java.util.stream.Collectors.toSet());
+        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/sys_sequence_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
+                    .formatted(tableName, missing));
+        }
+        log.debug("[starsite-sequence] 表 {} 结构校验通过（{} 列契约）", tableName, REQUIRED_COLUMNS.size());
     }
 }

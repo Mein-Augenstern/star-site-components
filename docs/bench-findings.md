@@ -63,10 +63,18 @@ Redis 类不在 classpath 即抛异常——即使 `mode=mysql` 根本不走 Red
 
 **发现场景**：进程内 bench
 
-**根因**：bench 的 `other` 客户端独立 provisioner/mapper session，H2 跨 session 可见性
-存在时序问题——`other.tryLock` 在 `lock` 内层释放后仍看到旧值
+**根因**（0.2.1 修复时查明，双层真因，与最初猜想的 H2 MVCC 无关）：
+1. `H2Infra.lockMapper` 的 try-with-resources 立即关闭 SqlSession——mapper 代理每次调用
+   抛 "Executor was closed"，而 DbLockClient 的 fail-open 把存储异常吞掉直接放行
+   （`other.tryLock` 永远返回 true → blockedPhase 全对/acquirePhase 全错的假象）
+2. 全场景共用一张 H2 表但种子行主键固定 `() -> 1L`——首场景占掉主键 1，后续种子
+   INSERT 主键冲突被 provisioner 静默吞掉，**锁行从未存在**，tryLock 全部空转
 
-**计划**：排查 H2 MVCC 语义；可能需改为同 session 或引入同步屏障
+**修复**：mapper session 保持打开（由 mapper 生命周期持有）；种子 id 改类级 AtomicLong
+递增。L3 从 0/1000 → **1000/1000**。方法论沉淀：相位计数诊断（blockedPhase/acquirePhase）
++ 行终态 DIAG 是定位"语义全错但吞吐正常"类问题的标准手段。
+
+**状态**：✅ 已修复（0.2.1）
 
 ### BUG-007 [P3] bench A2/A3 H2 MyBatis 构造器不匹配
 
@@ -74,7 +82,9 @@ Redis 类不在 classpath 即抛异常——即使 `mode=mysql` 根本不走 Red
 
 **根因**：MyBatisAsyncCommandStore 加了 TimeSource 参数后 bench 代码仍用旧 4 参构造器
 
-**计划**：bench 代码同步新构造器签名
+**修复**：组件侧已补 4 参便捷构造器（委托系统时钟），0.2.1 轮 bench 实测 A2/A3 全过确认。
+
+**状态**：✅ 已修复（确认于 0.2.1）
 
 ## 生产链路压测发现（bench-service + Gateway 实机，2026-10-31）
 
@@ -108,7 +118,15 @@ bench-service 引 async-command starter 后启动失败：Controller 被组件�
 **计划**：provisioner 建表后增加轻量结构校验（DESCRIBE 比对关键列），缺列即启动失败并
 打印迁移提示；hash 回落路径降级为 ERROR 级日志 + 指标暴露。
 
+**修复（0.2.1）**：全部 5 个建表点已实现结构校验 fail-fast——JDBC 路径走
+`DatabaseMetaData.getColumns`（零 SQL、天然参数化），MyBatis 路径走 mapper
+`#{}` 绑定的 INFORMATION_SCHEMA 查询；表不存在/查询失败仍只告警不阻断（DBA 管理场景）。
+新增 3 个漂移回归用例（lock H2 + sequence/async 真库 IT）。backend 的 hash 回落日志
+同步降级为 ERROR 并附排查动作。
+
 **环境处置**：本地两表已按新 DDL 重建（DROP + 组件自举），workerId 恢复租约分配。
+
+**状态**：✅ 已修复（0.2.1）
 
 ### BUG-010 [P2] 组件抽取后 star-site-backend Docker 全新构建断链
 
@@ -126,25 +144,29 @@ buildx `--build-context m2repo=~/.m2/repository` 注入组件产物（临时 Doc
 **发现场景**：压测注入 750 条命令，积压消化仅 ~2 条/秒（默认 `pollIntervalMs=5000` ×
 `batchSize=10`），6 分钟才能清完。
 
-**建议**：满批认领后立即进入下一轮（drain 循环），空轮询再回到固定间隔；默认 batchSize
-可提至 50。
+**修复（0.2.1）**：tick 改满批追赶——连续认领直到不满批或达 `MAX_DRAIN_ROUNDS=8` 上限
+（池拒绝按失败退避不丢命令，上限防打爆队列）；默认 `batchSize` 10 → 50。新增 2 个
+回归用例（单 tick 连续清积压 / 轮数上限有界）。追赶吞吐 = 8×50/5s = **80 条/秒**（旧 2 条/秒）。
+
+**状态**：✅ 已修复（0.2.1）
 
 ### OBS-102 [观察] lock timed-wait 100ms 轮询量化
 
 **发现场景**：16 线程争抢下 `lock wait 100ms` P95≈296ms（直连 P95≈105ms）。
 
-**解释**：`LockClient.WAIT_RETRY_INTERVAL_MS=100` 固定轮询，高争抢下每次失败等满
-100ms 再试，延迟逼近 `waitMs + k×100ms`。属轮询式等待的固有量化，非正确性问题；
-后续可做自适应退避（首次 10ms 起）优化尾延迟。
+**修复（0.2.1）**：重试间隔改自适应退避——`WAIT_BACKOFF_BASE_MS=10` 起步逐次翻倍、
+封顶 `WAIT_RETRY_INTERVAL_MS=100`。短等待首次重试快 10 倍，高争抢退回 100ms 节奏
+（负载不升高）。新增 3 个确定性用例（短等待提速 / 封顶不过载 / 窗口耗尽语义）。
+
+**状态**：✅ 已修复（0.2.1）
 
 ### OBS-103 [P3] lock mysql 形态隐式依赖 MyBatis 装配
 
 **发现场景**：试图关闭 bench 的 MybatisAutoConfiguration → lock 启动失败
 （错误信息清晰：`starsite.lock.mode=mysql 需要 ScheduleLockMapper Bean`）。
 
-**说明**：lock 的 mysql 实现走 MyBatis mapper（async/sequence 走 jdbc）——三组件
-mysql 形态实现栈不一致，且 lock starter 未把 mybatis-spring-boot-starter 声明为
-传递依赖。fail-fast 消息友好，记为文档/依赖声明改进项（README 标注 + starter 可选依赖）。
+**处置（0.2.1）**：docs/lock.md 标注 mysql 形态完整依赖清单（mybatis-spring-boot-starter +
+DataSource + sequence starter + mapper-locations）；fail-fast 消息本就含修复指引，保留。
 
 ## 组件缺陷模式总结（回写 component-builder/reviewer）
 

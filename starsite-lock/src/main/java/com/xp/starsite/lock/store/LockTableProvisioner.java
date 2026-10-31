@@ -50,6 +50,16 @@ public final class LockTableProvisioner {
     /** 日志 */
     private static final Logger log = LoggerFactory.getLogger(LockTableProvisioner.class);
 
+    /**
+     * 锁表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 陈旧结构 → 启动期 fail-fast，
+     * 防运行期每次争锁都以 SQL 报错失败（与 DDL 文件列集一致）。
+     */
+    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
+            "ID", "LOCK_NAME", "LOCKED_BY", "LOCKED_UNTIL", "HOLD_COUNT", "GMT_CREATE", "GMT_MODIFIED");
+
+    /** 结构校验只做一次（幂等标志） */
+    private volatile boolean schemaVerified = false;
+
     /** MyBatis Mapper（建表与播种语句载体，SQL 全在 Mapper XML） */
     private final ScheduleLockMapper mapper;
 
@@ -84,8 +94,9 @@ public final class LockTableProvisioner {
     }
 
     /**
-     * 幂等建表（IF NOT EXISTS）。失败只记 warn 不抛出：表可能由 DBA/迁移脚本统一管理，
-     * 真有问题会在首次争锁时暴露——初始化不应阻断应用启动。
+     * 幂等建表（IF NOT EXISTS）+ 结构校验。建表失败只记 warn 不抛出（表可能由 DBA/
+     * 迁移脚本统一管理）；但表<b>存在</b>而结构陈旧（缺契约列）时抛错阻断——运行期
+     * 只会以更糟的方式失败（每次争锁/释放 SQL 报错，BUG-009）。
      */
     public void ensureTable() {
         try {
@@ -94,6 +105,42 @@ public final class LockTableProvisioner {
         } catch (RuntimeException e) {
             log.warn("[starsite-lock] 建表检查失败（不阻断启动）: {}", e.getMessage());
         }
+        verifyTableColumns();
+    }
+
+    /**
+     * 结构校验（BUG-009）：表<b>存在</b>但缺契约列 → 抛错阻断启动（fail-fast）；
+     * 表不存在或校验查询失败 → 只告警不阻断（表交由 DBA/迁移脚本管理，建表 DDL 自会创建全列）。
+     * 校验只做一次（幂等）；表名经白名单校验，元数据查询全程 #{} 参数绑定。
+     *
+     * @throws IllegalStateException 表存在但结构陈旧（缺契约列），消息含迁移指引
+     */
+    private void verifyTableColumns() {
+        if (schemaVerified) {
+            return;
+        }
+        java.util.List<String> columns;
+        try {
+            columns = mapper.selectColumns(tableName);
+        } catch (RuntimeException e) {
+            log.warn("[starsite-lock] 结构校验查询失败（跳过校验，不阻断启动）: {}", e.getMessage());
+            return;
+        }
+        schemaVerified = true;
+        if (columns == null || columns.isEmpty()) {
+            log.warn("[starsite-lock] 锁表 {} 不存在或不可见——视为 DBA/迁移脚本管理，跳过结构校验", tableName);
+            return;
+        }
+        java.util.Set<String> actual = columns.stream()
+                .map(String::toUpperCase)
+                .collect(java.util.stream.Collectors.toSet());
+        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(("锁表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/starsite_lock_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
+                    .formatted(tableName, missing));
+        }
+        log.debug("[starsite-lock] 锁表 {} 结构校验通过（{} 列契约）", tableName, REQUIRED_COLUMNS.size());
     }
 
     /**

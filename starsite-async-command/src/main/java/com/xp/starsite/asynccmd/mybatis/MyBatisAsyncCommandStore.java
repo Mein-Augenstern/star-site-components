@@ -44,6 +44,18 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** 日志（slf4j） */
     private static final Logger log = LoggerFactory.getLogger(MyBatisAsyncCommandStore.class);
 
+    /**
+     * 表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 陈旧结构 → 启动期 fail-fast，
+     * 防调度器每轮 tick 以 bad SQL grammar 失败且命令永久积压（与 DDL 文件列集一致，
+     * 与 JdbcAsyncCommandStore 保持同一契约集）。
+     */
+    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
+            "ID", "CMD_TYPE", "BIZ_KEY", "PAYLOAD", "STATUS", "MAX_RETRY", "RETRY_COUNT",
+            "NEXT_RUN_AT", "LAST_ERROR", "OWNER", "CLAIM_TOKEN", "GMT_CREATE", "GMT_MODIFIED");
+
+    /** 结构校验只做一次（幂等标志） */
+    private volatile boolean schemaVerified = false;
+
     /** 表名白名单（仅字母数字下划线）：${table} 字符串替换的唯一防注入手段 */
     private static final Pattern SAFE_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
 
@@ -104,9 +116,9 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     }
 
     /**
-     * 幂等建表（IF NOT EXISTS）。建表失败只记 warn 不抛出——与 JdbcAsyncCommandStore.ensureTable
-     * 同语义：表可能由 DBA/迁移脚本统一管理（或测试环境 H2 不认 MySQL 方言 DDL），
-     * 真有问题会在首条命令提交时暴露。
+     * 幂等建表（IF NOT EXISTS）+ 结构校验。建表失败只记 warn 不抛出——与 JdbcAsyncCommandStore
+     * 同语义（表可能由 DBA/迁移脚本统一管理）；但表<b>存在</b>而结构陈旧（缺契约列）时
+     * 抛错阻断——否则调度器每轮 tick 都以 bad SQL grammar 失败且命令永久积压（BUG-009 实证）。
      */
     private void ensureTable() {
         try {
@@ -116,6 +128,42 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
             // 建表失败不阻断启动（表可能由 DBA/迁移脚本管理），首条命令提交时即会暴露
             log.warn("[starsite-async-command] 建表检查失败（不阻断启动）: {}", e.getMessage());
         }
+        verifyTableColumns();
+    }
+
+    /**
+     * 结构校验（BUG-009）：表<b>存在</b>但缺契约列 → 抛错阻断启动（fail-fast）；
+     * 表不存在或校验查询失败 → 只告警不阻断（表交由 DBA/迁移脚本管理，建表 DDL 自会创建全列）。
+     * 校验只做一次（幂等）；表名经白名单校验，元数据查询全程 #{} 参数绑定。
+     *
+     * @throws IllegalStateException 表存在但结构陈旧（缺契约列），消息含迁移指引
+     */
+    private void verifyTableColumns() {
+        if (schemaVerified) {
+            return;
+        }
+        java.util.List<String> columns;
+        try {
+            columns = mapper.selectColumns(table);
+        } catch (RuntimeException e) {
+            log.warn("[starsite-async-command] 结构校验查询失败（跳过校验，不阻断启动）: {}", e.getMessage());
+            return;
+        }
+        schemaVerified = true;
+        if (columns == null || columns.isEmpty()) {
+            log.warn("[starsite-async-command] 表 {} 不存在或不可见——视为 DBA/迁移脚本管理，跳过结构校验", table);
+            return;
+        }
+        java.util.Set<String> actual = columns.stream()
+                .map(String::toUpperCase)
+                .collect(java.util.stream.Collectors.toSet());
+        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/async_command_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
+                    .formatted(table, missing));
+        }
+        log.debug("[starsite-async-command] 表 {} 结构校验通过（{} 列契约）", table, REQUIRED_COLUMNS.size());
     }
 
     /** {@inheritDoc} */
