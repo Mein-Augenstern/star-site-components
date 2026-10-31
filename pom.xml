@@ -59,6 +59,12 @@
         <skipITs>false</skipITs>
       </properties>
     </profile>
+    <profile>
+      <id>bench</id>
+      <modules>
+        <module>bench</module>
+      </modules>
+    </profile>
   </profiles>
 
   <dependencyManagement>
