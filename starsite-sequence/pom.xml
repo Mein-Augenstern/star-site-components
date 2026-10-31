@@ -7,7 +7,7 @@
   <parent>
     <groupId>com.xp.starsite</groupId>
     <artifactId>star-site-components</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
   </parent>
 
   <artifactId>starsite-sequence</artifactId>
@@ -36,6 +36,12 @@
       <groupId>org.springframework</groupId>
       <artifactId>spring-tx</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <!-- Redis 租约路径（mode=redis 时使用；optional：无 Redis 消费方零感知） -->
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-redis</artifactId>
+      <optional>true</optional>
     </dependency>
 
     <!-- 测试 -->

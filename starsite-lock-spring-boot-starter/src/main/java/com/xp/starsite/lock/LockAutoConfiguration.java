@@ -76,6 +76,23 @@ public class LockAutoConfiguration {
             String appName = env.getProperty("spring.application.name", "unknown");
             props.setOwnerId(appName + "@" + ProcessHandle.current().pid());
         }
+        LockClient rawClient = buildRawClient(props, mapperProvider, redisTemplateProvider, idGenProvider, env);
+        if (props.isWatchdogEnabled()) {
+            log.info("[starsite-lock] 看门狗已启用：每 {}ms 自动续期（长任务持锁跨 TTL 场景）",
+                    Math.max(props.getTtlMs() / 3, 1000));
+            return new com.xp.starsite.lock.client.WatchdogLockClient(rawClient, props.getTtlMs());
+        }
+        return rawClient;
+    }
+
+    /**
+     * 按模式构建原始锁客户端（不含看门狗包装）。
+     */
+    private LockClient buildRawClient(LockProperties props,
+                                       ObjectProvider<ScheduleLockMapper> mapperProvider,
+                                       ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+                                       ObjectProvider<com.xp.starsite.sequence.facade.StarsiteIdGenerator> idGenProvider,
+                                       Environment env) {
         return switch (props.getMode()) {
             case MYSQL -> {
                 ScheduleLockMapper mapper = mapperProvider.getIfAvailable();

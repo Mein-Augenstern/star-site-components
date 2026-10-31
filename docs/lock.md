@@ -45,6 +45,17 @@ class NightlyJob {
 - **Redis 形态**：`SET key value NX PX ttl` + 校验 value 的 Lua 原子释放（防误删他方锁）
 - **fail-open**：锁存储异常时放行（宁可多实例竞争不停摆，上层幂等兜底），WARN 可见
 
+## 看门狗自动续期（可选）
+
+```yaml
+starsite:
+  lock:
+    watchdog-enabled: true   # 默认 false；长任务持锁跨 TTL 场景
+```
+
+启用后 `LockClient` 自动包装为 `WatchdogLockClient`——每 TTL/3 自动续期一次，
+长任务不再需要手工多次 tryLock；续期失败（锁被他方抢占）自动停止并记 WARN。
+
 ## 全量配置（前缀 starsite.lock）
 
 | 键 | 默认 | 说明 |
@@ -56,3 +67,4 @@ class NightlyJob {
 | `owner-id` | 应用名@pid | 持锁者标识 |
 | `redis-key-prefix` | starsite:lock: | redis 键前缀 |
 | `init-ddl` | true | db 形态自动建表 |
+| `watchdog-enabled` | false | 看门狗自动续期（每 TTL/3） |

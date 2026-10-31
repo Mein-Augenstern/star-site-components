@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (0.2.0)
+- Lock: watchdog auto-renewal (`WatchdogLockClient` decorator + `starsite.lock.watchdog-enabled=true`)
+  — automatically renews lock TTL every TTL/3 for long-running tasks
+- Sequence: Redis workerId lease (`RedisWorkerIdAllocator` + `starsite.sequence.mode=redis`)
+  — atomic INCR allocation, sub-millisecond, for teams with Redis but no MySQL
+- Lock: admin client (forceRelease / findHolder / listHeldLocks / getLockInfo)
+
+### Changed (0.2.0)
+- BREAKING: config key unification — `store: jdbc|memory` → `mode: mysql|standalone` (async-command);
+  `mode: db` → `mode: mysql` (lock); three components now share unified vocabulary `mode=standalone|mysql|redis`
+- JDK target lowered from 21 to 17 (Spring Boot 3 minimum, broader compatibility)
+- sequence starter changed from `provided` to `compile` scope (single-component users no longer hit missing StarsiteIdGenerator)
+
+### Fixed (0.2.0)
+- MyBatisMysqlWorkerIdAllocator: retry null → throw exception (was silently defaulting workerId=1)
+- MyBatisAsyncCommandStore.reclaimStale: hardcoded clock → injected TimeSource (parity with JdbcStore)
+- DemoController: Map.of null name → NPE (normalized upfront)
+- Multiple stale javadoc fixes (.properties→.xml, GeneratedKeyHolder residue, dangling @link)
+
 ### Added
 - Sequence: snowflake ID generator with clock-backward clamping (CLAMP/FAIL)
 - Sequence: MySQL workerId lease (`__global__` pool + `LAST_INSERT_ID` atomic increment)

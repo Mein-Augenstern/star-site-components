@@ -45,10 +45,18 @@ public class LockProperties extends LockCoreConfig {
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     /** 读取存储形态。@return 存储形态（默认 DB） */
     public Mode getMode() { return mode; }
-    /** 设置存储形态。@param mode DB / REDIS */
+    /** 设置存储形态。@param mode MYSQL / REDIS */
     public void setMode(Mode mode) { this.mode = mode; }
     /** 读取自动建表开关。@return true 自动建表（默认） */
     public boolean isInitDdl() { return initDdl; }
     /** 设置自动建表开关。@param initDdl true 自动建表 */
     public void setInitDdl(boolean initDdl) { this.initDdl = initDdl; }
+
+    /** 看门狗自动续期开关（默认 false；true 时 LockClient 包装为 WatchdogLockClient，长任务持锁跨 TTL 场景） */
+    private boolean watchdogEnabled = false;
+
+    /** 读取看门狗开关。@return true 启用自动续期（默认 false） */
+    public boolean isWatchdogEnabled() { return watchdogEnabled; }
+    /** 设置看门狗开关。@param watchdogEnabled true 启用（每 TTL/3 自动续期一次） */
+    public void setWatchdogEnabled(boolean watchdogEnabled) { this.watchdogEnabled = watchdogEnabled; }
 }

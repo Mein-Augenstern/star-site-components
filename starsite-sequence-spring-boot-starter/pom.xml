@@ -7,7 +7,7 @@
   <parent>
     <groupId>com.xp.starsite</groupId>
     <artifactId>star-site-components</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
   </parent>
 
   <artifactId>starsite-sequence-spring-boot-starter</artifactId>
@@ -39,6 +39,12 @@
       <groupId>org.springframework</groupId>
       <artifactId>spring-tx</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <!-- Redis 形态装配（mode=redis 时使用；optional 不强制引入） -->
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-redis</artifactId>
+      <optional>true</optional>
     </dependency>
     <!-- actuator 存在时装配健康端点（可选依赖，不强制引入） -->
     <dependency>

@@ -74,9 +74,22 @@ public class StarsiteSequenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public StarsiteIdGenerator starsiteIdGenerator(SequenceProperties props,
-                                                    ObjectProvider<DataSource> dataSourceProvider) throws Exception {
+                                                    ObjectProvider<DataSource> dataSourceProvider,
+                                                    ObjectProvider<org.springframework.data.redis.core.StringRedisTemplate> redisProvider) throws Exception {
         validate(props);
-        WorkerIdAllocator allocator = buildAllocator(props, dataSourceProvider);
+        WorkerIdAllocator allocator;
+        if (props.getMode() == SequenceProperties.Mode.REDIS) {
+            org.springframework.data.redis.core.StringRedisTemplate redis = redisProvider.getIfAvailable();
+            if (redis == null) {
+                throw new IllegalStateException(
+                        "starsite.sequence.mode=redis 需要 StringRedisTemplate；无 Redis 场景请改 mode=mysql 或 standalone");
+            }
+            allocator = new com.xp.starsite.sequence.allocator.RedisWorkerIdAllocator(
+                    redis, props.getServiceName(), buildInstanceTag(props),
+                    props.getWorkerIdBits(), props.getWraparoundPolicy());
+        } else {
+            allocator = buildAllocator(props, dataSourceProvider);
+        }
         long workerId = allocator.allocate();
         SnowflakeIdGenerator generator = new SnowflakeIdGenerator(
                 workerId, props.getEpoch(), props.getWorkerIdBits(), props.getSequenceBits(),
@@ -154,13 +167,25 @@ public class StarsiteSequenceAutoConfiguration {
                     throw new IllegalStateException(
                             "starsite.sequence.mode=mysql 需要 DataSource；单机场景请改 mode=standalone");
                 }
-                String tag = props.getInstanceTag() == null || props.getInstanceTag().isBlank()
-                        ? "%s@%d@%d".formatted(props.getServiceName(), ProcessHandle.current().pid(),
-                                System.currentTimeMillis())
-                        : props.getInstanceTag();
+                String tag = buildInstanceTag(props);
                 yield new MysqlWorkerIdAllocator(ds, props.getTableName(), props.getServiceName(), tag,
                         props.isInitDdl(), props.getWorkerIdBits(), props.getWraparoundPolicy());
             }
+            case REDIS -> {
+                // Redis 形态在装配方法中通过 ObjectProvider<StringRedisTemplate> 注入
+                throw new IllegalStateException(
+                        "Redis 形态经独立 Bean 方法装配（见 redisWorkerIdAllocator），此处不可达");
+            }
         };
+    }
+
+    /**
+     * 构造实例标签（审计可见的进程标识）。
+     */
+    private String buildInstanceTag(SequenceProperties props) {
+        return props.getInstanceTag() == null || props.getInstanceTag().isBlank()
+                ? "%s@%d@%d".formatted(props.getServiceName(), ProcessHandle.current().pid(),
+                        System.currentTimeMillis())
+                : props.getInstanceTag();
     }
 }

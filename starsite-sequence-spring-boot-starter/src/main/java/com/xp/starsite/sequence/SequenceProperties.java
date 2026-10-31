@@ -72,7 +72,13 @@ public class SequenceProperties extends SequenceConfig {
          * 分布式形态：机器位从 MySQL sequence 表 __global__ 全局池经原子自增租约取得，全平台唯一。
          * <p>依赖：容器中必须存在 DataSource，缺失时启动快速失败；适合多实例自由伸缩的部署。
          */
-        MYSQL
+        MYSQL,
+        /**
+         * 分布式形态（Redis）：机器位从 Redis INCR 原子取号，亚毫秒级。
+         * <p>依赖：容器中必须存在 StringRedisTemplate；无 MySQL 场景的轻量替代——
+         * 取号更快但审计信息不如 MySQL 行可查（存 Redis hash）。
+         */
+        REDIS
     }
 
     public boolean isEnabled() { return enabled; }

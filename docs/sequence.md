@@ -11,6 +11,18 @@ starsite:
     worker-id: 1       # 多实例部署时各不相同即可
 ```
 
+## 分布式（Redis 原子取号）
+
+```yaml
+starsite:
+  sequence:
+    mode: redis
+    service-name: ${spring.application.name}
+```
+
+亚毫秒级 INCR 原子取号 + Redis hash 审计——适合已有 Redis 但无 MySQL 的场景。
+取舍：取号更快但审计信息不如 MySQL 行可查。
+
 ## 分布式（MySQL 原子租约）
 
 ```yaml
@@ -50,7 +62,7 @@ class OrderService {
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | true | 总开关 |
-| `mode` | standalone | standalone / mysql |
+| `mode` | standalone | standalone / mysql / redis |
 | `worker-id` | 1 | standalone 固定机器位 |
 | `service-name` | unnamed-service | mysql 审计行 key |
 | `table-name` | sys_sequence | mysql sequence 表 |
