@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>star-site-components</artifactId>
+    <version>0.2.3</version>
+  </parent>
+
+  <artifactId>starsite-schedule</artifactId>
+  <name>starsite-schedule</name>
+  <description>定时任务恰一执行核心库：注解触发（自研6字段cron/dailyAt/fixedDelay）+ 复用 lock 组件跨实例争锁恰一 + schedule_run_log 执行流水（jdbc(MySQL)/mybatis/memory 三存储，MyBatis 为 provided 可选路径，零 Spring Boot 依赖可脱离 starter 独立使用）</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <!-- 存储技术选型：spring-jdbc（core 不引 Spring Boot，仅此一项 Spring 依赖；与 async-command 同形） -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+    </dependency>
+
+    <!-- MyBatis 存储路径（与 lock/async-command 组件同形态：Mapper+XML 在 core，mybatis 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- 恰一执行决策层：复用分布式锁组件（DB 唯一键/Redis hash、TTL 自愈、看门狗续期） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-lock</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- 测试 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- MyBatis 适配 H2 单测（与 async-command 同形：真 DDL 的 IT 用 Testcontainers） -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

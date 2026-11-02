@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>star-site-components</artifactId>
+    <version>0.2.3</version>
+  </parent>
+
+  <artifactId>starsite-schedule-spring-boot-starter</artifactId>
+  <name>starsite-schedule-spring-boot-starter</name>
+  <description>定时任务恰一执行 starter：@StarsiteScheduled 注解扫描注册 + 存储自动装配（jdbc/mybatis/memory）+ SmartLifecycle 托管 + ScheduleClient 门面，引 jar + 配置即用</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-schedule</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- 决策层依赖：恰一执行需要分布式锁（引 starter 即含 core） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-lock-spring-boot-starter</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- 流水表物理主键来源（compile 传递：单独引本组件也能工作，与 async-command 同形） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-sequence-spring-boot-starter</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-autoconfigure</artifactId>
+    </dependency>
+    <!-- MyBatis 适配装配（SqlSessionFactory/MapperFactoryBean；provided 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-configuration-processor</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- 测试 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

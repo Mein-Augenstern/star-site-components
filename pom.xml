@@ -40,6 +40,8 @@
     <module>starsite-async-command-spring-boot-starter</module>
     <module>starsite-lock</module>
     <module>starsite-lock-spring-boot-starter</module>
+    <module>starsite-schedule</module>
+    <module>starsite-schedule-spring-boot-starter</module>
   </modules>
 
   <properties>

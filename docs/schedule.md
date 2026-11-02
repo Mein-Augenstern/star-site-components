@@ -1,6 +1,6 @@
 # schedule · 分布式定时任务恰一执行
 
-> **状态：设计稿 v0.1（2026-11-02，未实现——经 invest S09 生产实证后提炼）**
+> **状态：已实现 v0.1（2026-11-02——core+starter 双模块 55 项测试全绿，全库 8 模块 BUILD SUCCESS；真库 IT 见 JdbcRunLogStoreIT）**
 > [← 返回概览](../README.md)
 
 **一句话**：注解驱动的定时任务"恰一执行"组件——每实例都配同一 cron，但每个触发点**全集群只跑一次**。
@@ -176,34 +176,40 @@ run_log/lock 表与锁名协议，**注解任务零改动迁移**。在那之前
 ## 10. 模块结构与实现顺序
 
 ```
-starsite-schedule/            core：零 Spring 依赖
-  ├─ api/        StarsiteScheduled, MisfirePolicy, ScheduleClient, RunLogAdminService
-  ├─ trigger/    Trigger 接口 + CronTrigger(自研 6 字段) + DailyAtTrigger + FixedDelayTrigger
-  ├─ core/       ScheduleTaskRegistry + ExactlyOnceRunner(决策层：锁包装+流水+看门狗)
-  ├─ store/      RunLogStore 接口 + Memory/Jdbc/MyBatis 三实现
+starsite-schedule/            core：零 Spring Boot 依赖
+  ├─ api/        StarsiteScheduled, MisfirePolicy, RunStatus, RunLog, TaskStatus, ScheduleClient
+  ├─ trigger/    Trigger + CronExpression(自研6字段) + CronTrigger + DailyAtTrigger + FixedDelayTrigger
+  ├─ core/       ScheduledTaskDef + ScheduleTaskRegistry + ExactlyOnceRunner + ScheduleEngine(实现 ScheduleClient)
+  ├─ store/      RunLogStore + Memory/Jdbc 实现 + ScheduleRunLogSql(方言外置)
+  ├─ mybatis/    ScheduleRunLogMapper + MyBatisRunLogStore
   └─ clock/      TimeSource（沿用 async-command 模式）
-starsite-schedule-spring-boot-starter/   BeanPostProcessor 扫注解 + SmartLifecycle 托管 + 自动装配
+starsite-schedule-spring-boot-starter/   BPP 扫注解 + SmartLifecycle 托管 + 双 AutoConfig + memory/jdbc/mybatis 装配
 ```
 
-**实现顺序**（SDD 三步：Spec(本文) → 实现 → 验收）：
-1. core：注解模型 + Trigger（含 cron 解析器）+ ExactlyOnceRunner + memory store
-2. jdbc/mybatis store + 建表 DDL（IT：Testcontainers MySQL）
-3. starter 装配 + backend ReminderScanTask 试点迁移（生产验收）
-4. invest 侧锁名升级 `sch:invest:pull`（协议对齐）
+### v0.1 实现差异（对 §4 目标 API 的诚实修订）
 
-**测试矩阵**（目标 40+ 项，对齐三组件 123 项的口径）：
+- **去掉 `lockTtlSeconds` 注解属性**：lock 组件的 TTL 是客户端级配置（LockCoreConfig），
+  per-task TTL 需 lock 侧扩展 per-call TTL——列为 v0.2 议题（锁名协议不受影响）
+- **去掉 `timeoutSeconds`**：超时中断线程的语义争议大（interrupt 只是建议）——
+  长任务由看门狗续期 + 悬挂回收（STALE）兜底，不引入半吊子的超时
+- **misfire 从未成功不回溯**：无法界定历史起点且 cron 攀爬有 4 年上界——
+  首跑从下一计划时刻起算（设计初稿"首次启动即补跑"被否）
+- cron 解析器语义钉死：`a/n` = a 到字段上限按 n 步（Quartz 惯例）；日/周都受限 = OR
 
-| 断言 | 方法 |
+**测试矩阵（55 项，实际落地）**：
+
+| 断言 | 覆盖 |
 |---|---|
-| N 实例同刻恰一（1 RUNNING，其余 SKIPPED_LOCKED） | 并发触发 + memory/jdbc 双 store |
-| TTL 过期接管 / RUNNING 悬挂标 STALE | 假时钟推进 |
-| misfire RUN_ONCE 只补一次 | 假时钟 + 预置 run_log |
-| 看门狗续期（长任务不误杀） | 假时钟 |
-| UTC 容器 20:00 CST 触发（时区默认值） | zone 断言 |
-| triggerNow 与定时不双跑 | 先手动后到点 |
-| fail-open 双跑声明（幂等契约文档化） | store 抛异常注入 |
-| cron 解析器与 Spring 语义等价 | 边界值用例集 |
-| memory/jdbc/mybatis 行为等价 | 同套用例三跑 |
+| N 实例同刻恰一（1 执行 + 1 SKIPPED_LOCKED） | ExactlyOnceRunnerTest.concurrentRunsExactlyOnce |
+| SKIPPED_LOCKED 留痕 / FAILED 异常吞噬 / fail-open 放行 / 本地模式 | ExactlyOnceRunnerTest ×5 |
+| 到点恰一触发 / 不漂移推进 / 间隔型完成后再排 | ScheduleEngineTest ×2 |
+| misfire RUN_ONCE 恰补一次（trigger_time 记缺口时刻）/ SKIP 不补 / 从未跑不回溯 | ScheduleEngineTest ×3 |
+| 悬挂 RUNNING 启动标 STALE / triggerNow 同锁防撞车 | ScheduleEngineTest ×2 |
+| cron 解析（步进/区间/英文名/日周 OR/月攀爬/2-30 死表达式/UTC 时区陷阱） | CronExpressionTest ×15 |
+| memory 状态机 / 列表分列 / lastDone / FIFO 上限 | MemoryRunLogStoreTest ×6 |
+| MyBatis 全链路（H2 同构表）/ JDBC 方言加载与分列断言 | MyBatisRunLogStoreTest + SqlMySqlTest |
+| starter 装配（默认 memory / 注解注册 / 无锁快速失败 / enabled 让位） | ScheduleAutoConfigurationTest ×5 |
+| 真库建表与往返 | JdbcRunLogStoreIT（Testcontainers，-Pit） |
 
 ---
 

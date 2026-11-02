@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-schedule 流水表 MyBatis 映射（与 JDBC 方言 dialect/mysql/schedule-mysql.xml 同语义；
+  ${table} 为白名单校验后的表名（MyBatisRunLogStore 构造期校验 [A-Za-z0-9_]）；
+  列表/详情分列铁律 D6：recentByTask 不含 error 大列）。
+  resultType 用全参构造映射（id,taskName,lockName,triggerTime,startedAt,finishedAt,host,status,durationMs[,error]）。
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xp.starsite.schedule.mybatis.ScheduleRunLogMapper">
+
+    <!-- 构造器映射（RunLog 无 setter 不可变模型；列表 9 参构造不含 error，详情 10 参全列） -->
+    <resultMap id="listRow" type="com.xp.starsite.schedule.api.RunLog">
+        <constructor>
+            <idArg column="id" javaType="long"/>
+            <arg column="taskName" javaType="String"/>
+            <arg column="lockName" javaType="String"/>
+            <arg column="triggerTime" javaType="java.time.LocalDateTime"/>
+            <arg column="startedAt" javaType="java.time.LocalDateTime"/>
+            <arg column="finishedAt" javaType="java.time.LocalDateTime"/>
+            <arg column="host" javaType="String"/>
+            <arg column="status" javaType="com.xp.starsite.schedule.api.RunStatus"/>
+            <arg column="durationMs" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="fullRow" type="com.xp.starsite.schedule.api.RunLog">
+        <constructor>
+            <idArg column="id" javaType="long"/>
+            <arg column="taskName" javaType="String"/>
+            <arg column="lockName" javaType="String"/>
+            <arg column="triggerTime" javaType="java.time.LocalDateTime"/>
+            <arg column="startedAt" javaType="java.time.LocalDateTime"/>
+            <arg column="finishedAt" javaType="java.time.LocalDateTime"/>
+            <arg column="host" javaType="String"/>
+            <arg column="status" javaType="com.xp.starsite.schedule.api.RunStatus"/>
+            <arg column="durationMs" javaType="java.lang.Long"/>
+            <arg column="error" javaType="String"/>
+        </constructor>
+    </resultMap>
+
+    <update id="createTable">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS ${table} (
+          id            BIGINT       NOT NULL,
+          task_name     VARCHAR(64)  NOT NULL,
+          lock_name     VARCHAR(128) NOT NULL,
+          trigger_time  DATETIME     NOT NULL,
+          started_at    DATETIME     NOT NULL,
+          finished_at   DATETIME     DEFAULT NULL,
+          host          VARCHAR(128) NOT NULL,
+          status        VARCHAR(16)  NOT NULL,
+          duration_ms   BIGINT       DEFAULT NULL,
+          error         VARCHAR(500) DEFAULT NULL,
+          gmt_create    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_srl_task_time (task_name, trigger_time),
+          KEY idx_srl_status_started (status, started_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ]]>
+    </update>
+
+    <insert id="insert">
+        INSERT INTO ${table}
+            (id, task_name, lock_name, trigger_time, started_at, finished_at,
+             host, status, duration_ms, gmt_create)
+        VALUES (#{row.id}, #{row.taskName}, #{row.lockName}, #{row.triggerTime}, #{row.startedAt},
+                #{row.finishedAt}, #{row.host}, #{row.status}, #{row.durationMs}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="finish">
+        UPDATE ${table}
+        SET finished_at = CURRENT_TIMESTAMP, status = #{status}, duration_ms = #{durationMs},
+            error = #{error}
+        WHERE id = #{id}
+    </update>
+
+    <update id="markStaleRunning">
+        UPDATE ${table}
+        SET status = 'STALE', finished_at = CURRENT_TIMESTAMP
+        WHERE status = 'RUNNING' AND started_at &lt; #{olderThan}
+    </update>
+
+    <select id="recentByTask" resultMap="listRow">
+        SELECT id, task_name AS taskName, lock_name AS lockName, trigger_time AS triggerTime,
+               started_at AS startedAt, finished_at AS finishedAt, host, status, duration_ms AS durationMs
+        FROM ${table} WHERE task_name = #{taskName} ORDER BY id DESC LIMIT #{limit}
+    </select>
+
+    <select id="findById" resultMap="fullRow">
+        SELECT id, task_name AS taskName, lock_name AS lockName, trigger_time AS triggerTime,
+               started_at AS startedAt, finished_at AS finishedAt, host, status,
+               duration_ms AS durationMs, error
+        FROM ${table} WHERE id = #{id}
+    </select>
+
+    <select id="lastDoneTriggerTime" resultType="java.time.LocalDateTime">
+        SELECT trigger_time FROM ${table} WHERE task_name = #{taskName} AND status = 'DONE'
+        ORDER BY id DESC LIMIT 1
+    </select>
+
+</mapper>

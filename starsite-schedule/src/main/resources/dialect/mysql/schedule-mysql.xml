@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-schedule 流水表 MySQL 方言（JDBC 存储路径的 SQL 配置文件）
+  约定与 async-command 同形：{table} 为白名单校验后的表名占位（存储层渲染）；
+  参数一律 ? 占位符；statement id 与 ScheduleRunLogSql 接口方法一一对应；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/schedule/mybatis/ScheduleRunLogMapper.xml；
+  生产 DDL 见 sql/mysql/schedule_run_log_ddl.sql
+-->
+<dialect component="schedule" database="mysql">
+
+    <statement id="createTable" note="建表（幂等 IF NOT EXISTS）。id 由 sequence 组件发号禁 AUTO_INCREMENT（D2 铁律）；gmt 两列标准时间（D2）；idx_task_time=任务最近流水/lastDone 查询锚，idx_status_started=悬挂回收扫；状态枚举见 RunStatus（双语言协议枚举）">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {table} (
+  id            BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  task_name     VARCHAR(64)  NOT NULL COMMENT '任务名',
+  lock_name     VARCHAR(128) NOT NULL COMMENT '锁名 sch:<任务名>（跨语言协议锚点）',
+  trigger_time  DATETIME     NOT NULL COMMENT '计划触发时刻（misfire 判定基准）',
+  started_at    DATETIME     NOT NULL COMMENT '实际开始时刻（悬挂回收判死锚）',
+  finished_at   DATETIME     DEFAULT NULL COMMENT '终态时刻',
+  host          VARCHAR(128) NOT NULL COMMENT '执行实例 hostname:pid',
+  status        VARCHAR(16)  NOT NULL COMMENT 'RUNNING/DONE/FAILED/SKIPPED_LOCKED/STALE',
+  duration_ms   BIGINT       DEFAULT NULL COMMENT '执行时长毫秒',
+  error         VARCHAR(500) DEFAULT NULL COMMENT '失败摘要（详情列，不进列表查询）',
+  gmt_create    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (id),
+  KEY idx_srl_task_time (task_name, trigger_time) COMMENT '最近流水/lastDone：任务+触发时刻',
+  KEY idx_srl_status_started (status, started_at) COMMENT '悬挂回收：RUNNING+开始时刻'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='定时任务执行流水'
+        ]]>
+    </statement>
+
+    <statement id="insert" note="插入流水（id 由 sequence 预生成；gmt_create 取库时钟；error 仅 FAILED 行有值，详情列）">
+        <![CDATA[
+INSERT INTO {table} (id, task_name, lock_name, trigger_time, started_at, finished_at,
+                    host, status, duration_ms, gmt_create)
+VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        ]]>
+    </statement>
+
+    <statement id="finish" note="落终态（gmt_modified 由 ON UPDATE 自动维护）">
+        <![CDATA[
+UPDATE {table} SET finished_at = CURRENT_TIMESTAMP, status = ?, duration_ms = ?, error = ?
+WHERE id = ?
+        ]]>
+    </statement>
+
+    <statement id="markStaleRunning" note="悬挂回收：RUNNING 且 started_at 早于阈值 → STALE（结果未知≠失败）">
+        <![CDATA[
+UPDATE {table} SET status = 'STALE', finished_at = CURRENT_TIMESTAMP
+WHERE status = 'RUNNING' AND started_at < ?
+        ]]>
+    </statement>
+
+    <statement id="recentByTask" note="最近流水列表——显式列清单不含 error 大列（列表/详情分列铁律 D6）；id 倒序=时间倒序（sequence 发号递增）">
+        <![CDATA[
+SELECT id, task_name, lock_name, trigger_time, started_at, finished_at, host, status, duration_ms
+FROM {table} WHERE task_name = ? ORDER BY id DESC LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="findById" note="详情全列（含 error）">
+        <![CDATA[
+SELECT id, task_name, lock_name, trigger_time, started_at, finished_at, host, status,
+       duration_ms, error
+FROM {table} WHERE id = ?
+        ]]>
+    </statement>
+
+    <statement id="lastDoneTriggerTime" note="最近一次 DONE 的计划触发时刻（misfire 缺口判定基准）">
+        <![CDATA[
+SELECT trigger_time FROM {table} WHERE task_name = ? AND status = 'DONE'
+ORDER BY id DESC LIMIT 1
+        ]]>
+    </statement>
+
+</dialect>
