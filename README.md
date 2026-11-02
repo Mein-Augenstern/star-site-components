@@ -15,11 +15,13 @@ star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spr
 | **sequence** | 雪花 ID（时钟回拨钳制） | 固定机器位 | MySQL `__global__` 池原子租约 | [docs/sequence.md](docs/sequence.md) |
 | **async-command** | 异步命令（令牌认领 / 退避重试 / 死信） | memory 队列 | MySQL 表令牌认领 | [docs/async-command.md](docs/async-command.md) |
 | **lock** | 分布式锁（可重入 / 限时等待 / 自愈） | —（天然多实例） | DB 唯一键 / Redis hash | [docs/lock.md](docs/lock.md) |
+| **schedule**（设计稿） | 定时任务恰一执行（注解 + 锁 + 执行流水） | memory 观测 | 复用 lock 争锁恰一 | [docs/schedule.md](docs/schedule.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
 starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
+starsite-schedule ──────► starsite-schedule-spring-boot-starter（设计中）
 ```
 
 - JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
