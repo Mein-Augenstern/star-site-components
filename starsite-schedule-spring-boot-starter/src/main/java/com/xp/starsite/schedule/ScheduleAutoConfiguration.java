@@ -145,12 +145,14 @@ public class ScheduleAutoConfiguration {
      *
      * @param registry           注册表
      * @param lockClientProvider 锁惰性提供器（guard 任务注册时解析——BPP 创建期过早）
+     * @param environment        环境抽象（注解属性 ${...} 占位符解析）
      * @return BPP 实例
      */
     @Bean
     public static StarsiteScheduledBeanPostProcessor starsiteScheduledBeanPostProcessor(
-            ScheduleTaskRegistry registry, ObjectProvider<LockClient> lockClientProvider) {
-        return new StarsiteScheduledBeanPostProcessor(registry, lockClientProvider);
+            ScheduleTaskRegistry registry, ObjectProvider<LockClient> lockClientProvider,
+            org.springframework.core.env.Environment environment) {
+        return new StarsiteScheduledBeanPostProcessor(registry, lockClientProvider, environment);
     }
 
     /**

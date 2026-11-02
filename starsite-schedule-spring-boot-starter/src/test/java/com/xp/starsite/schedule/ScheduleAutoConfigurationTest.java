@@ -78,6 +78,32 @@ class ScheduleAutoConfigurationTest {
         }
     }
 
+    /** cron 走 ${} 占位符的任务配置（Spring @Scheduled 同款 DX——yml 集中管理触发时刻） */
+    @Configuration
+    static class PlaceholderTaskConfig {
+        @Bean
+        Object phTask() {
+            return new Object() {
+                @StarsiteScheduled(name = "${task.name}", cron = "${task.cron}")
+                public void ph() {
+                }
+            };
+        }
+    }
+
+    @Test
+    void placeholderAnnotationValuesResolved() {
+        runner.withUserConfiguration(LockConfig.class, PlaceholderTaskConfig.class)
+                .withPropertyValues("task.name=ph-scan", "task.cron=0 30 9 * * ?")
+                .run(ctx -> {
+                    assertThat(ctx).hasNotFailed();
+                    ScheduleTaskRegistry registry = ctx.getBean(ScheduleTaskRegistry.class);
+                    assertThat(registry.find("ph-scan")).isPresent();
+                    assertThat(registry.find("ph-scan").orElseThrow().getTrigger().describe())
+                            .contains("0 30 9 * * ?");
+                });
+    }
+
     @Test
     void defaultMemoryStoreAndCoreBeans() {
         runner.run(ctx -> {

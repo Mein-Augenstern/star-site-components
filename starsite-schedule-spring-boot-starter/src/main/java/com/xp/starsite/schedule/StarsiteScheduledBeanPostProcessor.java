@@ -61,6 +61,9 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
     /** 分布式锁惰性提供器（guard 任务必需；BPP 创建早于 LockClient Bean——首次注册时解析） */
     private final org.springframework.beans.factory.ObjectProvider<LockClient> lockClientProvider;
 
+    /** 环境抽象：注解属性支持 ${...} 占位符（Spring @Scheduled 同款 DX） */
+    private final org.springframework.core.env.Environment environment;
+
     /** 注册计数（装配完成后的启动日志用） */
     private final AtomicBoolean warnedNoLock = new AtomicBoolean();
 
@@ -69,11 +72,14 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
      *
      * @param registry           任务注册表
      * @param lockClientProvider 分布式锁惰性提供器（guard 任务注册时解析）
+     * @param environment        环境抽象（name/cron/dailyAt/zone 占位符解析）
      */
     public StarsiteScheduledBeanPostProcessor(ScheduleTaskRegistry registry,
-            org.springframework.beans.factory.ObjectProvider<LockClient> lockClientProvider) {
+            org.springframework.beans.factory.ObjectProvider<LockClient> lockClientProvider,
+            org.springframework.core.env.Environment environment) {
         this.registry = registry;
         this.lockClientProvider = lockClientProvider;
+        this.environment = environment;
     }
 
     /** {@inheritDoc} */
@@ -95,8 +101,13 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
         if (method.getParameterCount() > 0) {
             throw new IllegalArgumentException("@StarsiteScheduled 方法必须无参: " + where);
         }
-        boolean hasCron = !anno.cron().isBlank();
-        boolean hasDaily = !anno.dailyAt().isBlank();
+        // 占位符解析（无 ${} 原样返回；解析失败在触发器构造处统一暴露）
+        String cron = environment.resolvePlaceholders(anno.cron());
+        String dailyAt = environment.resolvePlaceholders(anno.dailyAt());
+        String zoneText = environment.resolvePlaceholders(anno.zone());
+        String nameText = environment.resolvePlaceholders(anno.name());
+        boolean hasCron = !cron.isBlank();
+        boolean hasDaily = !dailyAt.isBlank();
         boolean hasDelay = anno.fixedDelaySeconds() > 0;
         int picked = (hasCron ? 1 : 0) + (hasDaily ? 1 : 0) + (hasDelay ? 1 : 0);
         if (picked != 1) {
@@ -105,12 +116,12 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
         }
         ZoneId zone;
         try {
-            zone = ZoneId.of(anno.zone());
+            zone = ZoneId.of(zoneText);
         } catch (Exception e) {
-            throw new IllegalArgumentException("@StarsiteScheduled zone 非法: " + anno.zone(), e);
+            throw new IllegalArgumentException("@StarsiteScheduled zone 非法: " + zoneText, e);
         }
-        Trigger trigger = hasCron ? cron(anno.cron(), zone, where)
-                : hasDaily ? dailyAt(anno.dailyAt(), zone, where)
+        Trigger trigger = hasCron ? cron(cron, zone, where)
+                : hasDaily ? dailyAt(dailyAt, zone, where)
                 : new FixedDelayTrigger(anno.fixedDelaySeconds());
         LockClient lockClient = null;
         if (anno.guard()) {
@@ -124,7 +135,7 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
                 throw new IllegalArgumentException("@StarsiteScheduled guard=true 需要 LockClient: " + where);
             }
         }
-        String name = anno.name().isBlank() ? where : anno.name().trim();
+        String name = nameText.isBlank() ? where : nameText.trim();
         MisfirePolicy misfire = anno.misfire();
         Runnable body = () -> {
             try {
