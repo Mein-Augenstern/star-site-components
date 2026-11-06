@@ -53,17 +53,25 @@ public class ScheduleMyBatisAutoConfiguration {
 
     /**
      * 装配 Mapper Bean（从容器 SqlSessionFactory 取代理）。
+     * 仅在显式 store=mybatis 时装配——否则主配置的 jdbc/memory 存储不需要 Mapper，
+     * 无条件创建会在消费方 MyBatis 配置未加载本包 XML 时炸掉整个启动
+     * （2026-11-06 reminder 生产部署实证：store=auto 也被连坐）。
      *
      * @param sqlSessionFactory SqlSessionFactory（消费方装配）
      * @return Mapper 代理
      */
     @Bean
     @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "starsite.schedule", name = "store", havingValue = "mybatis")
     public ScheduleRunLogMapper scheduleRunLogMapper(SqlSessionFactory sqlSessionFactory) {
         org.mybatis.spring.mapper.MapperFactoryBean<ScheduleRunLogMapper> factory =
                 new org.mybatis.spring.mapper.MapperFactoryBean<>(ScheduleRunLogMapper.class);
         factory.setSqlSessionFactory(sqlSessionFactory);
         try {
+            // 必须走 Spring 生命周期：afterPropertiesSet → checkDaoConfig →
+            // configuration.addMapper（同时按同包约定自动加载 ScheduleRunLogMapper.xml）；
+            // 直接 getObject() 会因接口未注册 MapperRegistry 而 BindingException
+            factory.afterPropertiesSet();
             return factory.getObject();
         } catch (Exception e) {
             throw new IllegalStateException("ScheduleRunLogMapper 装配失败（检查 SqlSessionFactory 的 mapper 装配）", e);
