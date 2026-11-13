@@ -22,8 +22,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.xp.starsite.idempotent.health.IdempotentHealthIndicator;
+import com.xp.starsite.idempotent.redis.RedisIdempotentStore;
 import com.xp.starsite.idempotent.store.IdempotentStore;
-import com.xp.starsite.idempotent.store.RedisIdempotentStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -132,7 +132,7 @@ class IdempotentRedisAutoConfigurationTest {
     /** 对照：可计数 store（memory）健康明细齐全——降级路径不误伤表/内存形态 */
     @Test
     void healthIndicatorKeepsCountableDetails() {
-        IdempotentStore countable = new com.xp.starsite.idempotent.store.MemoryIdempotentStore(
+        IdempotentStore countable = new com.xp.starsite.idempotent.memory.MemoryIdempotentStore(
                 () -> 1L);
         var health = new IdempotentHealthIndicator(countable).health();
         assertThat(health.getDetails()).containsKeys("processing", "done", "failed");

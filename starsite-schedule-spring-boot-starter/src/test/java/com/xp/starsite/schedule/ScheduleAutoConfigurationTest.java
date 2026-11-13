@@ -22,7 +22,7 @@ import com.xp.starsite.schedule.api.ScheduleClient;
 import com.xp.starsite.schedule.api.StarsiteScheduled;
 import com.xp.starsite.schedule.core.ScheduleEngine;
 import com.xp.starsite.schedule.core.ScheduleTaskRegistry;
-import com.xp.starsite.schedule.store.MemoryRunLogStore;
+import com.xp.starsite.schedule.memory.MemoryRunLogStore;
 import com.xp.starsite.schedule.store.RunLogStore;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;

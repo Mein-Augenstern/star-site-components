@@ -17,10 +17,10 @@ package com.xp.starsite.lock;
 
 import com.xp.starsite.lock.client.LockAdminClient;
 import com.xp.starsite.lock.client.LockClient;
+import com.xp.starsite.lock.db.DbLockAdminClient;
+import com.xp.starsite.lock.db.DbLockClient;
+import com.xp.starsite.lock.db.LockTableProvisioner;
 import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
-import com.xp.starsite.lock.store.DbLockAdminClient;
-import com.xp.starsite.lock.store.DbLockClient;
-import com.xp.starsite.lock.store.LockTableProvisioner;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

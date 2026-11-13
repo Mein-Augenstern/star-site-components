@@ -18,8 +18,8 @@ package com.xp.starsite.asynccmd;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.clock.TimeSource;
+import com.xp.starsite.asynccmd.memory.InMemoryAsyncCommandStore;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
-import com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 

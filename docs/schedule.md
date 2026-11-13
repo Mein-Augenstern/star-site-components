@@ -180,7 +180,9 @@ starsite-schedule/            core：零 Spring Boot 依赖
   ├─ api/        StarsiteScheduled, MisfirePolicy, RunStatus, RunLog, TaskStatus, ScheduleClient
   ├─ trigger/    Trigger + CronExpression(自研6字段) + CronTrigger + DailyAtTrigger + FixedDelayTrigger
   ├─ core/       ScheduledTaskDef + ScheduleTaskRegistry + ExactlyOnceRunner + ScheduleEngine(实现 ScheduleClient)
-  ├─ store/      RunLogStore + Memory/Jdbc 实现 + ScheduleRunLogSql(方言外置)
+  ├─ store/      契约层：RunLogStore(SPI) + ScheduleRunLogSql(方言接口)
+  ├─ jdbc/       JdbcRunLogStore（方言可注入）
+  ├─ memory/     MemoryRunLogStore（单机观测）
   ├─ mybatis/    ScheduleRunLogMapper + MyBatisRunLogStore
   └─ clock/      TimeSource（沿用 async-command 模式）
 starsite-schedule-spring-boot-starter/   BPP 扫注解 + SmartLifecycle 托管 + 双 AutoConfig + memory/jdbc/mybatis 装配

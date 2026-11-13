@@ -244,7 +244,10 @@ starsite-idempotent/            core：零 Spring Boot 依赖
   ├─ api/        StarsiteIdempotent, IdempotentClient, IdempotentAction, IdempotentResult,
   │              IdempotentRecord, IdempotentStatus, IdempotentConflictException, IdempotentFailedException
   ├─ core/       IdempotentEngine（认领/等待/回放/回收四态循环——门面实现）
-  ├─ store/      IdempotentStore(SPI) + Memory/Jdbc/Redis 实现 + IdempotentSql(方言外置) + ClaimOutcome
+  ├─ store/      契约层：IdempotentStore(SPI) + IdempotentSql(方言接口) + ClaimOutcome
+  ├─ jdbc/       JdbcIdempotentStore（MySQL 方言默认，方言可注入）
+  ├─ memory/     MemoryIdempotentStore（单机）
+  ├─ redis/      RedisIdempotentStore（Lua 四操作 + TTL 键记忆窗口）
   ├─ mybatis/    IdempotentRecordMapper + MyBatisIdempotentStore
   ├─ resources/  dialect/mysql/idempotent-mysql.xml + sql/idempotent-{claim,reclaim,complete,fail}.lua
   └─ clock/      TimeSource（沿用 async-command/schedule 模式）

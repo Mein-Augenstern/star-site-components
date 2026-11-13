@@ -108,3 +108,14 @@ docs/extension.md，各组件手册互链。
 standalone/redis 形态下公司平台分配器 Bean 会被无视。拉齐为所有形态 Bean 优先：
 扩展一致性 > 内部构建路径的"整洁"（主装配注入 ObjectProvider<WorkerIdAllocator>，
 在场即用并日志声明覆盖了哪个形态配置）。
+
+## D13 · 实现按存储拆包：store/ 只留契约层（2026-11-13）
+
+**决策**：五组件统一——`store/`（sequence 为 `allocator/`）只放契约层（Store SPI +
+方言接口 + 共享值对象），实现各归自家包：`jdbc/`（表形态，方言可注入）、`memory/`、
+`redis/`（Lua）、`mybatis/`（既有）、lock 的 DB 实现整体归 `db/`、sequence 的实现按
+形态归 `mysql/`、`redis/`、`standalone/`。
+**为什么**：此前一个 store 包里 mysql/memory/redis 实现混居——内部落地选形态/写扩展
+时要在混目录里翻找；拆包后"看包名即知存储载体"，与三层扩展通道（D12）的 L3 场景
+（实现某存储的扩展包）天然对位。SNAPSHOT 阶段允许 breaking（包名变更，0.2.0 facade/
+统一改名同款先例）；Mapper XML 同包发现（D3）不受影响（mybatis 包未动）。

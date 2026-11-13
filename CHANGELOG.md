@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   （公司内部平台/ZK/StatefulSet 序号发机器位即插即用）。
 
 ### Changed
+- **实现按存储拆包**（SNAPSHOT 阶段 breaking，五组件统一）：`store/`（sequence 为
+  `allocator/`）只留契约层（Store SPI + 方言接口 + 值对象），实现各归自家包——
+  `jdbc/`、`memory/`、`redis/`、`mybatis/`；lock 的 DB 实现整体 `store/`→`db/`；
+  sequence 实现按形态 `mysql/`、`redis/`、`standalone/`。包名变更影响直接 import
+  实现类的消费方（走 SPI/门面/Bean 注入的不受影响）；Mapper XML 同包发现不受影响
 - **idempotent SPI 终态操作改自然键寻址**（SNAPSHOT 阶段 breaking）：complete/fail
   签名从 `(long id, expireAt, ...)` 改为 `(scope, idemKey, expireAt, ...)`——表形态
   uk 命中与 Redis 形态存储键同一寻址位，SPI 一套签名服务全部形态（第三方扩展不受
