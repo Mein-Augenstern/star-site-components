@@ -120,14 +120,14 @@ public class MemoryIdempotentStore implements IdempotentStore {
 
     /** {@inheritDoc} 双条件守卫（PROCESSING + 本代 expire_at）——代际令牌，与表形态同语义 */
     @Override
-    public boolean complete(long id, LocalDateTime claimExpireAt, String result) {
-        return transition(id, claimExpireAt, IdempotentStatus.DONE, result, null);
+    public boolean complete(String scope, String idemKey, LocalDateTime claimExpireAt, String result) {
+        return transition(scope, idemKey, claimExpireAt, IdempotentStatus.DONE, result, null);
     }
 
     /** {@inheritDoc} */
     @Override
-    public boolean fail(long id, LocalDateTime claimExpireAt, String error) {
-        return transition(id, claimExpireAt, IdempotentStatus.FAILED, null, error);
+    public boolean fail(String scope, String idemKey, LocalDateTime claimExpireAt, String error) {
+        return transition(scope, idemKey, claimExpireAt, IdempotentStatus.FAILED, null, error);
     }
 
     /** {@inheritDoc} */
@@ -161,37 +161,34 @@ public class MemoryIdempotentStore implements IdempotentStore {
     }
 
     /**
-     * 终态转移（双条件守卫：PROCESSING 且 expire_at=本代认领值——按 id 定位跨键不误伤，
-     * 与表形态 WHERE id=? AND status='PROCESSING' AND expire_at=? 同形）。
+     * 终态转移（双条件守卫：PROCESSING 且 expire_at=本代认领值——按 mapKey 定位，
+     * 与表形态 WHERE scope=? AND idem_key=? AND status='PROCESSING' AND expire_at=? 同形）。
      *
-     * @param id            行主键
+     * @param scope        键作用域
+     * @param idemKey      幂等键
      * @param claimExpireAt 本代认领写入的 expire_at
-     * @param status        终态
-     * @param result        成功载荷
-     * @param error         失败摘要
+     * @param status       终态
+     * @param result       成功载荷
+     * @param error        失败摘要
      * @return true 写入成功；false 行不存在/非 PROCESSING/已换代（被回收）
      */
-    private boolean transition(long id, LocalDateTime claimExpireAt, IdempotentStatus status,
-                               String result, String error) {
-        for (AtomicReference<IdempotentRecord> ref : rows.values()) {
-            IdempotentRecord cur = ref.get();
-            if (cur == null || cur.getId() != id) {
-                continue;
-            }
-            synchronized (ref) {
-                cur = ref.get();
-                if (cur == null || cur.getId() != id
-                        || cur.getStatus() != IdempotentStatus.PROCESSING
-                        || !cur.getExpireAt().equals(claimExpireAt)) {
-                    return false;
-                }
-                ref.set(new IdempotentRecord(cur.getId(), cur.getScope(), cur.getIdemKey(),
-                        status, result, error, cur.getExpireAt(), time.now(), cur.getHost(),
-                        cur.getGmtCreate(), time.now()));
-                return true;
-            }
+    private boolean transition(String scope, String idemKey, LocalDateTime claimExpireAt,
+                               IdempotentStatus status, String result, String error) {
+        AtomicReference<IdempotentRecord> ref = rows.get(mapKey(scope, idemKey));
+        if (ref == null) {
+            return false;
         }
-        return false;
+        synchronized (ref) {
+            IdempotentRecord cur = ref.get();
+            if (cur == null || cur.getStatus() != IdempotentStatus.PROCESSING
+                    || !cur.getExpireAt().equals(claimExpireAt)) {
+                return false;
+            }
+            ref.set(new IdempotentRecord(cur.getId(), cur.getScope(), cur.getIdemKey(),
+                    status, result, error, cur.getExpireAt(), time.now(), cur.getHost(),
+                    cur.getGmtCreate(), time.now()));
+            return true;
+        }
     }
 
     /**

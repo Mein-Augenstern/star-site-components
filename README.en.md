@@ -17,7 +17,7 @@ Five production-proven components that compose together:
 | **async-command** | Async task queue (retry, dead letter, batch) | In-memory queue | MySQL token claim | [docs/async-command.md](docs/async-command.md) |
 | **lock** | Distributed lock (reentrant, timed wait, self-healing) | — | DB unique key / Redis hash | [docs/lock.md](docs/lock.md) |
 | **schedule** | Scheduled task exactly-once (annotation + cron + run log) | In-memory observation | Reuses lock claim + run_log | [docs/schedule.md](docs/schedule.md) |
-| **idempotent** | API idempotency key (Stripe-style: intercept + **result replay**) | In-memory state machine | MySQL uk(scope,idem_key) atomic claim | [docs/idempotent.md](docs/idempotent.md) |
+| **idempotent** | API idempotency key (Stripe-style: intercept + **result replay**) | In-memory state machine | MySQL uk atomic claim / Redis Lua + TTL | [docs/idempotent.md](docs/idempotent.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -34,7 +34,7 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 | 17 | ✅ | Minimum (Spring Boot 3 requirement) |
 | 21 | ✅ | Recommended |
 | 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
-- **234 unit tests** + Testcontainers MySQL integration tests
+- **247 unit tests** + Testcontainers MySQL integration tests
 - Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
 
 ## Why This Exists

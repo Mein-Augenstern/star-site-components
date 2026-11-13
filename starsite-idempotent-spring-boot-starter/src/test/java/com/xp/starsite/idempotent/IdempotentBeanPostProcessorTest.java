@@ -286,7 +286,7 @@ class IdempotentBeanPostProcessorTest {
                         try {
                             Thread.sleep(300); // 让等待者先进入在飞轮询（等待窗口 2000ms 内）
                             var row = store.find("flaky", "k-2").orElseThrow();
-                            store.fail(row.getId(), row.getExpireAt(), "IllegalStateException: 下游 500");
+                            store.fail("flaky", "k-2", row.getExpireAt(), "IllegalStateException: 下游 500");
                         } catch (Exception ignored) {
                             // 时序兜底
                         }

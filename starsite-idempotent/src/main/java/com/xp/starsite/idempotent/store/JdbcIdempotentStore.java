@@ -169,21 +169,25 @@ public class JdbcIdempotentStore implements IdempotentStore {
 
     /** {@inheritDoc} 双条件守卫（PROCESSING + 本代 expire_at）——代际令牌语义见接口 doc */
     @Override
-    public boolean complete(long id, LocalDateTime claimExpireAt, String result) {
+    public boolean complete(String scope, String idemKey, LocalDateTime claimExpireAt, String result) {
+        String normalized = scope == null ? "" : scope;
         return jdbc.update(render(sql.complete()), ps -> {
             ps.setString(1, result);
-            ps.setLong(2, id);
-            ps.setTimestamp(3, Timestamp.valueOf(claimExpireAt));
+            ps.setString(2, normalized);
+            ps.setString(3, idemKey);
+            ps.setTimestamp(4, Timestamp.valueOf(claimExpireAt));
         }) > 0;
     }
 
     /** {@inheritDoc} */
     @Override
-    public boolean fail(long id, LocalDateTime claimExpireAt, String error) {
+    public boolean fail(String scope, String idemKey, LocalDateTime claimExpireAt, String error) {
+        String normalized = scope == null ? "" : scope;
         return jdbc.update(render(sql.fail()), ps -> {
             ps.setString(1, error);
-            ps.setLong(2, id);
-            ps.setTimestamp(3, Timestamp.valueOf(claimExpireAt));
+            ps.setString(2, normalized);
+            ps.setString(3, idemKey);
+            ps.setTimestamp(4, Timestamp.valueOf(claimExpireAt));
         }) > 0;
     }
 

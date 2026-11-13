@@ -68,17 +68,20 @@ CREATE TABLE IF NOT EXISTS ${table} (
                OR (status = 'PROCESSING' AND gmt_modified &lt; #{staleBefore}))
     </update>
 
-    <!-- 双条件守卫：PROCESSING + expire_at=本代认领值（代际令牌，与 JDBC 方言同语义） -->
+    <!-- 双条件守卫：PROCESSING + expire_at=本代认领值（代际令牌，与 JDBC 方言同语义；
+         uk 自然键寻址——与 Redis 形态同键位） -->
     <update id="complete">
         UPDATE ${table}
         SET status = 'DONE', result = #{result}, finished_at = CURRENT_TIMESTAMP
-        WHERE id = #{id} AND status = 'PROCESSING' AND expire_at = #{claimExpireAt}
+        WHERE scope = #{scope} AND idem_key = #{idemKey}
+          AND status = 'PROCESSING' AND expire_at = #{claimExpireAt}
     </update>
 
     <update id="fail">
         UPDATE ${table}
         SET status = 'FAILED', error = #{error}, finished_at = CURRENT_TIMESTAMP
-        WHERE id = #{id} AND status = 'PROCESSING' AND expire_at = #{claimExpireAt}
+        WHERE scope = #{scope} AND idem_key = #{idemKey}
+          AND status = 'PROCESSING' AND expire_at = #{claimExpireAt}
     </update>
 
     <select id="countByStatus" resultType="long">

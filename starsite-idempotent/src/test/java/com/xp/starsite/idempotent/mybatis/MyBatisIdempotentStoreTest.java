@@ -108,18 +108,18 @@ class MyBatisIdempotentStoreTest {
         assertThat(store.tryClaim("order", "o-1", expire, "h:2").claimed()).isFalse();
 
         // 终态（本代令牌）+ 详情回读
-        assertThat(store.complete(first.record().getId(), expire, "{\"amount\":100}")).isTrue();
+        assertThat(store.complete("order", "o-1", expire, "{\"amount\":100}")).isTrue();
         var done = store.find("order", "o-1").orElseThrow();
         assertThat(done.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(done.getResult()).contains("100");
         assertThat(done.getGmtCreate()).isNotNull();
 
         // 旧代守卫拒绝（代际令牌不符）
-        assertThat(store.complete(first.record().getId(), expire.plusHours(1), "ghost")).isFalse();
+        assertThat(store.complete("order", "o-1", expire.plusHours(1), "ghost")).isFalse();
 
         // FAILED 释放键 → 回收重置 PROCESSING
         ClaimOutcome f2 = store.tryClaim("order", "o-2", expire, "h:1");
-        assertThat(store.fail(f2.record().getId(), expire, "boom")).isTrue();
+        assertThat(store.fail("order", "o-2", expire, "boom")).isTrue();
         var reclaimed = store.tryReclaim("order", "o-2", expire, NOW, NOW.minusSeconds(120), "h:3");
         assertThat(reclaimed).isPresent();
         assertThat(reclaimed.orElseThrow().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);

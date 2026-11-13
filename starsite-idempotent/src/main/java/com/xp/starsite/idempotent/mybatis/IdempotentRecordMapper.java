@@ -74,15 +74,18 @@ public interface IdempotentRecordMapper {
                 @Param("staleBefore") LocalDateTime staleBefore);
 
     /**
-     * 落成功终态（双条件守卫：PROCESSING + expire_at=本代认领值——代际令牌）。
+     * 落成功终态（双条件守卫：PROCESSING + expire_at=本代认领值——代际令牌；
+     * uk 自然键寻址）。
      *
      * @param table         表名
-     * @param id            行主键
+     * @param scope         键作用域
+     * @param idemKey       幂等键
      * @param claimExpireAt 本代认领写入的 expire_at
      * @param result        回放载荷
      * @return 影响行数
      */
-    int complete(@Param("table") String table, @Param("id") long id,
+    int complete(@Param("table") String table, @Param("scope") String scope,
+                 @Param("idemKey") String idemKey,
                  @Param("claimExpireAt") LocalDateTime claimExpireAt,
                  @Param("result") String result);
 
@@ -90,12 +93,14 @@ public interface IdempotentRecordMapper {
      * 落失败终态（双条件守卫同 complete）。
      *
      * @param table         表名
-     * @param id            行主键
+     * @param scope         键作用域
+     * @param idemKey       幂等键
      * @param claimExpireAt 本代认领写入的 expire_at
      * @param error         失败摘要
      * @return 影响行数
      */
-    int fail(@Param("table") String table, @Param("id") long id,
+    int fail(@Param("table") String table, @Param("scope") String scope,
+             @Param("idemKey") String idemKey,
              @Param("claimExpireAt") LocalDateTime claimExpireAt,
              @Param("error") String error);
 

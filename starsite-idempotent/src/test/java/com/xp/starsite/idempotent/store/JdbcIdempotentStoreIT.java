@@ -106,11 +106,11 @@ class JdbcIdempotentStoreIT {
     void terminalGuardAndFailedReclaim() {
         LocalDateTime expire = NOW.plusHours(24);
         ClaimOutcome c = store.tryClaim("it", "f-1", expire, "it:1");
-        assertThat(store.complete(c.record().getId(), expire, "v1")).isTrue();
-        assertThat(store.complete(c.record().getId(), expire, "v2")).isFalse(); // DONE 后拒写
+        assertThat(store.complete("it", "f-1", expire, "v1")).isTrue();
+        assertThat(store.complete("it", "f-1", expire, "v2")).isFalse(); // DONE 后拒写
         // FAILED 路径
         ClaimOutcome f = store.tryClaim("it", "f-2", expire, "it:1");
-        assertThat(store.fail(f.record().getId(), expire, "boom")).isTrue();
+        assertThat(store.fail("it", "f-2", expire, "boom")).isTrue();
         var reclaimed = store.tryReclaim("it", "f-2", NOW.plusHours(24), NOW, NOW.minusSeconds(120), "it:3");
         assertThat(reclaimed).isPresent();
         assertThat(reclaimed.orElseThrow().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
@@ -122,7 +122,7 @@ class JdbcIdempotentStoreIT {
     void expiredReclaimAndPurge() {
         LocalDateTime expire = NOW.plusHours(24);
         ClaimOutcome c = store.tryClaim("it", "p-1", expire, "it:1");
-        store.complete(c.record().getId(), expire, "old");
+        store.complete("it", "p-1", expire, "old");
         // 窗口内不可回收
         assertThat(store.tryReclaim("it", "p-1", NOW.plusHours(24), NOW, NOW.minusSeconds(120), "it:2"))
                 .isEmpty();

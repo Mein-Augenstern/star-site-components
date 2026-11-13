@@ -31,6 +31,12 @@
       <artifactId>mybatis</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- Redis 存储路径（与 lock 同形态：optional 由消费方 classpath 提供，不传递强制） -->
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-redis</artifactId>
+      <optional>true</optional>
+    </dependency>
 
     <!-- 测试 -->
     <dependency>

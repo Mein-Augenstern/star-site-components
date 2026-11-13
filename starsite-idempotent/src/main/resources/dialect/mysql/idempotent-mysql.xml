@@ -54,11 +54,11 @@ WHERE scope = ? AND idem_key = ?
         ]]>
     </statement>
 
-    <statement id="complete" note="落成功终态（双条件守卫：PROCESSING + expire_at=本代认领值——回收是原地重置，仅 status 守卫分不出新旧认领者，expire_at 每代必换是免费的代际令牌；行被回收重置后旧认领者的结果弃写）">
+    <statement id="complete" note="落成功终态（双条件守卫：PROCESSING + expire_at=本代认领值——回收是原地重置，仅 status 守卫分不出新旧认领者，expire_at 每代必换是免费的代际令牌；行被回收重置后旧认领者的结果弃写；uk 点查寻址与 Redis 形态同键位）">
         <![CDATA[
 UPDATE {table}
 SET status = 'DONE', result = ?, finished_at = CURRENT_TIMESTAMP
-WHERE id = ? AND status = 'PROCESSING' AND expire_at = ?
+WHERE scope = ? AND idem_key = ? AND status = 'PROCESSING' AND expire_at = ?
         ]]>
     </statement>
 
@@ -66,7 +66,7 @@ WHERE id = ? AND status = 'PROCESSING' AND expire_at = ?
         <![CDATA[
 UPDATE {table}
 SET status = 'FAILED', error = ?, finished_at = CURRENT_TIMESTAMP
-WHERE id = ? AND status = 'PROCESSING' AND expire_at = ?
+WHERE scope = ? AND idem_key = ? AND status = 'PROCESSING' AND expire_at = ?
         ]]>
     </statement>
 

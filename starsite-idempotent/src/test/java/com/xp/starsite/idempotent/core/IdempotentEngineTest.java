@@ -307,7 +307,7 @@ class IdempotentEngineTest {
         IdempotentResult gen2 = engine.guard("", "gen-1", act("gen2-result"));
         assertThat(gen2.isExecuted()).isTrue();
         // 第一代幽灵迟到写入：双条件守卫（PROCESSING + 本代 expire_at）拒绝
-        boolean ghostWrite = store.complete(gen1.record().getId(),
+        boolean ghostWrite = store.complete("", "gen-1",
                 gen1.record().getExpireAt(), "ghost-result");
         assertThat(ghostWrite).isFalse();
         // 行仍是第二代的 DONE 结果——未被污染

@@ -214,18 +214,21 @@ public class IdempotentEngine implements IdempotentClient {
     private IdempotentResult runAction(IdempotentRecord record, IdempotentAction action) {
         try {
             String payload = action.run();
-            if (!store.complete(record.getId(), record.getExpireAt(), payload)) {
+            if (!store.complete(record.getScope(), record.getIdemKey(),
+                    record.getExpireAt(), payload)) {
                 // 行已被回收（动作执行超窗且停滞判死）——旧代终态弃写（双条件守卫拦截）
-                log.warn("[starsite-idempotent] 行 {} 终态弃写（执行超窗被回收——检查 key-ttl"
-                        + " 与 processing-stale 是否大于动作最长耗时）", record.getId());
+                log.warn("[starsite-idempotent] {}#{} 终态弃写（执行超窗被回收——检查 key-ttl"
+                        + " 与 processing-stale 是否大于动作最长耗时）",
+                        record.getScope(), prefix(record.getIdemKey()));
             }
             return IdempotentResult.executed(payload);
         } catch (Throwable t) {
             try {
-                store.fail(record.getId(), record.getExpireAt(), summarize(t));
+                store.fail(record.getScope(), record.getIdemKey(),
+                        record.getExpireAt(), summarize(t));
             } catch (Exception markFail) {
-                log.warn("[starsite-idempotent] 行 {} 失败标记未落（{}）", record.getId(),
-                        markFail.getMessage());
+                log.warn("[starsite-idempotent] {}#{} 失败标记未落（{}）", record.getScope(),
+                        prefix(record.getIdemKey()), markFail.getMessage());
             }
             if (t instanceof RuntimeException re) {
                 throw re;

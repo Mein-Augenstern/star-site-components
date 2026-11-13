@@ -20,8 +20,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ——防重试风暴）、崩溃遗留惰性自愈；retention 过期看护默认开（瞬态去重状态非业务数据，
   OBS-111 教训前置）；jdbc/mybatis/memory 三 store 等价 + 结构校验 fail-fast + 健康端点
   （FAILED 不判 DOWN——可重试业务自然态，与 async 死信语义区分）。47 项单测 + 真库 IT。
+- **idempotent redis 形态（2026-11-13）**：`store=redis`——hash 六字段 + 四段 Lua
+  原生原子（脚本外置 `resources/sql/idempotent-*.lua`，与 lock 同形），**TTL 即键记忆
+  窗口**（认领 PEXPIRE，过期清理 Redis 原生承担）；时间值定长 ISO 串做 Lua 比较
+  （字节序即时间序，免 epoch 换算与时区陷阱）；观测降级——countByStatus 保持缺省 -1 /
+  purgeExpired 缺省 0，健康端点对负值省略微报；`redis-key-prefix` 配置（starsite:idem:）；
+  显式 store=redis 缺 StringRedisTemplate 启动期快速失败（不静默降级）。
+- **第三方存储扩展指南**（docs/idempotent.md §5.5）：三层通道——MySQL 兼容库
+  （OceanBase/TBase-MySQL）jdbc 直用、方言差异库实现 `IdempotentSql` Bean 换方言、
+  完全异构存储实现 `IdempotentStore` SPI（四原子操作硬契约）注册 Bean 全链路复用。
 
 ### Changed
+- **idempotent SPI 终态操作改自然键寻址**（SNAPSHOT 阶段 breaking）：complete/fail
+  签名从 `(long id, expireAt, ...)` 改为 `(scope, idemKey, expireAt, ...)`——表形态
+  uk 命中与 Redis 形态存储键同一寻址位，SPI 一套签名服务全部形态（第三方扩展不受
+  自增主键假设约束）
+- **IdempotentStore 观测方法降级为缺省实现**：countByStatus 缺省 -1（不支持全库计数
+  的形态如 redis 不必硬扫）、purgeExpired 缺省 0（自带原生过期的形态无需清理）——
+  SPI 扩展方按自家存储能力选择覆写
 - **maven-compiler-plugin 开启 `-parameters`**（spring-boot-starter-parent 3.2+ 同款默认）：
   Spring Framework 6.1 移除 LocalVariableTableParameterNameDiscoverer——无该标志参数名不可
   反射，idempotent 组件的 SpEL 键 `#orderId` 依赖之（BPP 另配 `#p0`/`#a0` 位置引用兜底）

@@ -84,3 +84,14 @@ component-builder skill 第 9.5 步 + component-reviewer 第 7 尺已固化此�
   （component-builder 第 6 步既有教训，TransactionTemplate 同款）
 - root pom 编译器开 -parameters：Spring 6.1 移除 LocalVariableTableParameterNameDiscoverer，
   无此标志 SpEL 参数名不可反射；BPP 另配 #p0/#a0 位置引用兜底
+
+## D11 · idempotent redis 形态：TTL 即键记忆窗口 + SPI 自然键（2026-11-13）
+
+**决策**：redis 形态不做"Redis 当 MySQL 用"的镜像表——键记忆窗口直接用 Redis TTL
+（认领时 PEXPIRE，归零即键遗忘）；SPI 终态操作从 `(id, expireAt)` 改为
+`(scope, idemKey, expireAt)` 自然键寻址；观测方法（计数/清理）降级为接口缺省实现。
+**为什么**：过期语义 Redis 原生就有，自建清理是负资产；自然键是 uk 与 Redis key 的
+共同寻址位——一套 SPI 签名服务表/缓存/异构全部形态（第三方存储不被迫接受自增主键
+假设，TBase 类接入只实现四原子操作）；观测降级让"不支持全库计数"成为显式选择而非
+硬扫（健康端点对 -1 省略微报，不虚报 0）。时间值用定长 ISO 串做 Lua 比较——
+字节序即时间序，免 epoch 换算与时区陷阱（容器 UTC 家族实证两次）。

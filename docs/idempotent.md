@@ -1,6 +1,6 @@
 # idempotent · API 幂等键（Stripe 同款语义）
 
-> **状态：已实现 v0.1（2026-11-12——core+starter 双模块 47 项测试全绿；真库 IT 见 JdbcIdempotentStoreIT）**
+> **状态：已实现 v0.1 + redis 形态（2026-11-13——core+starter 双模块 60 项测试全绿；真库 IT 见 JdbcIdempotentStoreIT）**
 > [← 返回概览](../README.md)
 
 **一句话**：`@StarsiteIdempotent(key = "#orderId")`——同一键的重复请求只执行一次，
@@ -145,13 +145,57 @@ SQL 配置外置铁律（D5）：JDBC 方言 `resources/dialect/mysql/idempotent
 Mapper XML 同包路径；生产 DDL `resources/sql/mysql/idempotent_record_ddl.sql`。建表带
 结构校验（BUG-009 惯例：表存在但缺契约列 → 启动期 fail-fast 含迁移指引）。
 
-### store 三形态（策略模式，与三组件同构）
+### store 四形态（策略模式，与家族组件同构）
 
 | 形态 | 语义 | 适用 |
 |---|---|---|
 | `memory` | ConcurrentHashMap + compute 原子 | 单机/测试（重启丢记录——键记忆随进程消亡） |
 | `jdbc` | MySQL 方言，uk INSERT 认领 | 有 DataSource 的默认形态 |
 | `mybatis` | Mapper XML 同包自动加载 | 消费方 classpath 自带 mybatis（`store: mybatis` 显式指定） |
+| `redis` | hash 六字段 + 四段 Lua 原生原子 + **TTL 即键记忆窗口** | 已有 Redis 无 MySQL 的场景（与 lock/sequence 的 redis 形态同家族定位） |
+
+**redis 形态细节**：每键一个 hash（status/result/error/expire_at/host/gmt_modified），
+认领=EXISTS+HSET 单脚本（SET NX 语义）、回收=三合一条件脚本、终态=双条件守卫脚本——
+与表形态逐条语义对齐；**键记忆窗口直接用 Redis TTL**（认领时 PEXPIRE，TTL 归零即
+"键遗忘"，过期清理由 Redis 原生承担——retention 看护对其自动无操作）。观测降级：
+无全库计数（SCAN 代价与健康端点不匹配），countByStatus 保持 -1、健康端点省略计数
+明细（与 sequence redis 形态"审计不如 MySQL 行可查"同取舍）。时间值用**定长 ISO 串**
+（uuuu-MM-dd'T'HH:mm:ss.SSS）做 Lua 比较——字节序即时间序，免 epoch 换算与时区陷阱。
+
+## 5.5 第三方存储扩展（公司自建库接入指南）
+
+扩展点两层，按存储类型选通道（注册 Bean 即接管装配，零组件改动）：
+
+| 自家存储类型 | 通道 | 做法 |
+|---|---|---|
+| **MySQL 兼容库**（OceanBase / TBase-MySQL 模式等） | `jdbc` 形态直用 | 连接串指过去即用——SQL 是标准 MySQL 语法（uk + 条件 UPDATE） |
+| **类 MySQL 但方言有差异**（TBase PG 模式 / GaussDB 等） | `IdempotentSql` 方言 | 实现 [`IdempotentSql`](../starsite-idempotent/src/main/java/com/xp/starsite/idempotent/store/IdempotentSql.java) 接口（9 个语句），注册为 Bean——自动装配让位，jdbc store 换方言运行 |
+| **完全异构存储**（自研 KV / 公司缓存平台 / Tair 等） | `IdempotentStore` SPI | 实现 SPI 四原子操作，注册为 Bean——引擎/注解/看护全链路直接复用 |
+
+SPI 实现的**唯一硬契约**：`tryClaim` / `tryReclaim` / `complete` / `fail` 四操作必须
+**存储端原子**（这是多实例恰一执行的全部正确性来源）；观测方法（countByStatus /
+purgeExpired）是缺省实现——按自家存储能力选择覆写（不支持就保持降级，别硬扫）。
+
+```java
+// TBase（PG 模式）示例：换方言三步
+@Bean
+IdempotentSql tbaseDialect() {
+    return new IdempotentSql() {   // 9 个方法返回 PG 语法语句（ON CONFLICT 替代 uk 冲突等）
+        @Override public String insert() { return "INSERT INTO {table} (...) VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING"; }
+        // ... 其余 8 个方法
+    };
+}
+// starsite.idempotent.store=jdbc——jdbc store 自动用你的方言（Bean 让位机制）
+```
+
+```java
+// 自研 KV 示例：实现 SPI 注册 Bean
+@Bean
+IdempotentStore myCompanyStore() {
+    return new MyTairIdempotentStore();  // 四原子操作 + 可选观测覆写
+}
+// 自动装配整体让位；@StarsiteIdempotent 注解、门面、看护、健康端点全链路复用
+```
 
 ## 6. retention 过期看护
 
@@ -162,7 +206,8 @@ OBS-111（终态行无限累积）的教训提前规避。
 
 ## 7. 健康与观测
 
-引 actuator 即有 `starsiteIdempotent`：processing/done/failed 三态计数。
+引 actuator 即有 `starsiteIdempotent`：processing/done/failed 三态计数
+（redis 形态观测降级——无全库计数，明细自动省略）。
 **FAILED 不判 DOWN**（与 async-command 死信不同——失败是业务动作的自然结局，键已释放
 可重试，不是需人工处置的终态积压）；存储访问异常经传播由 actuator 判 DOWN。
 
@@ -171,9 +216,10 @@ OBS-111（终态行无限累积）的教训提前规避。
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | true | 总开关（false=完全让位） |
-| `store` | auto | auto / memory / jdbc / mybatis（auto：显式 mybatis 优先，有 DataSource 走 jdbc，否则 memory） |
-| `table-name` | idempotent_record | 幂等表名 |
-| `key-ttl-hours` | 24 | 键记忆窗口（Stripe 同款 24h；应大于动作最长耗时——超窗执行会被回收，终态弃写 WARN） |
+| `store` | auto | auto / memory / jdbc / mybatis / redis（auto：显式 mybatis 优先，有 DataSource 走 jdbc，否则 memory；**redis 需显式指定 + StringRedisTemplate，缺失启动期快速失败**） |
+| `table-name` | idempotent_record | 幂等表名（表形态用） |
+| `redis-key-prefix` | starsite:idem: | Redis 键前缀（redis 形态用；多组件共库隔离命名空间） |
+| `key-ttl-hours` | 24 | 键记忆窗口（Stripe 同款 24h；redis 形态即 TTL；应大于动作最长耗时——超窗执行会被回收，终态弃写 WARN） |
 | `wait-millis` | 3000 | 在飞等待窗口（0=不等待在飞即 CONFLICT） |
 | `poll-millis` | 100 | 等待轮询间隔 |
 | `processing-stale-seconds` | 120 | PROCESSING 停滞判崩溃遗留阈值（应大于动作最长执行时长） |
@@ -186,7 +232,7 @@ OBS-111（终态行无限累积）的教训提前规避。
 - **v0.2 议题**：`Idempotency-Key` 请求头协议模式（web 拦截器形态，键来自请求头而非注解——
   与 Stripe 协议完全对齐）；管理端点（recent/stats/requeue，复用 async-command 三级鉴权）；
   per-scope 配置（不同业务不同窗口）
-- **何时换别的**：需要跨服务全局幂等协调 / 键量级巨大 → 上 Redis 集中形态（本组件 v0.2 候选）
+- ~~Redis 集中形态~~ **已交付（2026-11-13）**：`store=redis`——Lua 四操作 + TTL 键记忆窗口
 
 ## 10. 模块结构
 
@@ -195,17 +241,18 @@ starsite-idempotent/            core：零 Spring Boot 依赖
   ├─ api/        StarsiteIdempotent, IdempotentClient, IdempotentAction, IdempotentResult,
   │              IdempotentRecord, IdempotentStatus, IdempotentConflictException, IdempotentFailedException
   ├─ core/       IdempotentEngine（认领/等待/回放/回收四态循环——门面实现）
-  ├─ store/      IdempotentStore + Memory/Jdbc 实现 + IdempotentSql(方言外置) + ClaimOutcome
+  ├─ store/      IdempotentStore(SPI) + Memory/Jdbc/Redis 实现 + IdempotentSql(方言外置) + ClaimOutcome
   ├─ mybatis/    IdempotentRecordMapper + MyBatisIdempotentStore
+  ├─ resources/  dialect/mysql/idempotent-mysql.xml + sql/idempotent-{claim,reclaim,complete,fail}.lua
   └─ clock/      TimeSource（沿用 async-command/schedule 模式）
 starsite-idempotent-spring-boot-starter/
   ├─ IdempotentBeanPostProcessor（注解代理 + SpEL 键 + Jackson 回放）
-  ├─ IdempotentAutoConfiguration / IdempotentMyBatisAutoConfiguration
-  ├─ IdempotentRetentionLifecycle（过期看护，SmartLifecycle）
-  └─ health/IdempotentHealthIndicator
+  ├─ IdempotentAutoConfiguration（memory/jdbc/redis 分发）/ IdempotentMyBatisAutoConfiguration
+  ├─ IdempotentRetentionLifecycle（过期看护，SmartLifecycle；redis 形态自动无操作）
+  └─ health/IdempotentHealthIndicator（计数降级形态自动省略微报）
 ```
 
-### 测试矩阵（47 项）
+### 测试矩阵（60 项）
 
 | 断言 | 覆盖 |
 |---|---|
@@ -214,9 +261,11 @@ starsite-idempotent-spring-boot-starter/
 | 崩溃遗留回收自愈 / 在飞超时 CONFLICT / 等待回放 / 等待目睹失败不重跑 | IdempotentEngineTest ×4 |
 | 作用域隔离 / 键校验 / purge / **代际令牌旧写拒收** / void 回放 / 多键独立 | IdempotentEngineTest ×6 |
 | 认领并发互斥 16 线程恰 1 / 回收三条件 / 代际守卫 / 清理只删过期 / 计数 | MemoryIdempotentStoreTest ×9 |
+| Redis：认领脚本契约与键布局 / duplicate 翻译 / hash 解析 / 回收三态翻译 / 终态守卫脚本与 null 载荷标志 / 观测降级 / 前缀缺省 | RedisIdempotentStoreTest ×8 |
 | MyBatis 全链路（H2 同构表：认领→守卫→回收→清理）/ 表名白名单 / 陈旧结构 fail-fast / 缺表放行 | MyBatisIdempotentStoreTest ×4 |
 | 方言语句键全对齐 / 建表契约（uk/索引/无 AUTO_INCREMENT）/ 语义片段（三合一回收/双条件守卫/占位计数） | IdempotentSqlMySqlTest ×4 |
 | 状态机终态/回放/解析 | IdempotentStatusTest ×3 |
 | 装配：memory 默认全家桶 / 代理端到端回放 / 冲突映射异常 / enabled 让位 / 自定义 store 让位 / retention 开关 / 显式 memory | IdempotentAutoConfigurationTest ×7 |
 | BPP：键三形态（SpEL/字面量/占位符）/ POJO 回放反序列化 / 目睹失败映射异常 / 无注解零代理 | IdempotentBeanPostProcessorTest ×4 |
+| redis 装配：模板在场装配 / 缺失快速失败 / 前缀透传 / 健康降级省略微报（含可计数对照） | IdempotentRedisAutoConfigurationTest ×5 |
 | 真库：建表 / uk 互斥 / 守卫与回收 / 清理 / 白名单 / 陈旧结构 fail-fast | JdbcIdempotentStoreIT（Testcontainers，-Pit） |

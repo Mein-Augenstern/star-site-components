@@ -23,6 +23,7 @@ import com.xp.starsite.idempotent.store.IdempotentSql;
 import com.xp.starsite.idempotent.store.IdempotentStore;
 import com.xp.starsite.idempotent.store.JdbcIdempotentStore;
 import com.xp.starsite.idempotent.store.MemoryIdempotentStore;
+import com.xp.starsite.idempotent.store.RedisIdempotentStore;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
@@ -35,6 +36,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -67,22 +69,37 @@ public class IdempotentAutoConfiguration {
     }
 
     /**
-     * 装配幂等存储：store=memory 直接内存；store=jdbc 有 DataSource 走 JDBC；
-     * store=auto 探测（MyBatis 显式配置见 MyBatis 装配，有 DataSource 走 JDBC，
-     * 否则内存降级）。
+     * 装配幂等存储：store=redis 走 Redis（Lua 原生四操作 + TTL 键记忆窗口）；
+     * store=memory 直接内存；store=jdbc 有 DataSource 走 JDBC；store=auto 探测
+     * （MyBatis 显式配置见 MyBatis 装配，有 DataSource 走 JDBC，否则内存降级）。
+     * <p>显式 store=redis 但容器无 StringRedisTemplate → 启动期快速失败并给引导
+     * （不静默降级 memory——显式配置错了就该报错，lock 的 fail-fast 同款处置）。
      *
-     * @param props       配置
+     * @param props        配置
      * @param jdbcTemplate JdbcTemplate（消费方 DataSource 的包装，可缺）
-     * @param idGenerator id 发号器（sequence 组件；memory 形态可缺）
-     * @param sql         SQL 方言
+     * @param redisTemplate Redis 字符串模板（redis 形态用，可缺——泛型擦除不触发类加载）
+     * @param idGenerator  id 发号器（sequence 组件；memory/jdbc 形态用，可缺）
+     * @param sql          SQL 方言
      * @return 幂等存储实例
      */
     @Bean
     @ConditionalOnMissingBean(IdempotentStore.class)
     public IdempotentStore idempotentStore(IdempotentProperties props,
                                            ObjectProvider<JdbcTemplate> jdbcTemplate,
+                                           ObjectProvider<StringRedisTemplate> redisTemplate,
                                            ObjectProvider<StarsiteIdGenerator> idGenerator,
                                            IdempotentSql sql) {
+        if (props.getStore() == IdempotentProperties.Store.REDIS) {
+            StringRedisTemplate redis = redisTemplate.getIfAvailable();
+            if (redis == null) {
+                throw new IllegalStateException("starsite.idempotent.store=redis 需要 "
+                        + "StringRedisTemplate Bean——引 spring-boot-starter-data-redis"
+                        + "（与 lock redis 形态同依赖）；或改 store=auto/jdbc/mybatis");
+            }
+            log.info("[starsite-idempotent] 存储形态：redis（前缀 {}，TTL 即键记忆窗口）",
+                    props.getRedisKeyPrefix());
+            return new RedisIdempotentStore(redis, props.getRedisKeyPrefix());
+        }
         JdbcTemplate jdbc = jdbcTemplate.getIfAvailable();
         boolean wantJdbc = props.getStore() == IdempotentProperties.Store.JDBC
                 || (props.getStore() == IdempotentProperties.Store.AUTO && jdbc != null);
@@ -94,7 +111,7 @@ public class IdempotentAutoConfiguration {
         if (wantJdbc) {
             log.warn("[starsite-idempotent] store=jdbc 但无 DataSource——降级 memory（单机幂等）");
         } else {
-            log.info("[starsite-idempotent] 存储形态：memory（单机幂等；生产建议 jdbc/mybatis）");
+            log.info("[starsite-idempotent] 存储形态：memory（单机幂等；生产建议 jdbc/mybatis/redis）");
         }
         return new MemoryIdempotentStore(resolveIds(idGenerator.getIfAvailable()));
     }

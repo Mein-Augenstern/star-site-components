@@ -117,10 +117,10 @@ class MemoryIdempotentStoreTest {
     void reclaimConditions() {
         // FAILED 行：claim → fail
         ClaimOutcome failed = store.tryClaim("", "f1", EXPIRE, "h1");
-        store.fail(failed.record().getId(), failed.record().getExpireAt(), "boom");
+        store.fail("", "f1", failed.record().getExpireAt(), "boom");
         // fresh DONE 行：claim → complete
         ClaimOutcome done = store.tryClaim("", "d1", EXPIRE, "h1");
-        store.complete(done.record().getId(), done.record().getExpireAt(), "ok");
+        store.complete("", "d1", done.record().getExpireAt(), "ok");
         // fresh PROCESSING 行
         store.tryClaim("", "p1", EXPIRE, "h1");
 
@@ -137,7 +137,7 @@ class MemoryIdempotentStoreTest {
     void reclaimExpiredAndStale() {
         // 过期 DONE
         ClaimOutcome done = store.tryClaim("", "e1", clock.now().plusSeconds(10), "h1");
-        store.complete(done.record().getId(), done.record().getExpireAt(), "old");
+        store.complete("", "e1", done.record().getExpireAt(), "old");
         clock.now = clock.now.plusSeconds(30); // expire_at 已过
         var reclaimed = store.tryReclaim("", "e1", clock.now().plusHours(24), clock.now(),
                 clock.now().minusSeconds(120), "h2");
@@ -163,12 +163,12 @@ class MemoryIdempotentStoreTest {
         var gen2 = store.tryReclaim("", "g1", gen2Expire, clock.now(),
                 clock.now().minusSeconds(120), "h2").orElseThrow();
         // 旧代守卫失败
-        assertThat(store.complete(gen1.record().getId(), gen1.record().getExpireAt(), "ghost"))
+        assertThat(store.complete("", "g1", gen1.record().getExpireAt(), "ghost"))
                 .isFalse();
-        assertThat(store.fail(gen1.record().getId(), gen1.record().getExpireAt(), "ghost"))
+        assertThat(store.fail("", "g1", gen1.record().getExpireAt(), "ghost"))
                 .isFalse();
         // 新代写入成功
-        assertThat(store.complete(gen2.getId(), gen2Expire, "fresh")).isTrue();
+        assertThat(store.complete("", "g1", gen2Expire, "fresh")).isTrue();
         var row = store.find("", "g1").orElseThrow();
         assertThat(row.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(row.getResult()).isEqualTo("fresh");
@@ -178,9 +178,9 @@ class MemoryIdempotentStoreTest {
     @Test
     void purgeExpiredRemovesOnlyExpired() {
         ClaimOutcome keep = store.tryClaim("", "keep", clock.now().plusHours(24), "h");
-        store.complete(keep.record().getId(), keep.record().getExpireAt(), "v");
+        store.complete("", "keep", keep.record().getExpireAt(), "v");
         ClaimOutcome gone = store.tryClaim("", "gone", clock.now().plusSeconds(5), "h");
-        store.complete(gone.record().getId(), gone.record().getExpireAt(), "v");
+        store.complete("", "gone", gone.record().getExpireAt(), "v");
         clock.now = clock.now.plusSeconds(30);
         assertThat(store.purgeExpired(10, clock.now)).isEqualTo(1);
         assertThat(store.find("", "keep")).isPresent();
@@ -191,9 +191,9 @@ class MemoryIdempotentStoreTest {
     @Test
     void countByStatusCounts() {
         ClaimOutcome a = store.tryClaim("", "a", EXPIRE, "h");
-        store.complete(a.record().getId(), a.record().getExpireAt(), "v");
+        store.complete("", "a", a.record().getExpireAt(), "v");
         ClaimOutcome b = store.tryClaim("", "b", EXPIRE, "h");
-        store.fail(b.record().getId(), b.record().getExpireAt(), "e");
+        store.fail("", "b", b.record().getExpireAt(), "e");
         store.tryClaim("", "c", EXPIRE, "h");
         assertThat(store.countByStatus(IdempotentStatus.DONE)).isEqualTo(1);
         assertThat(store.countByStatus(IdempotentStatus.FAILED)).isEqualTo(1);

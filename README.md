@@ -16,7 +16,7 @@ star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spr
 | **async-command** | 异步命令（令牌认领 / 退避重试 / 死信） | memory 队列 | MySQL 表令牌认领 | [docs/async-command.md](docs/async-command.md) |
 | **lock** | 分布式锁（可重入 / 限时等待 / 自愈） | —（天然多实例） | DB 唯一键 / Redis hash | [docs/lock.md](docs/lock.md) |
 | **schedule** | 定时任务恰一执行（注解 + 自研 cron + 执行流水） | memory 观测 | 复用 lock 争锁恰一 + run_log | [docs/schedule.md](docs/schedule.md) |
-| **idempotent** | API 幂等键（Stripe 同款：拦截 + **结果回放**） | memory 状态机 | MySQL uk(scope,idem_key) 原子认领 | [docs/idempotent.md](docs/idempotent.md) |
+| **idempotent** | API 幂等键（Stripe 同款：拦截 + **结果回放**） | memory 状态机 | MySQL uk 原子认领 / Redis Lua + TTL | [docs/idempotent.md](docs/idempotent.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -27,7 +27,7 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
-- 当前全量 **234 项单测**（10 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
+- 当前全量 **247 项单测**（10 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 
 ## 快速开始
 

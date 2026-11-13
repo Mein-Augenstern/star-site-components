@@ -22,7 +22,8 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 
 /**
  * 幂等组件健康端点（actuator 存在时装配）：/actuator/health 附 starsiteIdempotent
- * 明细——processing/done/failed 三态计数。
+ * 明细——processing/done/failed 三态计数（<b>观测降级</b>：不支持全库计数的形态
+ * 如 redis 返回 -1，对应明细省略——健康端点不做 SCAN 代价的查询）。
  *
  * <p>判定语义：FAILED 行<b>不</b>判 DOWN（与 async-command 死信不同——失败是业务
  * 动作的自然结局，键已释放可重试，不是需人工处置的终态积压）；存储访问异常
@@ -46,17 +47,31 @@ public class IdempotentHealthIndicator implements HealthIndicator {
     }
 
     /**
-     * 计算幂等组件健康状态：明细附 processing/done/failed 三项计数（UP 恒定——
-     * FAILED 是可重试的业务自然态；存储异常经传播由 actuator 判 DOWN）。
+     * 计算幂等组件健康状态：明细附 processing/done/failed 三项计数（计数 &lt; 0 的
+     * 省略——观测降级形态无全库计数；UP 恒定，存储异常经传播由 actuator 判 DOWN）。
      *
-     * @return UP + 三态计数明细
+     * @return UP + 可支持的三态计数明细
      */
     @Override
     public Health health() {
-        return Health.up()
-                .withDetail("processing", store.countByStatus(IdempotentStatus.PROCESSING))
-                .withDetail("done", store.countByStatus(IdempotentStatus.DONE))
-                .withDetail("failed", store.countByStatus(IdempotentStatus.FAILED))
-                .build();
+        Health.Builder builder = Health.up();
+        detail(builder, "processing", IdempotentStatus.PROCESSING);
+        detail(builder, "done", IdempotentStatus.DONE);
+        detail(builder, "failed", IdempotentStatus.FAILED);
+        return builder.build();
+    }
+
+    /**
+     * 附计数明细（-1 = 形态不支持全库计数——省略，不虚报 0）。
+     *
+     * @param builder 健康构建器
+     * @param name    明细名
+     * @param status  状态
+     */
+    private void detail(Health.Builder builder, String name, IdempotentStatus status) {
+        long count = store.countByStatus(status);
+        if (count >= 0) {
+            builder.withDetail(name, count);
+        }
     }
 }

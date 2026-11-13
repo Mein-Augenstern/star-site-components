@@ -46,10 +46,12 @@ public class IdempotentProperties {
         AUTO,
         /** 内存（单机/测试：重启丢记录——键记忆随进程消亡） */
         MEMORY,
-        /** JDBC（MySQL 方言默认） */
+        /** JDBC（MySQL 方言默认；第三方 MySQL 兼容库可换 {@link IdempotentSql} 方言 Bean） */
         JDBC,
         /** MyBatis（消费方 classpath 自带 mybatis） */
-        MYBATIS
+        MYBATIS,
+        /** Redis（缓存形态：Lua 原生四操作 + TTL 即键记忆窗口；需 StringRedisTemplate） */
+        REDIS
     }
 
     /** 组件总开关（false 时自动装配整体让位） */
@@ -58,8 +60,11 @@ public class IdempotentProperties {
     /** 存储形态 */
     private Store store = Store.AUTO;
 
-    /** 幂等表名（白名单 [A-Za-z0-9_]） */
+    /** 幂等表名（白名单 [A-Za-z0-9_]；表形态用） */
     private String tableName = "idempotent_record";
+
+    /** Redis 键前缀（redis 形态用；与 lock 的 starsite:lock: 同命名法） */
+    private String redisKeyPrefix = "starsite:idem:";
 
     /** 键记忆窗口时长（时）——DONE 行过期即"键遗忘"重新执行（Stripe 24h 同款语义） */
     private long keyTtlHours = 24;
@@ -134,6 +139,24 @@ public class IdempotentProperties {
      */
     public void setTableName(String tableName) {
         this.tableName = tableName;
+    }
+
+    /**
+     * 获取 Redis 键前缀。
+     *
+     * @return 键前缀（redis 形态用）
+     */
+    public String getRedisKeyPrefix() {
+        return redisKeyPrefix;
+    }
+
+    /**
+     * 设置 Redis 键前缀。
+     *
+     * @param redisKeyPrefix 键前缀（多组件共库时隔离命名空间）
+     */
+    public void setRedisKeyPrefix(String redisKeyPrefix) {
+        this.redisKeyPrefix = redisKeyPrefix;
     }
 
     /**

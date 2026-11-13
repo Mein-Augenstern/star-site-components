@@ -43,6 +43,12 @@
       <artifactId>jackson-databind</artifactId>
       <optional>true</optional>
     </dependency>
+    <!-- Redis 存储装配（store=redis 形态；optional 由消费方 classpath 提供，与 lock starter 同形） -->
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-redis</artifactId>
+      <optional>true</optional>
+    </dependency>
     <!-- MyBatis 适配装配（SqlSessionFactory/MapperFactoryBean；provided 由消费方 classpath 提供） -->
     <dependency>
       <groupId>org.mybatis</groupId>

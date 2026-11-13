@@ -148,14 +148,14 @@ public class MyBatisIdempotentStore implements IdempotentStore {
 
     /** {@inheritDoc} 双条件守卫（PROCESSING + 本代 expire_at）——代际令牌语义见接口 doc */
     @Override
-    public boolean complete(long id, LocalDateTime claimExpireAt, String result) {
-        return mapper.complete(table, id, claimExpireAt, result) > 0;
+    public boolean complete(String scope, String idemKey, LocalDateTime claimExpireAt, String result) {
+        return mapper.complete(table, scope == null ? "" : scope, idemKey, claimExpireAt, result) > 0;
     }
 
     /** {@inheritDoc} */
     @Override
-    public boolean fail(long id, LocalDateTime claimExpireAt, String error) {
-        return mapper.fail(table, id, claimExpireAt, error) > 0;
+    public boolean fail(String scope, String idemKey, LocalDateTime claimExpireAt, String error) {
+        return mapper.fail(table, scope == null ? "" : scope, idemKey, claimExpireAt, error) > 0;
     }
 
     /** {@inheritDoc} */
