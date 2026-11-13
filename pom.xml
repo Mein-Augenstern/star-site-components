@@ -42,6 +42,8 @@
     <module>starsite-lock-spring-boot-starter</module>
     <module>starsite-schedule</module>
     <module>starsite-schedule-spring-boot-starter</module>
+    <module>starsite-idempotent</module>
+    <module>starsite-idempotent-spring-boot-starter</module>
   </modules>
 
   <properties>
@@ -154,6 +156,11 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.13.0</version>
+          <configuration>
+            <!-- 参数名入字节码：Spring 6.1 起无 -parameters 则参数名不可反射（idempotent
+                 组件 SpEL 键 #orderId 依赖；spring-boot-starter-parent 3.2+ 同款默认） -->
+            <parameters>true</parameters>
+          </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>

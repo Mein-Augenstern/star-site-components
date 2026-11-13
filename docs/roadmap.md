@@ -10,6 +10,10 @@
       通用表名 starsite_lock（去调度绑定）
 - [x] 三组件 SQL/脚本配置外置（Mapper XML + 方言 XML + Lua 文件）、索引完备性门禁、
       列表/详情分列（payload 大列不进列表）
+- [x] schedule：注解式定时任务恰一执行（自研 cron / 复用 lock 争锁 / run_log 流水 /
+      misfire 策略 / UTC 陷阱产品化默认时区）——2026-11-02 v0.1
+- [x] idempotent：API 幂等键（Stripe 同款：恰一执行 + 首次结果回放 / 失败释放键 /
+      崩溃惰性自愈 / 代际令牌守卫 / retention 默认开）——2026-11-12 v0.1
 
 ## 待办（按优先级）
 

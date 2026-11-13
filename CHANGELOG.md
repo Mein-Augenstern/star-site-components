@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+五号组件 idempotent 落地 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
+
+### Added
+- **idempotent 组件 v0.1（五号组件）**：API 幂等键，Stripe 同款语义——同一键重复请求
+  **恰一执行 + 首次成功结果回放**（不只是拦截）。`@StarsiteIdempotent(key = "#orderId")`
+  注解路径（SpEL 键 + Jackson 回放 + 启动期缺 Jackson 快速失败）与 `IdempotentClient.guard`
+  门面路径（载荷自管，core 零 JSON 依赖）；uk(scope,idem_key) INSERT 原子认领 +
+  条件回收（FAILED/过期/停滞三合一）+ **代际令牌双条件守卫**（complete/fail 须匹配本代
+  expire_at——回收是原地重置，仅 status 守卫分不出新旧认领者）；键记忆窗口 24h（Stripe
+  同款，过期即键遗忘重执行）、失败释放键重执行、在飞等待（目睹失败返回摘要不自动重跑
+  ——防重试风暴）、崩溃遗留惰性自愈；retention 过期看护默认开（瞬态去重状态非业务数据，
+  OBS-111 教训前置）；jdbc/mybatis/memory 三 store 等价 + 结构校验 fail-fast + 健康端点
+  （FAILED 不判 DOWN——可重试业务自然态，与 async 死信语义区分）。47 项单测 + 真库 IT。
+
+### Changed
+- **maven-compiler-plugin 开启 `-parameters`**（spring-boot-starter-parent 3.2+ 同款默认）：
+  Spring Framework 6.1 移除 LocalVariableTableParameterNameDiscoverer——无该标志参数名不可
+  反射，idempotent 组件的 SpEL 键 `#orderId` 依赖之（BPP 另配 `#p0`/`#a0` 位置引用兜底）
+
 ## [0.2.3] — 2026-10-31
 
 Loop 压测（8 轮循环 + 环境采样）产出的完整性修复。

@@ -9,18 +9,22 @@
 
 Lightweight distributed components for Spring Boot 3 — **DB-first, only needs MySQL**.
 
-Three production-proven components that compose together:
+Five production-proven components that compose together:
 
 | Component | What it does | Single machine | Distributed | Docs |
 |---|---|---|---|---|
 | **sequence** | Snowflake ID generator (clock-backward safe) | Fixed worker ID | MySQL atomic lease | [docs/sequence.md](docs/sequence.md) |
 | **async-command** | Async task queue (retry, dead letter, batch) | In-memory queue | MySQL token claim | [docs/async-command.md](docs/async-command.md) |
 | **lock** | Distributed lock (reentrant, timed wait, self-healing) | — | DB unique key / Redis hash | [docs/lock.md](docs/lock.md) |
+| **schedule** | Scheduled task exactly-once (annotation + cron + run log) | In-memory observation | Reuses lock claim + run_log | [docs/schedule.md](docs/schedule.md) |
+| **idempotent** | API idempotency key (Stripe-style: intercept + **result replay**) | In-memory state machine | MySQL uk(scope,idem_key) atomic claim | [docs/idempotent.md](docs/idempotent.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
 starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
+starsite-schedule ──────► starsite-schedule-spring-boot-starter
+starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2+ · Zero Lombok in core · Apache-2.0
@@ -30,14 +34,14 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 | 17 | ✅ | Minimum (Spring Boot 3 requirement) |
 | 21 | ✅ | Recommended |
 | 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
-- **123 unit tests** + Testcontainers MySQL integration tests
+- **234 unit tests** + Testcontainers MySQL integration tests
 - Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
 
 ## Why This Exists
 
-Most distributed lock libraries need Redis. Most task schedulers need a dedicated server. Most ID generators need a separate service.
+Most distributed lock libraries need Redis. Most task schedulers need a dedicated server. Most ID generators need a separate service. Most idempotency solutions only reject duplicates instead of replaying the first result.
 
-**If you already have MySQL, you're done** — add three starters and get all three capabilities with zero additional infrastructure.
+**If you already have MySQL, you're done** — add the starters and get all capabilities with zero additional infrastructure.
 
 | Alternative | Requires | This project |
 |---|---|---|
@@ -45,6 +49,7 @@ Most distributed lock libraries need Redis. Most task schedulers need a dedicate
 | ShedLock (3.5k★) | Redis / JDBC / ZooKeeper | MySQL only |
 | XXL-Job (27k★) | Dedicated scheduler + DB | Embedded, no extra server |
 | Leaf (4.5k★) | Dedicated Leaf server | Embedded starter |
+| Stripe-style idempotency | API gateway / Redis | One annotation, MySQL uk claim |
 
 ## Quick Start
 
@@ -61,17 +66,27 @@ cd star-site-components && ./mvnw install -DskipTests
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-sequence-spring-boot-starter</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
 </dependency>
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-async-command-spring-boot-starter</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
 </dependency>
 <dependency>
     <groupId>com.xp.starsite</groupId>
     <artifactId>starsite-lock-spring-boot-starter</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
+</dependency>
+<dependency>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>starsite-schedule-spring-boot-starter</artifactId>
+    <version>0.2.3</version>
+</dependency>
+<dependency>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>starsite-idempotent-spring-boot-starter</artifactId>
+    <version>0.2.3</version>
 </dependency>
 ```
 
@@ -86,6 +101,9 @@ starsite:
 ```
 
 No `@Import`, no `@EnableScheduling` — auto-configuration handles everything.
+Annotate a method with `@StarsiteScheduled(cron = "0 0 8 * * ?")` for cluster-wide exactly-once
+scheduling; annotate an order API with `@StarsiteIdempotent(key = "#orderId")` for
+exactly-once execution with **first-result replay** on duplicates.
 
 For MyBatis consumers: same-package Mapper XML auto-discovery — zero `mapper-locations` config needed.
 For no-DB gateway: set `starsite.async-command.enabled=false` + `starsite.lock.enabled=false`.

@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-idempotent 幂等表 MySQL 方言（JDBC 存储路径的 SQL 配置文件）
+  约定与 async-command/schedule 同形：{table} 为白名单校验后的表名占位（存储层渲染）；
+  参数一律 ? 占位符；statement id 与 IdempotentSql 接口方法一一对应；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/idempotent/mybatis/IdempotentRecordMapper.xml；
+  生产 DDL 见 sql/mysql/idempotent_record_ddl.sql
+-->
+<dialect component="idempotent" database="mysql">
+
+    <statement id="createTable" note="建表（幂等 IF NOT EXISTS）。id 由 sequence 组件发号禁 AUTO_INCREMENT（D2 铁律）；gmt 两列标准时间（D2）；uk_idem 为认领互斥锚（INSERT 冲突=duplicate）；idx_expire 为 retention 清理锚；result/error 详情列（D6 分列——本组件无列表查询，点查详情全列）">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {table} (
+  id            BIGINT        NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  scope         VARCHAR(64)   NOT NULL DEFAULT '' COMMENT '键作用域（隔离不同业务的同名键）',
+  idem_key      VARCHAR(128)  NOT NULL COMMENT '幂等键（业务提供——orderId/请求 Idempotency-Key 头）',
+  status        VARCHAR(16)   NOT NULL COMMENT 'PROCESSING/DONE/FAILED',
+  result        TEXT          COMMENT '回放载荷（仅 DONE 有值——首次成功结果的序列化形态）',
+  error         VARCHAR(500)  COMMENT '失败摘要（仅 FAILED 有值，类型+消息截断）',
+  expire_at     DATETIME      NOT NULL COMMENT '键记忆窗口边界（认领时刻+key-ttl；过期即键遗忘）',
+  finished_at   DATETIME      DEFAULT NULL COMMENT '终态时刻',
+  host          VARCHAR(128)  NOT NULL COMMENT '认领实例 hostname:pid',
+  gmt_create    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间（PROCESSING 活跃信号——停滞判崩溃遗留）',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_idem_scope_key (scope, idem_key) COMMENT '认领互斥：INSERT 冲突即他方持有',
+  KEY idx_idem_expire (expire_at) COMMENT 'retention 清理：expire_at 过期圈定'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='API 幂等键记录'
+        ]]>
+    </statement>
+
+    <statement id="insert" note="认领插入（gmt_create 取库时钟；uk 冲突由存储层翻译为 duplicate 结局）">
+        <![CDATA[
+INSERT INTO {table} (id, scope, idem_key, status, expire_at, host, gmt_create)
+VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        ]]>
+    </statement>
+
+    <statement id="findByKey" note="键点查详情（uk 命中全列——result/error 详情列按 D6 只在详情出现，本组件无列表查询）">
+        <![CDATA[
+SELECT id, scope, idem_key, status, result, error, expire_at, finished_at, host,
+       gmt_create, gmt_modified
+FROM {table} WHERE scope = ? AND idem_key = ?
+        ]]>
+    </statement>
+
+    <statement id="reclaim" note="条件回收（三合一原子重置）：FAILED（键释放）/ expire_at 已过（键遗忘）/ PROCESSING 停滞（崩溃遗留）——满足其一即重置 PROCESSING 并换新 expire_at/host；gmt_modified 由 ON UPDATE 自动刷新（活跃信号复位）">
+        <![CDATA[
+UPDATE {table}
+SET status = 'PROCESSING', result = NULL, error = NULL, finished_at = NULL,
+    expire_at = ?, host = ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE scope = ? AND idem_key = ?
+  AND (status = 'FAILED' OR expire_at < ? OR (status = 'PROCESSING' AND gmt_modified < ?))
+        ]]>
+    </statement>
+
+    <statement id="complete" note="落成功终态（双条件守卫：PROCESSING + expire_at=本代认领值——回收是原地重置，仅 status 守卫分不出新旧认领者，expire_at 每代必换是免费的代际令牌；行被回收重置后旧认领者的结果弃写）">
+        <![CDATA[
+UPDATE {table}
+SET status = 'DONE', result = ?, finished_at = CURRENT_TIMESTAMP
+WHERE id = ? AND status = 'PROCESSING' AND expire_at = ?
+        ]]>
+    </statement>
+
+    <statement id="fail" note="落失败终态（双条件守卫同 complete；失败即释放键——下一个同键新请求回收重执行）">
+        <![CDATA[
+UPDATE {table}
+SET status = 'FAILED', error = ?, finished_at = CURRENT_TIMESTAMP
+WHERE id = ? AND status = 'PROCESSING' AND expire_at = ?
+        ]]>
+    </statement>
+
+    <statement id="countByStatus" note="按状态计数（健康端点低频查询）">
+        <![CDATA[
+SELECT COUNT(*) FROM {table} WHERE status = ?
+        ]]>
+    </statement>
+
+    <statement id="selectExpiredIds" note="两步清理第一步：圈过期行主键（LIMIT 批量；expire_at 命中 idx_idem_expire）">
+        <![CDATA[
+SELECT id FROM {table} WHERE expire_at < ? LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="deleteByIds" note="两步清理第二步：按主键集合删除（{idPlaceholders} 由存储层按选中条数渲染——占位符非值，全程参数绑定；无 UPDATE..LIMIT/DELETE..LIMIT 分片红线）">
+        <![CDATA[
+DELETE FROM {table} WHERE id IN ({idPlaceholders})
+        ]]>
+    </statement>
+
+</dialect>

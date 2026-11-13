@@ -2,7 +2,7 @@
 
 > [← 返回概览](../README.md)
 
-三组件的关键设计决策与"为什么"，按时间序。
+组件库的关键设计决策与"为什么"，按时间序。
 
 ## D1 · core/starter 双模块（2026-10 初）
 
@@ -64,3 +64,23 @@ component-builder skill 第 9.5 步 + component-reviewer 第 7 尺已固化此�
 - misfire 从未成功不回溯——历史起点不可界定且 cron 攀爬有 4 年上界（初稿"首启动即补跑"被实现否决）
 - 去掉 per-task lockTtlSeconds/timeoutSeconds——lock 组件 TTL 是客户端级配置（per-call TTL 列 v0.2）；
   超时中断线程语义争议大，长任务由悬挂回收（STALE）兜底
+
+## D10 · idempotent 组件：回放而非拦截 + 代际令牌守卫（2026-11-12）
+
+**决策**：API 幂等键做成"首次成功结果回放"（Stripe 同款）而非"重复请求拒绝"；
+终态落库以认领时的 expire_at 为代际令牌做双条件守卫（status='PROCESSING' AND expire_at=?）。
+**为什么**：拒绝式防重把重试用户推向报错（唯一索引兜底的宿命），回放式让第三次点击拿到
+同一个订单号和"成功"——这才是幂等键与缓存/拦截的分水岭；代际令牌源于一个推演出的正确性
+漏洞：回收是原地 UPDATE，仅按 status 守卫时旧认领者迟到的 complete 会写脏新认领者的行，
+而 expire_at 每代认领必换新，是零成本的代际标识。
+
+**同日关联决策**：
+- 失败释放键（新请求重执行）而等待目睹失败不重跑——前者与缓存划清界限（Stripe 5xx 同款），
+  后者防失败动作的并发重试风暴（显式重试才走回收）
+- 崩溃自愈走惰性回收（新请求驱动三合一条件 UPDATE）而非后台扫描——与 lock 行丢失自愈同哲学
+- retention 默认开（与 async-command 默认关相反）——幂等记录是瞬态去重状态而非业务数据，
+  expire_at 过期即语义死行；OBS-111 教训前置
+- 门面方法名 guard 不用 execute——安全门禁对 execute(String,...) 签名一律按裸 SQL 误报
+  （component-builder 第 6 步既有教训，TransactionTemplate 同款）
+- root pom 编译器开 -parameters：Spring 6.1 移除 LocalVariableTableParameterNameDiscoverer，
+  无此标志 SpEL 参数名不可反射；BPP 另配 #p0/#a0 位置引用兜底
