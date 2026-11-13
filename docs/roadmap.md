@@ -15,6 +15,8 @@
 - [x] idempotent：API 幂等键（Stripe 同款：恰一执行 + 首次结果回放 / 失败释放键 /
       崩溃惰性自愈 / 代际令牌守卫 / retention 默认开）——2026-11-12 v0.1；
       +redis 形态（Lua 四操作 + TTL 键记忆窗口）与第三方存储扩展指南——2026-11-13
+- [x] 全组件扩展口子统一（docs/extension.md）：三层接入通道 + 五组件扩展点清单 +
+      sequence WorkerIdAllocator 让位拉齐（所有形态 Bean 优先）——2026-11-13
 
 ## 待办（按优先级）
 

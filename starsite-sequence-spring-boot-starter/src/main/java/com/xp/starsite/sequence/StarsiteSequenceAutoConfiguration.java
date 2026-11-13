@@ -65,6 +65,9 @@ public class StarsiteSequenceAutoConfiguration {
      * @param props              雪花序列配置项（含继承自 core 的位宽/纪元/回拨策略等）
      * @param dataSourceProvider DataSource 惰性提供器：仅 mysql 形态取用；单机形态不触碰，
      *                           故容器/classpath 中无 DataSource 也能正常启动
+     * @param customAllocator    自定义机器位分配器惰性提供器（扩展口：公司内部平台/ZK/
+     *                           StatefulSet 序号等发机器位——注册 Bean 即在<b>所有形态</b>
+     *                           优先于内置构建，与 MyBatis 装配的让位语义拉齐）
      * @return 就绪的发号器门面（内含底层雪花发号器、机器位与形态描述）
      * @throws IllegalArgumentException 位宽或（单机形态下）worker-id 配置非法（见 {@link #validate}）
      * @throws IllegalStateException    mysql 形态但容器中无 DataSource（提示改用 standalone）
@@ -74,7 +77,9 @@ public class StarsiteSequenceAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public StarsiteIdGenerator starsiteIdGenerator(SequenceProperties props,
-                                                    ObjectProvider<DataSource> dataSourceProvider) throws Exception {
+                                                    ObjectProvider<DataSource> dataSourceProvider,
+                                                    ObjectProvider<WorkerIdAllocator> customAllocator)
+            throws Exception {
         validate(props);
         // Redis 模式经 SequenceRedisAutoConfiguration 嵌套类装配（@ConditionalOnClass 守卫）——
         // 主配置类不引用 Redis 类型（压测发现：ObjectProvider<StringRedisTemplate> 签名
@@ -83,7 +88,13 @@ public class StarsiteSequenceAutoConfiguration {
             throw new IllegalStateException(
                     "starsite.sequence.mode=redis 需要 StringRedisTemplate——请引入 spring-boot-starter-data-redis");
         }
-        WorkerIdAllocator allocator = buildAllocator(props, dataSourceProvider);
+        WorkerIdAllocator allocator = customAllocator.getIfAvailable();
+        if (allocator != null) {
+            log.info("[starsite-sequence] 采用自定义 WorkerIdAllocator（形态配置 {} 被扩展实现覆盖）: {}",
+                    props.getMode(), allocator.describe());
+        } else {
+            allocator = buildAllocator(props, dataSourceProvider);
+        }
         long workerId = allocator.allocate();
         SnowflakeIdGenerator generator = new SnowflakeIdGenerator(
                 workerId, props.getEpoch(), props.getWorkerIdBits(), props.getSequenceBits(),
@@ -182,20 +193,24 @@ public class StarsiteSequenceAutoConfiguration {
     static class SequenceRedisConfig {
 
         /**
-         * 装配 Redis 版发号器（RedisWorkerIdAllocator INCR 原子取号）。
+         * 装配 Redis 版发号器（RedisWorkerIdAllocator INCR 原子取号；自定义分配器 Bean 优先）。
          */
         @org.springframework.context.annotation.Bean
         @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(StarsiteIdGenerator.class)
         public StarsiteIdGenerator redisStarsiteIdGenerator(
                 SequenceProperties props,
-                org.springframework.data.redis.core.StringRedisTemplate redis) throws Exception {
-            WorkerIdAllocator allocator = new com.xp.starsite.sequence.allocator.RedisWorkerIdAllocator(
-                    redis, props.getServiceName(),
-                    props.getInstanceTag() == null || props.getInstanceTag().isBlank()
-                            ? "%s@%d@%d".formatted(props.getServiceName(),
-                                    ProcessHandle.current().pid(), System.currentTimeMillis())
-                            : props.getInstanceTag(),
-                    props.getWorkerIdBits(), props.getWraparoundPolicy());
+                org.springframework.data.redis.core.StringRedisTemplate redis,
+                ObjectProvider<WorkerIdAllocator> customAllocator) throws Exception {
+            WorkerIdAllocator allocator = customAllocator.getIfAvailable();
+            if (allocator == null) {
+                allocator = new com.xp.starsite.sequence.allocator.RedisWorkerIdAllocator(
+                        redis, props.getServiceName(),
+                        props.getInstanceTag() == null || props.getInstanceTag().isBlank()
+                                ? "%s@%d@%d".formatted(props.getServiceName(),
+                                        ProcessHandle.current().pid(), System.currentTimeMillis())
+                                : props.getInstanceTag(),
+                        props.getWorkerIdBits(), props.getWraparoundPolicy());
+            }
             long workerId = allocator.allocate();
             SnowflakeIdGenerator generator = new SnowflakeIdGenerator(
                     workerId, props.getEpoch(), props.getWorkerIdBits(), props.getSequenceBits(),

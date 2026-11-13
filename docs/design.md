@@ -95,3 +95,16 @@ component-builder skill 第 9.5 步 + component-reviewer 第 7 尺已固化此�
 假设，TBase 类接入只实现四原子操作）；观测降级让"不支持全库计数"成为显式选择而非
 硬扫（健康端点对 -1 省略微报，不虚报 0）。时间值用定长 ISO 串做 Lua 比较——
 字节序即时间序，免 epoch 换算与时区陷阱（容器 UTC 家族实证两次）。
+
+## D12 · 扩展口子统一原则：三层通道 + Bean 让位拉齐（2026-11-13）
+
+**决策**：公司内部落地必然适配自建存储（TBase/OceanBase/Tair）与内部平台（鉴权/监控/
+机器位）——五组件统一三层接入通道：L1 配置换连（MySQL 兼容库零代码）、L2 方言 Bean
+（`XxxSql` 接口）、L3 SPI 实现（Store/Allocator/Client + Bean 让位）；权威清单沉淀
+docs/extension.md，各组件手册互链。
+**为什么**：Bean 让位（@ConditionalOnMissingBean）是全库既有铁律，扩展故事本该免费；
+审计发现唯一的口子缺口是 sequence——自定义 WorkerIdAllocator 此前仅 mysql+mybatis
+路径让位（SequenceMyBatisAutoConfiguration 有条件注解，主装配/redis 嵌套类却内部自建），
+standalone/redis 形态下公司平台分配器 Bean 会被无视。拉齐为所有形态 Bean 优先：
+扩展一致性 > 内部构建路径的"整洁"（主装配注入 ObjectProvider<WorkerIdAllocator>，
+在场即用并日志声明覆盖了哪个形态配置）。

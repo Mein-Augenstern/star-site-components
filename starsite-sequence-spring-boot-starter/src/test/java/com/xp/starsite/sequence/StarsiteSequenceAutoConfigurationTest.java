@@ -107,4 +107,31 @@ class StarsiteSequenceAutoConfigurationTest {
                         () -> new StarsiteIdGenerator(delegate, 99, "custom"))
                 .run(ctx -> assertThat(ctx.getBean(StarsiteIdGenerator.class).getWorkerId()).isEqualTo(99));
     }
+
+    /**
+     * 验证扩展口：应用自备 WorkerIdAllocator Bean（公司内部平台/ZK/StatefulSet 序号发机器位）
+     * 时在<b>所有形态</b>优先于内置构建——standalone 形态下分配器不再取固定配置值，
+     * 发号器采用自定义分配器的机器位与描述。
+     */
+    @Test
+    void 应用自定义分配器_所有形态优先() {
+        runner.withBean("platformAllocator", com.xp.starsite.sequence.allocator.WorkerIdAllocator.class,
+                        () -> new com.xp.starsite.sequence.allocator.WorkerIdAllocator() {
+                            @Override
+                            public long allocate() {
+                                return 42; // 内部平台分配的机器位
+                            }
+
+                            @Override
+                            public String describe() {
+                                return "internal-platform";
+                            }
+                        })
+                .run(ctx -> {
+                    assertThat(ctx).hasSingleBean(StarsiteIdGenerator.class);
+                    StarsiteIdGenerator gen = ctx.getBean(StarsiteIdGenerator.class);
+                    assertThat(gen.getWorkerId()).isEqualTo(42); // 不是 standalone 默认的 1
+                    assertThat(gen.describe()).contains("internal-platform");
+                });
+    }
 }

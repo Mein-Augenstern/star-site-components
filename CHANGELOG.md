@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-五号组件 idempotent 落地 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
+五号组件 idempotent 落地 + 全组件扩展口子统一 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
 
 ### Added
 - **idempotent 组件 v0.1（五号组件）**：API 幂等键，Stripe 同款语义——同一键重复请求
@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **第三方存储扩展指南**（docs/idempotent.md §5.5）：三层通道——MySQL 兼容库
   （OceanBase/TBase-MySQL）jdbc 直用、方言差异库实现 `IdempotentSql` Bean 换方言、
   完全异构存储实现 `IdempotentStore` SPI（四原子操作硬契约）注册 Bean 全链路复用。
+- **全组件扩展指南**（docs/extension.md，公司内部落地专用）：三层接入通道
+  （L1 配置换连 / L2 方言 Bean / L3 SPI 实现 + Bean 让位）+ 五组件扩展点清单
+  （SPI/方言/硬契约逐项）+ 内部落地检查清单 + TBase 方言/内部锁服务/平台机器位三示例。
+- **sequence 扩展口拉齐**：自定义 `WorkerIdAllocator` Bean 此前仅 mysql+mybatis 路径
+  让位——拉齐为**所有形态**（standalone/mysql-jdbc/redis）Bean 优先于内置构建
+  （公司内部平台/ZK/StatefulSet 序号发机器位即插即用）。
 
 ### Changed
 - **idempotent SPI 终态操作改自然键寻址**（SNAPSHOT 阶段 breaking）：complete/fail
