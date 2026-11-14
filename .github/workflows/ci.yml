@@ -17,9 +17,10 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # spotless 规范检查（许可头/未用导入/空白）+ 全量单测；ubuntu 自带 docker，真库 IT 一并跑
+      # spotless 规范检查（许可头/未用导入/空白）+ 全量单测；ubuntu 自带 docker，真库 IT 一并跑；
+      # -Pbench 一并编译压测模块（Java 17 栈，防漂移——曾因脱离 CI 漂移过一次）
       - name: Build, check style, unit & integration tests
-        run: mvn -B verify -Pit
+        run: mvn -B verify -Pit -Pbench
 
   # JDK 8 字节码验证：JDK 21 编译（release 8）→ JDK 8 javac 编译消费方 + JDK 8 java 运行
   # （Spotless 插件自身是 Java 11+ 字节码，无法在 JDK 8 Maven 上运行——构建工具限制非组件问题）
