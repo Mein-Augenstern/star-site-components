@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: boot27-verify
+  datasource:
+    url: jdbc:h2:mem:boot27;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+mybatis:
+  mapper-locations: classpath:com/xp/starsite/**/mybatis/*.xml
+
+# Boot 2.7 端到端验证配置——memory 形态（装配验证，不验证 DDL：
+# H2 不认 MySQL KEY COMMENT 语法；DDL 已由各组件 H2 测试套件覆盖）
+starsite:
+  sequence:
+    mode: mysql          # 走 H2 MySQL 模式（sys_sequence 建表无 KEY COMMENT）
+    service-name: boot27-verify
+  async-command:
+    mode: mysql          # async_command 建表无 KEY COMMENT
+  lock:
+    mode: mysql          # starsite_lock 建表无 KEY COMMENT
+  schedule:
+    store: memory        # schedule_run_log DDL 含 KEY COMMENT——H2 不支持
+  idempotent:
+    store: memory        # idempotent_record DDL 含 KEY COMMENT
+  quota:
+    store: memory        # quota_account DDL 含 UNIQUE KEY COMMENT
+  tuner:
+    store: memory        # tuner 四表 DDL 含 UNIQUE KEY COMMENT

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.7.18</version>
+  </parent>
+
+  <groupId>com.starsite</groupId>
+  <artifactId>boot27-verify</artifactId>
+  <version>0.1.0</version>
+  <name>boot27-verify</name>
+  <description>Boot 2.7 端到端验证：七组件 starter 装配 + spring.factories/imports 双通道 + H2 内存库 jdbc 形态</description>
+
+  <properties>
+    <java.version>8</java.version>
+  </properties>
+
+  <dependencies>
+    <!-- 全部七组件 starter -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-sequence-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-lock-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-async-command-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-schedule-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-idempotent-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-quota-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-tuner-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+
+    <!-- Boot 2.7 Web + JDBC + H2 + MyBatis -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <!-- lock mysql 形态需要 MyBatis -->
+    <dependency>
+      <groupId>org.mybatis.spring.boot</groupId>
+      <artifactId>mybatis-spring-boot-starter</artifactId>
+      <version>2.3.2</version>
+    </dependency>
+    <!-- ObjectProvider<StringRedisTemplate> 泛型签名需要此类在 classpath（OBS-P1 已知坑：
+         泛型参数在类加载期解析，@ConditionalOnClass 来不及守卫） -->
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-redis</artifactId>
+    </dependency>
+
+    <!-- 测试 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

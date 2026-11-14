@@ -285,11 +285,29 @@ class ReminderScan {
 
 ### 4.5 idempotent——防重复提交
 
+注解路径（推荐——web 场景最简）：
+
 ```java
 @PostMapping("/orders")
 @StarsiteIdempotent(key = "#request.orderId")   // 重复请求回放首次结果
 public OrderResult create(@RequestBody CreateRequest request) {
     return orderService.create(request);
+}
+```
+
+门面路径（非 Spring 方法 / 非 web 场景）：
+
+```java
+@RequiredArgsConstructor
+class SettleService {
+    private final IdempotentClient idempotent;   // 注入即用
+
+    String settle(String day) {
+        return idempotent.guard("daily-settle", day, () -> {
+            doSettle(day);
+            return "ok-" + day;
+        }).getPayload();                          // EXECUTED=首次载荷 / REPLAYED=回放首次载荷
+    }
 }
 ```
 
