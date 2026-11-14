@@ -258,7 +258,7 @@ starsite-idempotent-spring-boot-starter/
   └─ health/IdempotentHealthIndicator（计数降级形态自动省略微报）
 ```
 
-### 测试矩阵（60 项）
+### 测试矩阵（62 项）
 
 | 断言 | 覆盖 |
 |---|---|
@@ -267,6 +267,7 @@ starsite-idempotent-spring-boot-starter/
 | 崩溃遗留回收自愈 / 在飞超时 CONFLICT / 等待回放 / 等待目睹失败不重跑 | IdempotentEngineTest ×4 |
 | 作用域隔离 / 键校验 / purge / **代际令牌旧写拒收** / void 回放 / 多键独立 | IdempotentEngineTest ×6 |
 | 认领并发互斥 16 线程恰 1 / 回收三条件 / 代际守卫 / 清理只删过期 / 计数 | MemoryIdempotentStoreTest ×9 |
+| 四载体条件对齐：三合一回收/双条件守卫在方言 XML/Mapper XML/Lua 逐分支互证（memory 由行为测试锁） | CrossStoreConditionAlignmentTest ×2 |
 | Redis：认领脚本契约与键布局 / duplicate 翻译 / hash 解析 / 回收三态翻译 / 终态守卫脚本与 null 载荷标志 / 观测降级 / 前缀缺省 | RedisIdempotentStoreTest ×8 |
 | MyBatis 全链路（H2 同构表：认领→守卫→回收→清理）/ 表名白名单 / 陈旧结构 fail-fast / 缺表放行 | MyBatisIdempotentStoreTest ×4 |
 | 方言语句键全对齐 / 建表契约（uk/索引/无 AUTO_INCREMENT）/ 语义片段（三合一回收/双条件守卫/占位计数） | IdempotentSqlMySqlTest ×4 |
