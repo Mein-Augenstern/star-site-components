@@ -127,4 +127,16 @@ public interface TunerStore {
      * @return 绑定行数
      */
     long countBindings();
+
+    /**
+     * 清理到期审计行（V2 retention；两步法参数化删除——分片红线合规）。
+     * <b>观测降级缺省</b>：memory 形态覆写实现；表形态覆写。
+     *
+     * @param batchSize 单轮批量上限
+     * @param threshold 到期时刻（occurred_at 早于该时刻即清理）
+     * @return 本轮清理行数
+     */
+    default long purgeExpiredAudits(int batchSize, java.time.LocalDateTime threshold) {
+        return 0;
+    }
 }

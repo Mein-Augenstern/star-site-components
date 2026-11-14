@@ -38,7 +38,7 @@ starsite-tuner ─────────► starsite-tuner-spring-boot-starter
 | 17 | ✅ | Minimum (Spring Boot 3 requirement) |
 | 21 | ✅ | Recommended |
 | 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
-- **307 unit tests** + Testcontainers MySQL integration tests
+- **319 unit tests** + Testcontainers MySQL integration tests
 - **Internal adoption & extension**: [docs/extension.md](docs/extension.md) — three integration channels (config-swap / dialect Bean / SPI impl) + bean-yield mechanism + per-component extension point inventory
 - Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
 

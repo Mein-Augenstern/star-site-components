@@ -20,6 +20,7 @@ import com.xp.starsite.tuner.api.TunerPreset;
 import com.xp.starsite.tuner.api.TunerWindow;
 import com.xp.starsite.tuner.clock.TimeSource;
 import com.xp.starsite.tuner.store.TunerStore;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.LongSupplier;
@@ -185,5 +186,15 @@ public class MyBatisTunerStore implements TunerStore {
     @Override
     public long countBindings() {
         return mapper.countBindings(bindingTable);
+    }
+
+    /** {@inheritDoc} 两步法批量删除（圈主键 → foreach IN 删除——MyBatis 占位符生成，分片红线合规） */
+    @Override
+    public long purgeExpiredAudits(int batchSize, LocalDateTime threshold) {
+        List<Long> ids = mapper.selectExpiredAuditIds(auditTable, threshold, Math.max(1, batchSize));
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return mapper.deleteAuditByIds(auditTable, ids);
     }
 }

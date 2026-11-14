@@ -31,7 +31,7 @@ starsite-tuner ─────────► starsite-tuner-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
-- 当前全量 **307 项单测**（14 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
+- 当前全量 **319 项单测**（14 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 - **公司内部落地/扩展**：[docs/extension.md](docs/extension.md)——三层接入通道（配置换连/方言替换/SPI 实现）+ Bean 让位机制 + 五组件扩展点清单
 
 ## 快速开始

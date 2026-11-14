@@ -73,6 +73,150 @@ public class TunerProperties {
     /** 内置守卫 token（空=自定义 Guard 或放行+WARN——async 三级鉴权同款） */
     private String adminToken = "";
 
+    /** 活跃度告警阈值（活跃/max，0.0~1.0；1.1=禁用） */
+    private double alarmActiveRatio = 0.9;
+
+    /** 队列水位告警阈值（积压/容量，0.0~1.0；仅可变容量队列；1.1=禁用） */
+    private double alarmQueueRatio = 0.8;
+
+    /** 告警冷却分钟（同池同类型防风暴） */
+    private long alarmCooldownMinutes = 5;
+
+    /** 自适应冷却分钟（防规则抖动） */
+    private long adaptiveCooldownMinutes = 2;
+
+    /** 审计保留天数（<=0 不清理——合规默认长保留） */
+    private int auditRetentionDays = 0;
+
+    /** 审计清理批量 */
+    private int auditPurgeBatch = 500;
+
+    /**
+     * 获取活跃度告警阈值。
+     *
+     * @return 阈值
+     */
+    public double getAlarmActiveRatio() {
+        return alarmActiveRatio;
+    }
+
+    /**
+     * 设置活跃度告警阈值。
+     *
+     * @param alarmActiveRatio 阈值（0.0~1.0）
+     */
+    public void setAlarmActiveRatio(double alarmActiveRatio) {
+        this.alarmActiveRatio = alarmActiveRatio;
+    }
+
+    /**
+     * 获取队列水位告警阈值。
+     *
+     * @return 阈值
+     */
+    public double getAlarmQueueRatio() {
+        return alarmQueueRatio;
+    }
+
+    /**
+     * 设置队列水位告警阈值。
+     *
+     * @param alarmQueueRatio 阈值（0.0~1.0）
+     */
+    public void setAlarmQueueRatio(double alarmQueueRatio) {
+        this.alarmQueueRatio = alarmQueueRatio;
+    }
+
+    /**
+     * 获取告警冷却分钟。
+     *
+     * @return 冷却分钟
+     */
+    public long getAlarmCooldownMinutes() {
+        return alarmCooldownMinutes;
+    }
+
+    /**
+     * 设置告警冷却分钟。
+     *
+     * @param alarmCooldownMinutes 冷却分钟（>=1）
+     */
+    public void setAlarmCooldownMinutes(long alarmCooldownMinutes) {
+        this.alarmCooldownMinutes = alarmCooldownMinutes;
+    }
+
+    /**
+     * 获取自适应冷却分钟。
+     *
+     * @return 冷却分钟
+     */
+    public long getAdaptiveCooldownMinutes() {
+        return adaptiveCooldownMinutes;
+    }
+
+    /**
+     * 设置自适应冷却分钟。
+     *
+     * @param adaptiveCooldownMinutes 冷却分钟（>=1）
+     */
+    public void setAdaptiveCooldownMinutes(long adaptiveCooldownMinutes) {
+        this.adaptiveCooldownMinutes = adaptiveCooldownMinutes;
+    }
+
+    /**
+     * 获取审计保留天数。
+     *
+     * @return 保留天数（<=0 不清理）
+     */
+    public int getAuditRetentionDays() {
+        return auditRetentionDays;
+    }
+
+    /**
+     * 设置审计保留天数。
+     *
+     * @param auditRetentionDays 保留天数
+     */
+    public void setAuditRetentionDays(int auditRetentionDays) {
+        this.auditRetentionDays = auditRetentionDays;
+    }
+
+    /**
+     * 获取审计清理批量。
+     *
+     * @return 批量
+     */
+    public int getAuditPurgeBatch() {
+        return auditPurgeBatch;
+    }
+
+    /**
+     * 设置审计清理批量。
+     *
+     * @param auditPurgeBatch 批量
+     */
+    public void setAuditPurgeBatch(int auditPurgeBatch) {
+        this.auditPurgeBatch = auditPurgeBatch;
+    }
+
+    /**
+     * 告警冷却换算 Duration。
+     *
+     * @return 冷却时长
+     */
+    public java.time.Duration getAlarmCooldown() {
+        return java.time.Duration.ofMinutes(Math.max(1, alarmCooldownMinutes));
+    }
+
+    /**
+     * 自适应冷却换算 Duration。
+     *
+     * @return 冷却时长
+     */
+    public java.time.Duration getAdaptiveCooldown() {
+        return java.time.Duration.ofMinutes(Math.max(1, adaptiveCooldownMinutes));
+    }
+
     /**
      * 获取总开关。
      *

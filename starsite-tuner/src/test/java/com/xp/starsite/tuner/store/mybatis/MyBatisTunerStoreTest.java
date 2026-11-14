@@ -73,7 +73,7 @@ class MyBatisTunerStoreTest {
             st.execute("CREATE TABLE IF NOT EXISTS tuner_preset ("
                     + " id BIGINT NOT NULL PRIMARY KEY,"
                     + " preset_name VARCHAR(64) NOT NULL,"
-                    + " core_size INT NOT NULL, max_size INT NOT NULL, keep_alive_seconds INT NOT NULL,"
+                    + " core_size INT NOT NULL, max_size INT NOT NULL, keep_alive_seconds INT NOT NULL, queue_capacity INT,"
                     + " gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                     + " gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
             st.execute("CREATE TABLE IF NOT EXISTS tuner_window ("
@@ -92,7 +92,7 @@ class MyBatisTunerStoreTest {
                     + " host VARCHAR(128) NOT NULL, pool_name VARCHAR(128) NOT NULL,"
                     + " preset_name VARCHAR(64) NOT NULL, source VARCHAR(16) NOT NULL,"
                     + " old_core INT NOT NULL, old_max INT NOT NULL, old_keep INT NOT NULL,"
-                    + " new_core INT NOT NULL, new_max INT NOT NULL, new_keep INT NOT NULL,"
+                    + " new_core INT NOT NULL, new_max INT NOT NULL, new_keep INT NOT NULL, old_queue INT, new_queue INT,"
                     + " gmt_create TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,"
                     + " gmt_modified TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
         }

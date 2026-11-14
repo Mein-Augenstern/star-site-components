@@ -153,6 +153,20 @@ public interface TunerSql {
     String versionStamp();
 
     /**
+     * 审计 retention 第一步：圈到期行主键。
+     *
+     * @return SELECT 语句
+     */
+    String selectExpiredAuditIds();
+
+    /**
+     * 审计 retention 第二步：按主键集合删除。
+     *
+     * @return DELETE 语句
+     */
+    String deleteAuditByIds();
+
+    /**
      * MySQL 默认方言（静态加载一次，缺键快速失败；拒绝 DOCTYPE/外部实体——家族同形）。
      */
     class MySql implements TunerSql {
@@ -317,6 +331,18 @@ public interface TunerSql {
         @Override
         public String versionStamp() {
             return stmt("versionStamp");
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String selectExpiredAuditIds() {
+            return stmt("selectExpiredAuditIds");
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public String deleteAuditByIds() {
+            return stmt("deleteAuditByIds");
         }
     }
 }

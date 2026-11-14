@@ -18,6 +18,7 @@ package com.xp.starsite.tuner.store.mybatis;
 import com.xp.starsite.tuner.api.TunerAuditEntry;
 import com.xp.starsite.tuner.api.TunerPreset;
 import com.xp.starsite.tuner.api.TunerWindow;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
 
@@ -183,4 +184,25 @@ public interface TunerMapper {
                         @Param("windowTable") String windowTable,
                         @Param("bindingTable") String bindingTable,
                         @Param("auditTable") String auditTable);
+
+    /**
+     * 审计 retention 第一步：圈到期行主键。
+     *
+     * @param table     审计表
+     * @param threshold 到期时刻
+     * @param batchSize 批量上限
+     * @return 主键列表
+     */
+    List<Long> selectExpiredAuditIds(@Param("table") String table,
+                                     @Param("threshold") LocalDateTime threshold,
+                                     @Param("batchSize") int batchSize);
+
+    /**
+     * 审计 retention 第二步：按主键集合删除。
+     *
+     * @param table 审计表
+     * @param ids   主键集合（非空由 store 保证）
+     * @return 影响行数
+     */
+    int deleteAuditByIds(@Param("table") String table, @Param("ids") List<Long> ids);
 }

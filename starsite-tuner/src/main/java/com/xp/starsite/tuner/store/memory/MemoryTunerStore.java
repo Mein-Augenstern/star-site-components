@@ -19,6 +19,7 @@ import com.xp.starsite.tuner.api.TunerAuditEntry;
 import com.xp.starsite.tuner.api.TunerPreset;
 import com.xp.starsite.tuner.api.TunerWindow;
 import com.xp.starsite.tuner.clock.TimeSource;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -145,7 +146,8 @@ public class MemoryTunerStore implements com.xp.starsite.tuner.store.TunerStore 
         audits.add(new TunerAuditEntry(auditIds.incrementAndGet(), entry.getOccurredAt(),
                 entry.getHost(), entry.getPoolName(), entry.getPresetName(), entry.getSource(),
                 entry.getOldCore(), entry.getOldMax(), entry.getOldKeep(),
-                entry.getNewCore(), entry.getNewMax(), entry.getNewKeep()));
+                entry.getNewCore(), entry.getNewMax(), entry.getNewKeep(),
+                entry.getOldQueue(), entry.getNewQueue()));
         version.incrementAndGet();
     }
 
@@ -167,5 +169,25 @@ public class MemoryTunerStore implements com.xp.starsite.tuner.store.TunerStore 
     @Override
     public long countBindings() {
         return bindings.size();
+    }
+
+    /** {@inheritDoc} 条件移除（到期审计行） */
+    @Override
+    public long purgeExpiredAudits(int batchSize, LocalDateTime threshold) {
+        int removed = 0;
+        synchronized (audits) {
+            var it = audits.iterator();
+            while (it.hasNext() && removed < batchSize) {
+                TunerAuditEntry e = it.next();
+                if (e.getOccurredAt() != null && e.getOccurredAt().isBefore(threshold)) {
+                    it.remove();
+                    removed++;
+                }
+            }
+        }
+        if (removed > 0) {
+            version.incrementAndGet();
+        }
+        return removed;
     }
 }

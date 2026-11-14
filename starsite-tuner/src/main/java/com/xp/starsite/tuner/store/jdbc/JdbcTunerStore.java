@@ -20,9 +20,12 @@ import com.xp.starsite.tuner.api.TunerPreset;
 import com.xp.starsite.tuner.api.TunerWindow;
 import com.xp.starsite.tuner.store.TunerSql;
 import com.xp.starsite.tuner.store.TunerStore;
+import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 import org.slf4j.Logger;
@@ -63,10 +66,11 @@ public class JdbcTunerStore implements TunerStore {
     /** 时间源（审计时刻） */
     private final com.xp.starsite.tuner.clock.TimeSource time;
 
-    /** 预案行映射 */
+    /** 预案行映射（queue_capacity 可 null=不管理语义） */
     private static final RowMapper<TunerPreset> PRESET_MAPPER = (rs, i) -> new TunerPreset(
             rs.getString("preset_name"), rs.getLong("core_size"),
-            rs.getLong("max_size"), rs.getLong("keep_alive_seconds"));
+            rs.getLong("max_size"), rs.getLong("keep_alive_seconds"),
+            rs.getObject("queue_capacity") == null ? null : rs.getLong("queue_capacity"));
 
     /** 窗口行映射 */
     private static final RowMapper<TunerWindow> WINDOW_MAPPER = (rs, i) -> new TunerWindow(
@@ -79,7 +83,9 @@ public class JdbcTunerStore implements TunerStore {
             rs.getString("pool_name"), rs.getString("preset_name"),
             TunerAuditEntry.Source.valueOf(rs.getString("source")),
             rs.getInt("old_core"), rs.getInt("old_max"), rs.getInt("old_keep"),
-            rs.getInt("new_core"), rs.getInt("new_max"), rs.getInt("new_keep"));
+            rs.getInt("new_core"), rs.getInt("new_max"), rs.getInt("new_keep"),
+            rs.getObject("old_queue") == null ? null : rs.getInt("old_queue"),
+            rs.getObject("new_queue") == null ? null : rs.getInt("new_queue"));
 
     /**
      * 全参构造（构造期建表 + 幂等）。
@@ -114,7 +120,78 @@ public class JdbcTunerStore implements TunerStore {
                     log.warn("[starsite-tuner] 建表检查失败（不阻断启动）: {}", e.getMessage());
                 }
             }
-            log.info("[starsite-tuner] 治理三表就绪（前缀 {}）", tablePrefix);
+            verifySchemas();
+            log.info("[starsite-tuner] 治理四表就绪（前缀 {}）", tablePrefix);
+        }
+    }
+
+    /**
+     * 四表结构校验（BUG-009 惯例）：表存在但缺契约列 → 启动期 fail-fast（消息含迁移指引）；
+     * 表不存在/校验查询失败 → 只告警不阻断（DBA/迁移脚本管理形态）。
+     * 实现走 {@code DatabaseMetaData.getColumns}（参数化零 SQL；表名先原名再大写兜底）。
+     *
+     * @throws IllegalStateException 任一表存在但结构陈旧
+     */
+    private void verifySchemas() {
+        javax.sql.DataSource ds = jdbc.getDataSource();
+        if (ds == null) {
+            log.warn("[starsite-tuner] JdbcTemplate 无 DataSource——跳过结构校验");
+            return;
+        }
+        Map<String, java.util.Set<String>> contracts = Map.of(
+                presetTable, java.util.Set.of("ID", "PRESET_NAME", "CORE_SIZE", "MAX_SIZE",
+                        "KEEP_ALIVE_SECONDS", "QUEUE_CAPACITY", "GMT_CREATE", "GMT_MODIFIED"),
+                windowTable, java.util.Set.of("ID", "POOL_NAME", "PRESET_NAME", "START_CRON",
+                        "END_CRON", "GMT_CREATE", "GMT_MODIFIED"),
+                bindingTable, java.util.Set.of("ID", "POOL_NAME", "PRESET_NAME",
+                        "GMT_CREATE", "GMT_MODIFIED"),
+                auditTable, java.util.Set.of("ID", "OCCURRED_AT", "HOST", "POOL_NAME",
+                        "PRESET_NAME", "SOURCE", "OLD_CORE", "OLD_MAX", "OLD_KEEP",
+                        "NEW_CORE", "NEW_MAX", "NEW_KEEP", "OLD_QUEUE", "NEW_QUEUE",
+                        "GMT_CREATE", "GMT_MODIFIED"));
+        for (Map.Entry<String, java.util.Set<String>> contract : contracts.entrySet()) {
+            String table = contract.getKey();
+            java.util.Set<String> actual = new java.util.HashSet<>();
+            try (Connection conn = ds.getConnection()) {
+                collect(conn.getMetaData(), table, actual);
+                if (actual.isEmpty()) {
+                    collect(conn.getMetaData(), table.toUpperCase(), actual);
+                }
+            } catch (Exception e) {
+                log.warn("[starsite-tuner] {} 结构校验查询失败（跳过，不阻断启动）: {}",
+                        table, e.getMessage());
+                continue;
+            }
+            if (actual.isEmpty()) {
+                continue; // 表不存在——DBA/迁移脚本管理
+            }
+            var missing = contract.getValue().stream().filter(c -> !actual.contains(c)).toList();
+            if (!missing.isEmpty()) {
+                throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧。"
+                        + "请按 resources/sql/mysql/tuner_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
+                        .formatted(table, missing));
+            }
+        }
+        log.debug("[starsite-tuner] 四表结构校验通过");
+    }
+
+    /**
+     * 经 JDBC 元数据 API 收集表列名（统一大写）。
+     *
+     * @param meta  元数据
+     * @param table 表名
+     * @param out   收集目标
+     * @throws Exception 元数据访问失败
+     */
+    private static void collect(java.sql.DatabaseMetaData meta, String table,
+                                java.util.Set<String> out) throws Exception {
+        try (ResultSet rs = meta.getColumns(null, null, table, null)) {
+            while (rs.next()) {
+                String name = rs.getString("COLUMN_NAME");
+                if (name != null) {
+                    out.add(name.toUpperCase());
+                }
+            }
         }
     }
 
@@ -127,6 +204,11 @@ public class JdbcTunerStore implements TunerStore {
             ps.setInt(3, preset.getCoreSize());
             ps.setInt(4, preset.getMaxSize());
             ps.setInt(5, preset.getKeepAliveSeconds());
+            if (preset.getQueueCapacity() == null) {
+                ps.setNull(6, java.sql.Types.INTEGER);
+            } else {
+                ps.setInt(6, preset.getQueueCapacity());
+            }
         });
     }
 
@@ -219,6 +301,16 @@ public class JdbcTunerStore implements TunerStore {
             ps.setInt(10, entry.getNewCore());
             ps.setInt(11, entry.getNewMax());
             ps.setInt(12, entry.getNewKeep());
+            if (entry.getOldQueue() == null) {
+                ps.setNull(13, java.sql.Types.INTEGER);
+            } else {
+                ps.setInt(13, entry.getOldQueue());
+            }
+            if (entry.getNewQueue() == null) {
+                ps.setNull(14, java.sql.Types.INTEGER);
+            } else {
+                ps.setInt(14, entry.getNewQueue());
+            }
         });
     }
 
@@ -227,6 +319,22 @@ public class JdbcTunerStore implements TunerStore {
     public List<TunerAuditEntry> recentAudits(int limit) {
         return jdbc.query(render(sql.recentAudits()),
                 ps -> ps.setInt(1, Math.max(1, limit)), AUDIT_MAPPER);
+    }
+
+    /** {@inheritDoc} 两步法批量删除（圈主键 → IN 删除，分片红线合规；满批追赶由引擎负责） */
+    @Override
+    public long purgeExpiredAudits(int batchSize, LocalDateTime threshold) {
+        List<Long> ids = jdbc.query(render(sql.selectExpiredAuditIds()),
+                ps -> {
+                    ps.setTimestamp(1, Timestamp.valueOf(threshold));
+                    ps.setInt(2, Math.max(1, batchSize));
+                }, (rs, i) -> rs.getLong("id"));
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.update(render(sql.deleteAuditByIds())
+                .replace("{idPlaceholders}", placeholders), ids.toArray());
     }
 
     /** {@inheritDoc} */

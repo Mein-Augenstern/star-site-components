@@ -14,6 +14,7 @@
             <arg column="core_size" javaType="java.lang.Integer"/>
             <arg column="max_size" javaType="java.lang.Integer"/>
             <arg column="keep_alive_seconds" javaType="java.lang.Integer"/>
+            <arg column="queue_capacity" javaType="java.lang.Integer"/>
         </constructor>
     </resultMap>
 
@@ -43,6 +44,8 @@
             <arg column="new_core" javaType="java.lang.Integer"/>
             <arg column="new_max" javaType="java.lang.Integer"/>
             <arg column="new_keep" javaType="java.lang.Integer"/>
+            <arg column="old_queue" javaType="java.lang.Integer"/>
+            <arg column="new_queue" javaType="java.lang.Integer"/>
         </constructor>
     </resultMap>
 
@@ -50,6 +53,7 @@
         CREATE TABLE IF NOT EXISTS ${table} (
           id BIGINT NOT NULL, preset_name VARCHAR(64) NOT NULL,
           core_size INT NOT NULL, max_size INT NOT NULL, keep_alive_seconds INT NOT NULL,
+          queue_capacity INT,
           gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id), UNIQUE KEY uk_preset_name (preset_name)
@@ -82,6 +86,7 @@
           source VARCHAR(16) NOT NULL,
           old_core INT NOT NULL, old_max INT NOT NULL, old_keep INT NOT NULL,
           new_core INT NOT NULL, new_max INT NOT NULL, new_keep INT NOT NULL,
+          old_queue INT, new_queue INT,
           gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           PRIMARY KEY (id), KEY idx_audit_pool_time (pool_name, occurred_at)
@@ -89,20 +94,22 @@
     </update>
 
     <insert id="upsertPreset">
-        INSERT INTO ${table} (id, preset_name, core_size, max_size, keep_alive_seconds, gmt_create)
+        INSERT INTO ${table} (id, preset_name, core_size, max_size, keep_alive_seconds,
+                              queue_capacity, gmt_create)
         VALUES (#{seq}, #{row.presetName}, #{row.coreSize}, #{row.maxSize},
-                #{row.keepAliveSeconds}, CURRENT_TIMESTAMP)
+                #{row.keepAliveSeconds}, #{row.queueCapacity}, CURRENT_TIMESTAMP)
         ON DUPLICATE KEY UPDATE core_size = VALUES(core_size), max_size = VALUES(max_size),
-                                keep_alive_seconds = VALUES(keep_alive_seconds)
+                                keep_alive_seconds = VALUES(keep_alive_seconds),
+                                queue_capacity = VALUES(queue_capacity)
     </insert>
 
     <select id="findPreset" resultMap="presetRow">
-        SELECT preset_name, core_size, max_size, keep_alive_seconds
+        SELECT preset_name, core_size, max_size, keep_alive_seconds, queue_capacity
         FROM ${table} WHERE preset_name = #{name}
     </select>
 
     <select id="listPresets" resultMap="presetRow">
-        SELECT preset_name, core_size, max_size, keep_alive_seconds
+        SELECT preset_name, core_size, max_size, keep_alive_seconds, queue_capacity
         FROM ${table} ORDER BY preset_name
     </select>
 
@@ -146,17 +153,28 @@
 
     <insert id="appendAudit">
         INSERT INTO ${table} (id, occurred_at, host, pool_name, preset_name, source,
-                              old_core, old_max, old_keep, new_core, new_max, new_keep, gmt_create)
+                              old_core, old_max, old_keep, new_core, new_max, new_keep,
+                              old_queue, new_queue, gmt_create)
         VALUES (#{row.id}, #{row.occurredAt}, #{row.host}, #{row.poolName}, #{row.presetName},
                 #{row.source}, #{row.oldCore}, #{row.oldMax}, #{row.oldKeep},
-                #{row.newCore}, #{row.newMax}, #{row.newKeep}, CURRENT_TIMESTAMP)
+                #{row.newCore}, #{row.newMax}, #{row.newKeep},
+                #{row.oldQueue}, #{row.newQueue}, CURRENT_TIMESTAMP)
     </insert>
 
     <select id="recentAudits" resultMap="auditRow">
         SELECT id, occurred_at, host, pool_name, preset_name, source,
-               old_core, old_max, old_keep, new_core, new_max, new_keep
+               old_core, old_max, old_keep, new_core, new_max, new_keep, old_queue, new_queue
         FROM ${table} ORDER BY occurred_at DESC, id DESC LIMIT #{limit}
     </select>
+
+    <select id="selectExpiredAuditIds" resultType="long">
+        SELECT id FROM ${table} WHERE occurred_at &lt; #{threshold} LIMIT #{batchSize}
+    </select>
+
+    <delete id="deleteAuditByIds">
+        DELETE FROM ${table} WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
 
     <select id="versionStamp" resultType="string">
         SELECT CAST(GREATEST(

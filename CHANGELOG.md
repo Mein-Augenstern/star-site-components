@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   交付当天巡检质询补修：applyPool 的"读现值→比 lastApplied→调 setter→写审计"在
   poll/admin/register 三路并发下非原子（双读旧值=重复审计假变更）——per-pool 锁
   串行化修复 + 8 线程并发 reload 恰 1 条审计锁定测试。
+- **tuner v0.2（V2 全量）**：① 可变容量队列 ResizableCapacityLinkedBlockingQueue
+  （OpenJDK 两锁算法拷贝，capacity volatile + setCapacity——收缩软水位线不驱逐；
+  并发准入精确性 16 线程恰满测试）② 生效优先级补自适应层（冷却防抖，命中改写审计
+  source=ADAPTIVE——审计流如实记录日历/紧急/手动完整历史）③ 三 SPI：
+  TunerAdaptiveRule（健康度联动——规则业务定）/ TunerApprovalHook（变更审批门，
+  DENY 不应用不审计）/ TunerAlarmHook（活跃度/队列水位越阈告警，冷却防风暴）④
+  审计 retention（默认关，两步法清理）+ 四表 schema 校验（BUG-009 补账）。
+  编码期实证修 4 处：RCLBQ take/poll/drainTo 的条件锁归属（IllegalMonitorStateException
+  连抓——notFull 属 putLock）/ snapshotOf⇄resolveTarget 无限递归（StackOverflowError——
+  base 解析层断环）/ Memory 审计重包装丢队列字段 / 自适应 source 标记错位。
 - **quota 组件 v0.1（六号组件，2026-11-14）**：余额型配额——防超额的通用内核
   （信贷"防超贷"痛点剥领域后的抽象：额度/库存/席位/保证金/令牌池同一抽象）。
   五原子操作（占用/释放/冻结/解冻/冻结转占用单语句换位）+ 恒不变式

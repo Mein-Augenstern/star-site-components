@@ -18,6 +18,7 @@ package com.xp.starsite.tuner;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import com.xp.starsite.tuner.clock.TimeSource;
 import com.xp.starsite.tuner.core.TunerEngine;
+import com.xp.starsite.tuner.core.TunerOptions;
 import com.xp.starsite.tuner.health.TunerHealthIndicator;
 import com.xp.starsite.tuner.store.TunerSql;
 import com.xp.starsite.tuner.store.TunerStore;
@@ -97,16 +98,46 @@ public class TunerAutoConfiguration {
     }
 
     /**
+     * 装配引擎 V2 选项（钩子/自适应规则由应用 Bean 提供——@ConditionalOnMissingBean 让位
+     * 语义不适用 SPI 集合，ObjectProvider 注入即可）。
+     *
+     * @param props          配置
+     * @param approvalHook   审批钩子（可缺）
+     * @param alarmHook      告警钩子（可缺）
+     * @param adaptiveRules  自适应规则流（可缺）
+     * @return 选项
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public TunerOptions tunerOptions(TunerProperties props,
+                                     ObjectProvider<com.xp.starsite.tuner.api.TunerApprovalHook> approvalHook,
+                                     ObjectProvider<com.xp.starsite.tuner.api.TunerAlarmHook> alarmHook,
+                                     ObjectProvider<com.xp.starsite.tuner.api.TunerAdaptiveRule> adaptiveRules) {
+        return TunerOptions.builder()
+                .approvalHook(approvalHook.getIfAvailable())
+                .alarmHook(alarmHook.getIfAvailable())
+                .adaptiveRules(adaptiveRules.stream().toList())
+                .alarmActiveRatio(props.getAlarmActiveRatio())
+                .alarmQueueRatio(props.getAlarmQueueRatio())
+                .alarmCooldown(props.getAlarmCooldown())
+                .adaptiveCooldown(props.getAdaptiveCooldown())
+                .auditRetentionDays(props.getAuditRetentionDays())
+                .auditPurgeBatch(props.getAuditPurgeBatch())
+                .build();
+    }
+
+    /**
      * 装配引擎（{@link com.xp.starsite.tuner.api.TunerClient} 门面本体）。
      *
-     * @param store 治理存储
-     * @param props 配置
+     * @param store   治理存储
+     * @param props   配置
+     * @param options V2 选项
      * @return 引擎
      */
     @Bean
     @ConditionalOnMissingBean
-    public TunerEngine tunerEngine(TunerStore store, TunerProperties props) {
-        return new TunerEngine(store, TimeSource.system(), ZoneId.of(props.getZone()));
+    public TunerEngine tunerEngine(TunerStore store, TunerProperties props, TunerOptions options) {
+        return new TunerEngine(store, TimeSource.system(), ZoneId.of(props.getZone()), options);
     }
 
     /**

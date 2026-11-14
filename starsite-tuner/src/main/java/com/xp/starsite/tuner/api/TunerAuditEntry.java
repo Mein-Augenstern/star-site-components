@@ -27,12 +27,14 @@ import java.time.LocalDateTime;
  */
 public class TunerAuditEntry {
 
-    /** 触发源：SCHEDULE（窗口切换）/ MANUAL（admin 手动 reload）/ STARTUP（启动基线对齐） */
+    /** 触发源：SCHEDULE（窗口切换）/ MANUAL（admin 手动 reload）/ ADAPTIVE（自适应规则命中）/ STARTUP（启动基线对齐） */
     public enum Source {
         /** 窗口/绑定经轮询自动生效 */
         SCHEDULE,
         /** admin 手动触发 reload */
         MANUAL,
+        /** 自适应规则命中（V2——冷却窗口内生效） */
+        ADAPTIVE,
         /** 启动时对齐当前应生效参数 */
         STARTUP
     }
@@ -73,6 +75,12 @@ public class TunerAuditEntry {
     /** 新保活秒 */
     private final int newKeep;
 
+    /** 旧队列容量（V2；null=不涉及队列变更/不管理） */
+    private final Integer oldQueue;
+
+    /** 新队列容量（V2；null=不涉及队列变更/不管理） */
+    private final Integer newQueue;
+
     /**
      * 全参构造（引擎写入与存储装配共用；Long 形态适配 MyBatis）。
      *
@@ -93,6 +101,33 @@ public class TunerAuditEntry {
                            String presetName, Source source,
                            Integer oldCore, Integer oldMax, Integer oldKeep,
                            Integer newCore, Integer newMax, Integer newKeep) {
+        this(id, occurredAt, host, poolName, presetName, source,
+                oldCore, oldMax, oldKeep, newCore, newMax, newKeep, null, null);
+    }
+
+    /**
+     * V2 全参构造（含队列容量审计；v1 形态经上构造器转发）。
+     *
+     * @param id         审计 id
+     * @param occurredAt 变更时刻
+     * @param host       实例标识
+     * @param poolName   池名
+     * @param presetName 预案名
+     * @param source     触发源
+     * @param oldCore    旧核心数
+     * @param oldMax     旧最大数
+     * @param oldKeep    旧保活秒
+     * @param newCore    新核心数
+     * @param newMax     新最大数
+     * @param newKeep    新保活秒
+     * @param oldQueue   旧队列容量（可 null=不涉及）
+     * @param newQueue   新队列容量（可 null=不涉及）
+     */
+    public TunerAuditEntry(Long id, LocalDateTime occurredAt, String host, String poolName,
+                           String presetName, Source source,
+                           Integer oldCore, Integer oldMax, Integer oldKeep,
+                           Integer newCore, Integer newMax, Integer newKeep,
+                           Integer oldQueue, Integer newQueue) {
         this.id = id == null ? 0L : id;
         this.occurredAt = occurredAt;
         this.host = host;
@@ -105,6 +140,8 @@ public class TunerAuditEntry {
         this.newCore = newCore == null ? 0 : newCore;
         this.newMax = newMax == null ? 0 : newMax;
         this.newKeep = newKeep == null ? 0 : newKeep;
+        this.oldQueue = oldQueue;
+        this.newQueue = newQueue;
     }
 
     /**
@@ -213,5 +250,23 @@ public class TunerAuditEntry {
      */
     public int getNewKeep() {
         return newKeep;
+    }
+
+    /**
+     * 获取旧队列容量。
+     *
+     * @return 旧队列容量；null=不涉及
+     */
+    public Integer getOldQueue() {
+        return oldQueue;
+    }
+
+    /**
+     * 获取新队列容量。
+     *
+     * @return 新队列容量；null=不涉及
+     */
+    public Integer getNewQueue() {
+        return newQueue;
     }
 }

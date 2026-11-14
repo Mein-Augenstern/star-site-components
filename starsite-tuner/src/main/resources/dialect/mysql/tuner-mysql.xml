@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS {presetTable} (
   core_size          INT          NOT NULL COMMENT '核心线程数',
   max_size           INT          NOT NULL COMMENT '最大线程数',
   keep_alive_seconds INT          NOT NULL COMMENT '空闲保活秒',
+  queue_capacity     INT          NULL COMMENT '队列容量（null=不管理队列容量；V2 可变容量队列）',
   gmt_create         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   gmt_modified       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (id),
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS {auditTable} (
   new_core           INT          NOT NULL COMMENT '新核心数',
   new_max            INT          NOT NULL COMMENT '新最大数',
   new_keep           INT          NOT NULL COMMENT '新保活秒',
+  old_queue          INT          NULL COMMENT '旧队列容量（null=不涉及；V2）',
+  new_queue          INT          NULL COMMENT '新队列容量（null=不涉及；V2）',
   gmt_create         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   gmt_modified       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   PRIMARY KEY (id),
@@ -78,23 +81,24 @@ CREATE TABLE IF NOT EXISTS {auditTable} (
 
     <statement id="upsertPreset" note="按名幂等 upsert（uk 冲突转更新——治理面重复提交安全）">
         <![CDATA[
-INSERT INTO {presetTable} (id, preset_name, core_size, max_size, keep_alive_seconds, gmt_create)
-VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+INSERT INTO {presetTable} (id, preset_name, core_size, max_size, keep_alive_seconds, queue_capacity, gmt_create)
+VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
 ON DUPLICATE KEY UPDATE core_size = VALUES(core_size), max_size = VALUES(max_size),
-                        keep_alive_seconds = VALUES(keep_alive_seconds)
+                        keep_alive_seconds = VALUES(keep_alive_seconds),
+                        queue_capacity = VALUES(queue_capacity)
         ]]>
     </statement>
 
     <statement id="findPreset" note="预案点查">
         <![CDATA[
-SELECT preset_name, core_size, max_size, keep_alive_seconds
+SELECT preset_name, core_size, max_size, keep_alive_seconds, queue_capacity
 FROM {presetTable} WHERE preset_name = ?
         ]]>
     </statement>
 
     <statement id="listPresets" note="全部预案">
         <![CDATA[
-SELECT preset_name, core_size, max_size, keep_alive_seconds
+SELECT preset_name, core_size, max_size, keep_alive_seconds, queue_capacity
 FROM {presetTable} ORDER BY preset_name
         ]]>
     </statement>
@@ -153,15 +157,15 @@ ORDER BY pool_name, id
         <![CDATA[
 INSERT INTO {auditTable}
   (id, occurred_at, host, pool_name, preset_name, source,
-   old_core, old_max, old_keep, new_core, new_max, new_keep, gmt_create)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+   old_core, old_max, old_keep, new_core, new_max, new_keep, old_queue, new_queue, gmt_create)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
         ]]>
     </statement>
 
     <statement id="recentAudits" note="最近审计（新→旧；occurred_at 倒序）">
         <![CDATA[
 SELECT id, occurred_at, host, pool_name, preset_name, source,
-       old_core, old_max, old_keep, new_core, new_max, new_keep
+       old_core, old_max, old_keep, new_core, new_max, new_keep, old_queue, new_queue
 FROM {auditTable} ORDER BY occurred_at DESC, id DESC LIMIT ?
         ]]>
     </statement>
@@ -174,6 +178,18 @@ SELECT GREATEST(
   COALESCE((SELECT MAX(gmt_modified) FROM {bindingTable}), '1970-01-01'),
   COALESCE((SELECT MAX(gmt_modified) FROM {auditTable}), '1970-01-01')
 ) AS stamp
+        ]]>
+    </statement>
+
+    <statement id="selectExpiredAuditIds" note="审计 retention 第一步：圈到期行主键（occurred_at 命中 idx_ta_pool_time 退化扫描可接受——低频卫生任务；两步法分片红线合规）">
+        <![CDATA[
+SELECT id FROM {auditTable} WHERE occurred_at < ? LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="deleteAuditByIds" note="审计 retention 第二步：按主键集合删除（{idPlaceholders} 由存储层按选中条数渲染——占位符非值）">
+        <![CDATA[
+DELETE FROM {auditTable} WHERE id IN ({idPlaceholders})
         ]]>
     </statement>
 

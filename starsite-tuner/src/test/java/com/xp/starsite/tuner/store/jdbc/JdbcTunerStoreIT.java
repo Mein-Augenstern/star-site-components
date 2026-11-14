@@ -140,6 +140,28 @@ class JdbcTunerStoreIT {
                 .isGreaterThanOrEqualTo(before);
     }
 
+    /** 审计 retention：到期行两步清理（真 MySQL），未到期保留 */
+    @Test
+    void auditRetentionPurge() {
+        long before = store.versionStamp();
+        store.appendAudit(new TunerAuditEntry(null, LocalDateTime.of(2020, 1, 1, 0, 0),
+                "old-host", "it:retire", "old", TunerAuditEntry.Source.SCHEDULE,
+                1, 1, 1, 2, 2, 2));
+        store.appendAudit(new TunerAuditEntry(null, LocalDateTime.now().plusDays(1),
+                "new-host", "it:retire", "new", TunerAuditEntry.Source.SCHEDULE,
+                1, 1, 1, 2, 2, 2));
+        long purged = store.purgeExpiredAudits(500,
+                LocalDateTime.now().minusDays(7)); // 2020 行到期，明天行保留
+        assertThat(purged).isEqualTo(1);
+        var remaining = store.recentAudits(10);
+        assertThat(remaining).extracting(TunerAuditEntry::getHost)
+                .containsExactly("new-host");
+        assertThat(store.versionStamp()).isGreaterThanOrEqualTo(before);
+        // 收尾自清理（用例间数据隔离——JUnit 方法序不保证）
+        store.purgeExpiredAudits(500, LocalDateTime.now().plusDays(2));
+        assertThat(store.recentAudits(10)).isEmpty();
+    }
+
     /** 表前缀白名单 */
     @Test
     void tablePrefixWhitelist() {

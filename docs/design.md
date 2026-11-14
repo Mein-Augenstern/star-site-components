@@ -170,3 +170,22 @@ sequence 的 `allocator.mysql` / `allocator.redis` / `allocator.standalone`。
 4. 交付当天用户质询并发安全：applyPool 读-比-写-审计四步在 poll/admin/register 三路
    并发下非原子（双读旧值=重复审计假变更行）——per-pool 锁串行化修复；教训：组件的
    审计类承诺必须覆盖"谁在并发调用我"的完整清单
+
+## D17 · tuner V2：两锁算法拷贝的三个条件锁坑 + 自适应优先级（2026-11-14）
+
+**决策**：V2 交付可变容量队列（美团方案原样拷贝 OpenJDK 两锁算法）+ 自适应层
+（冷却防抖，优先级压过日历）+ 审批/告警双钩子。生效优先级完整链：**自适应（冷却期内）
+> 窗口 > 默认绑定 > 基线**——自适应命中改写审计 source，审计流如实记录变更的
+"日历/紧急/手动"完整历史（合规审计要的是真实，不是聚合）。
+**为什么**：信贷"通道恶化→降并发保护"的决策规则是业务的，但"规则命中→预案应用→
+冷却防抖→审计留痕"的骨架是通用的——SPI 划线规则同 D15。
+
+**编码期四个实证（两锁算法拷贝的正确性代价）**：
+1. take/poll 在 takeLock 段内误 signal notFull（属 putLock）——IllegalMonitorStateException
+   ×2；drainTo 同款第三处。教训：**两锁结构的条件唤醒必须核对自己持哪把锁**——
+   原版用"解锁后 signalX"模式正是为此
+2. snapshotOf⇄resolveTarget 无限递归（StackOverflowError）——自适应规则要快照、
+   快照要目标、目标又要规则。断环：base 解析层（窗口+绑定，无自适应）供快照复用
+3. Memory 审计重包装走 12 参构造器丢队列字段——重包装必须走最新全参构造
+4. 自适应命中但审计 source 仍标 SCHEDULE——TargetResolution(preset, source) 把
+   实际来源随解析结果带回，requested source 只是默认值

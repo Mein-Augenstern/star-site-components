@@ -1,6 +1,6 @@
 # tuner · 参数预案与治理（动态线程池）
 
-> **状态：已实现 v0.1（2026-11-14——core+starter 双模块 21 项测试全绿；真库 IT 见 JdbcTunerStoreIT）**
+> **状态：已实现 v0.2（2026-11-14——V2 全量：可变容量队列/健康度联动/审批门/告警/retention；core+starter 29 项测试全绿 + 真库 IT 6 项）**
 > [← 返回概览](../README.md)
 
 **一句话**：没有配置中心的团队的动态线程池治理——**预案按时段自动生效 + 变更审计留痕**，
@@ -97,6 +97,12 @@ curl -X POST .../tuner/reload   # 立即生效（与自动轮询同一路径，�
 | `admin-enabled` | false | 治理端点开关（Web 应用才装配） |
 | `admin-base-path` | /api/admin/tuner | 端点基础路径 |
 | `admin-token` | 空 | 内置守卫 token（空=自定义 Guard 或放行+WARN——async 三级鉴权同款） |
+| `alarm-active-ratio` | 0.9 | 活跃度告警阈值（活跃/max；≥1.1 禁用） |
+| `alarm-queue-ratio` | 0.8 | 队列水位告警阈值（仅可变容量队列） |
+| `alarm-cooldown-minutes` | 5 | 告警冷却（同池同类型防风暴） |
+| `adaptive-cooldown-minutes` | 2 | 自适应冷却（防规则抖动） |
+| `audit-retention-days` | 0 | 审计保留天数（0=不清理——合规默认长保留） |
+| `audit-purge-batch` | 500 | 审计清理批量 |
 
 ## 5. 测试矩阵（21 项 + 真库 IT 5 项）
 
@@ -106,9 +112,46 @@ curl -X POST .../tuner/reload   # 立即生效（与自动轮询同一路径，�
 | 方言语句键/建表契约/双载体对齐/memory versionStamp 单调 | TunerSqlMySqlTest ×4 |
 | MyBatis H2 CRUD/映射/前缀白名单 | MyBatisTunerStoreTest ×2 |
 | 装配：端到端生效/让位/jdbc 形态（H2 四表）/健康明细 | TunerAutoConfigurationTest ×4 |
-| 真库：upsert 幂等（ON DUPLICATE KEY）/窗口 CRUD/绑定/审计/versionStamp 秒级精度/前缀白名单 | JdbcTunerStoreIT（-Pit） |
+| RCLBQ：并发准入精确（16 线程×100 恰 100 入）/收缩软水位线/扩容唤醒/put-take 往返/非法容量/TPE 集成拒绝 | ResizableCapacityLinkedBlockingQueueTest ×7 |
+| V2 引擎：队列应用+审计队列列/普通队列 WARN 跳过/审批 DENY 不应用不审计/自适应 ADAPTIVE 源+冷却回退+审计流/告警触发+冷却/retention 只清到期 | TunerEngineV2Test ×6 |
+| 真库：upsert 幂等/窗口 CRUD/绑定/审计/versionStamp/**retention 两步清理**/前缀白名单 | JdbcTunerStoreIT（-Pit）6 项 |
 
-## 6. 演进路径
+## 6. V2 能力（2026-11-14 已交付）
 
-- **v2**：美团可变容量队列（`ResizableCapacityLinkedBlockingQueue`——队列容量热调）；健康度联动自动切预案（阈值→预案的 SPI 决策规则）；审批钩子 SPI（变更前回调业务侧流程）；审计 retention
+### 6.1 可变容量队列（美团方案）
+
+`ResizableCapacityLinkedBlockingQueue`（OpenJDK 两锁算法拷贝，capacity 改 volatile +
+setCapacity）：给 TPE 提供运行时可调背压水位。构造池时用它，预案带 `queueCapacity`
+即热调——**收缩=软水位线**（已入队元素不丢弃，仅拒新元素直至消化到新容量）。
+
+```java
+// 受管池用可变容量队列
+var pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS,
+        new ResizableCapacityLinkedBlockingQueue<>(100));
+tuner.register("channel-daikou", pool);
+// 预案带 queueCapacity → poll 到点自动热调（普通队列 WARN 跳过不炸）
+tuner.upsertPreset(new TunerPreset("repayday", 80, 200, 60, 5000));
+```
+
+### 6.2 生效优先级（V2 完整链）
+
+**自适应命中（冷却期内）> 窗口 > 默认绑定 > 基线**。自适应规则命中改写审计 source
+（ADAPTIVE）——审计流如实记录"日历切换/紧急保护/手动"的完整历史。
+
+### 6.3 三个 SPI（业务语义留给业务）
+
+| SPI | 时机 | 信贷语义 |
+|---|---|---|
+| `TunerAdaptiveRule` | 每轮 poll 求值（冷却防抖） | 通道 RT 恶化→降并发保护；恢复→回升（决策规则业务定） |
+| `TunerApprovalHook` | 变更应用前（DENY 即跳过） | 双人复核/还款日窗口禁改/预案依据说明（流程业务定） |
+| `TunerAlarmHook` | 活跃度/队列水位越阈（冷却防风暴） | "拒绝前预警"推钉钉/飞书（通道业务定） |
+
+### 6.4 审计 retention + schema 校验
+
+`audit-retention-days`（默认 0=不清理，合规长保留）+ 到期两步法清理；
+建表带四表结构校验（BUG-009 惯例：表存在缺列启动期 fail-fast 含迁移指引）。
+
+## 7. 演进路径
+
+- **v3 议题**：自适应规则持久化（当前仅 Bean 声明式）；告警通道内置（钉钉/飞书 webhook 预置）；池参数建议器（基线+流量画像）
 - **何时不用**：已有 Nacos/Apollo → DynamicTp 更全（三方中间件池适配深）；池多到要治理平台 → Hippo4j Server

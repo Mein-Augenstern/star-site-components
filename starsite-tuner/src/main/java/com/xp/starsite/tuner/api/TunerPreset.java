@@ -16,13 +16,18 @@
 package com.xp.starsite.tuner.api;
 
 /**
- * 参数预案（命名参数集——tuner_preset 行）：core/max/keepAlive 三元组。
+ * 参数预案（命名参数集——tuner_preset 行）：core/max/keepAlive + queueCapacity（V2）。
  * 语义（金融信贷方法论）：预案 = "还款日扩容档 / 日常档 / 日终批档"——提前配置、
  * 按窗口切换、一键回滚。
  *
- * <p><b>契约</b>：对<b>有界队列</b>池，core/max/keepAlive 三参数全部有效；
- * 对无界 LinkedBlockingQueue 池，max 不参与扩容（队列无界时不增长到 max）——
- * 调参收益只来自 core/keepAlive（ loudly 写明：有界队列池才值得治理）。
+ * <p><b>契约</b>：
+ * <ul>
+ *   <li>core/max/keepAlive 对<b>有界队列</b>池全部有效；无界 LinkedBlockingQueue 池
+ *       的 max 不参与扩容（loudly 写明：有界队列池才值得治理）</li>
+ *   <li>{@code queueCapacity}（V2）：null = 不管理队列容量；非 null 时受管池的队列
+ *       必须是 {@link com.xp.starsite.tuner.queue.ResizableCapacityLinkedBlockingQueue}
+ *       （构造池时用 {@code TunerQueues.resizable(n)}），否则 WARN 跳过</li>
+ * </ul>
  *
  * @author muyi
  * @date 2026/11/14
@@ -41,8 +46,11 @@ public class TunerPreset {
     /** 空闲保活（秒） */
     private final int keepAliveSeconds;
 
+    /** 队列容量（null=不管理队列容量；非 null 要求池队列为可变容量队列） */
+    private final Integer queueCapacity;
+
     /**
-     * 业务形态构造（原始 int）。
+     * V1 形态构造（不管理队列容量——兼容既有调用）。
      *
      * @param presetName       预案名
      * @param coreSize         核心线程数
@@ -50,29 +58,48 @@ public class TunerPreset {
      * @param keepAliveSeconds 空闲保活秒
      */
     public TunerPreset(String presetName, int coreSize, int maxSize, int keepAliveSeconds) {
+        this(presetName, coreSize, maxSize, keepAliveSeconds, null);
+    }
+
+    /**
+     * V2 形态构造（含队列容量）。
+     *
+     * @param presetName       预案名
+     * @param coreSize         核心线程数
+     * @param maxSize          最大线程数（>= coreSize）
+     * @param keepAliveSeconds 空闲保活秒
+     * @param queueCapacity    队列容量（null=不管理；非 null 要求池队列为可变容量队列）
+     */
+    public TunerPreset(String presetName, int coreSize, int maxSize, int keepAliveSeconds,
+                       Integer queueCapacity) {
         this.presetName = presetName;
         this.coreSize = coreSize;
         this.maxSize = maxSize;
         this.keepAliveSeconds = keepAliveSeconds;
+        this.queueCapacity = queueCapacity;
     }
 
     /**
-     * MyBatis 映射形态构造（包装类型——反射按包装类型找构造器，null 防 0；家族同形）。
+     * MyBatis 映射形态构造（包装类型——反射按包装类型找构造器，null 防 0/防不管理语义）。
      *
      * @param presetName       预案名
      * @param coreSize         核心线程数（可 null——视为 0）
      * @param maxSize          最大线程数（可 null）
      * @param keepAliveSeconds 保活秒（可 null）
+     * @param queueCapacity    队列容量（可 null=不管理）
      */
-    public TunerPreset(String presetName, Long coreSize, Long maxSize, Long keepAliveSeconds) {
+    public TunerPreset(String presetName, Long coreSize, Long maxSize, Long keepAliveSeconds,
+                       Long queueCapacity) {
         this(presetName,
                 coreSize == null ? 0 : coreSize.intValue(),
                 maxSize == null ? 0 : maxSize.intValue(),
-                keepAliveSeconds == null ? 0 : keepAliveSeconds.intValue());
+                keepAliveSeconds == null ? 0 : keepAliveSeconds.intValue(),
+                queueCapacity == null ? null : queueCapacity.intValue());
     }
 
     /**
-     * 校验预案合法性（写入期 fail-fast：core 正数、max>=core、keepAlive>=0）。
+     * 校验预案合法性（写入期 fail-fast：core 正数、max>=core、keepAlive>=0、
+     * queueCapacity 为正或 null）。
      *
      * @throws IllegalArgumentException 参数非法
      */
@@ -89,6 +116,9 @@ public class TunerPreset {
         }
         if (keepAliveSeconds < 0) {
             throw new IllegalArgumentException("保活秒不可为负: " + presetName);
+        }
+        if (queueCapacity != null && queueCapacity <= 0) {
+            throw new IllegalArgumentException("队列容量必须为正或 null（不管理）: " + presetName);
         }
     }
 
@@ -126,5 +156,14 @@ public class TunerPreset {
      */
     public int getKeepAliveSeconds() {
         return keepAliveSeconds;
+    }
+
+    /**
+     * 获取队列容量。
+     *
+     * @return 队列容量；null=不管理队列容量
+     */
+    public Integer getQueueCapacity() {
+        return queueCapacity;
     }
 }

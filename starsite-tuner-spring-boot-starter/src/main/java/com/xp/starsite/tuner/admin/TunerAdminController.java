@@ -93,11 +93,13 @@ public class TunerAdminController {
         if (!guard(request)) {
             return Map.of("ok", false, "message", "forbidden");
         }
+        Object queueRaw = body.get("queueCapacity");
         var preset = new com.xp.starsite.tuner.api.TunerPreset(
                 String.valueOf(body.get("name")),
                 ((Number) body.get("core")).intValue(),
                 ((Number) body.get("max")).intValue(),
-                ((Number) body.getOrDefault("keepAliveSeconds", 60)).intValue());
+                ((Number) body.getOrDefault("keepAliveSeconds", 60)).intValue(),
+                queueRaw == null ? null : ((Number) queueRaw).intValue());
         client.upsertPreset(preset);
         return Map.of("ok", true);
     }
