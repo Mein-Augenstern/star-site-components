@@ -14,7 +14,7 @@
   <artifactId>demo-spring-boot</artifactId>
   <version>0.1.0</version>
   <name>demo-spring-boot</name>
-  <description>Minimal demo showing all four starsite-components working together</description>
+  <description>Minimal demo showing all five starsite-components working together</description>
 
   <properties>
     <java.version>17</java.version>
@@ -39,6 +39,11 @@
     <dependency>
       <groupId>com.xp.starsite</groupId>
       <artifactId>starsite-schedule-spring-boot-starter</artifactId>
+      <version>0.2.3</version>
+    </dependency>
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-idempotent-spring-boot-starter</artifactId>
       <version>0.2.3</version>
     </dependency>
     <dependency>

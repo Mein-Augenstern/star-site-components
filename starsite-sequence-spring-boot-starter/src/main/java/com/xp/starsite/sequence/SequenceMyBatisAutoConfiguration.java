@@ -94,16 +94,56 @@ public class SequenceMyBatisAutoConfiguration {
                 : appName + "@" + ProcessHandle.current().pid();
         SqlSessionTemplate sessionTemplate = new SqlSessionTemplate(sqlSessionFactory);
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager.getObject());
-        // 审计行主键 id 生成器：优先 sequence 门面；缺省回退服务名派生 workerId 的自举雪花
-        // （固定值如恒为 1 会让多服务审计行在主键互撞并经 ON DUPLICATE KEY 交叉覆盖，不可用）
-        StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
-        LongSupplier idGenerator = idGen != null
-                ? idGen::next
-                : bootstrapIdGenerator(appName);
+        // 审计行主键 id 生成器：惰性解析（分配时才取发号器）——工厂期急切解析会与
+        // 发号器装配成环（发号器要拿分配器分配机器位，分配器又要拿发号器写审计行主键）。
+        // 分配发生在发号器创建期内 → 取不到（创建中）→ 回退自举雪花（固定值如恒为 1
+        // 会让多服务审计行主键互撞并经 ON DUPLICATE KEY 交叉覆盖，不可用）
+        LongSupplier idGenerator = lazyIdGenerator(idGenProvider, appName);
         return new MyBatisMysqlWorkerIdAllocator(
                 mapper, sessionTemplate, txTemplate,
                 props.getTableName(), appName, instanceTag,
                 props.getWorkerIdBits(), props.getWraparoundPolicy().name(), idGenerator);
+    }
+
+    /**
+     * 惰性审计行发号：每次分配时解析发号器门面，解析不到（创建中/缺位）回退自举雪花
+     * （自举实例缓存一次——服务名派生 workerId 恒定，反复 new 只浪费）。
+     *
+     * @param idGenProvider 发号器惰性提供器
+     * @param appName       服务名（自举雪花 workerId 种子）
+     * @return 惰性 id 生成 supplier
+     */
+    private static LongSupplier lazyIdGenerator(ObjectProvider<StarsiteIdGenerator> idGenProvider,
+                                                String appName) {
+        return new LongSupplier() {
+            /** 自举雪花（缺位回退，缓存一次） */
+            private volatile LongSupplier bootstrap;
+
+            @Override
+            public long getAsLong() {
+                StarsiteIdGenerator gen = null;
+                try {
+                    gen = idGenProvider.getIfAvailable();
+                } catch (Exception e) {
+                    // 创建中解析失败按缺位处理——自举兜底，不让租约装配炸在鸡生蛋上
+                    gen = null;
+                }
+                if (gen != null) {
+                    return gen.next();
+                }
+                LongSupplier fallback = this.bootstrap;
+                if (fallback == null) {
+                    synchronized (this) {
+                        fallback = this.bootstrap;
+                        if (fallback == null) {
+                            fallback = bootstrapIdGenerator(appName);
+                            this.bootstrap = fallback;
+                        }
+                    }
+                }
+                return fallback.getAsLong();
+            }
+        };
     }
 
     /**

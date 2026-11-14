@@ -90,7 +90,7 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 ## 构建与测试
 
 ```bash
-mvn verify          # Spotless 门禁 + 全量单测（120 项）
+mvn verify          # Spotless 门禁 + 全量单测（总数见上方权威口径行）
 ./mvnw verify -Pit     # 真库 IT（Testcontainers MySQL）
 ./mvnw spotless:apply  # 规范自动修复
 ```

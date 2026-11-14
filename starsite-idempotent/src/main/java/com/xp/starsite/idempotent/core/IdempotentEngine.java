@@ -127,7 +127,7 @@ public class IdempotentEngine implements IdempotentClient {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             LocalDateTime now = time.now();
             ClaimOutcome claim = store.tryClaim(normalizedScope, normalizedKey,
-                    now.plus(keyTtl), host);
+                    windowEnd(now), host);
             if (claim.claimed()) {
                 return runAction(claim.record(), action);
             }
@@ -174,7 +174,7 @@ public class IdempotentEngine implements IdempotentClient {
             // 回收路径（FAILED 新请求 / 过期 DONE / 停滞 PROCESSING）——原子决出认领者
             LocalDateTime reclaimAt = time.now();
             Optional<IdempotentRecord> reclaimed = store.tryReclaim(normalizedScope,
-                    normalizedKey, reclaimAt.plus(keyTtl), reclaimAt,
+                    normalizedKey, windowEnd(reclaimAt), reclaimAt,
                     reclaimAt.minus(processingStale), host);
             if (reclaimed.isPresent()) {
                 log.info("[starsite-idempotent] 回收 {}#{} 再执行（前态 {}）", normalizedScope,
@@ -253,6 +253,20 @@ public class IdempotentEngine implements IdempotentClient {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    /**
+     * 键记忆窗口边界：now + keyTtl <b>归整到秒</b>——代际令牌的等值比对要求引擎持有值
+     * 与存储落库值完全一致；MySQL DATETIME 默认秒精度会把纳秒截断（demo 实证：complete
+     * 的 expire_at 等值条件永不命中，终态落不下去）。归整到秒后三种存储形态（DATETIME/
+     * 定长 ISO/memory）令牌一致。同秒重复代际不可能：回收距上次认领至少 processing-stale
+     * （默认 120s），两代窗口边界必差整分钟级。
+     *
+     * @param now 当前时刻
+     * @return 归整到秒的窗口边界
+     */
+    private LocalDateTime windowEnd(LocalDateTime now) {
+        return now.plus(keyTtl).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
     }
 
     /** 失败摘要：类型+消息，截断 500 */

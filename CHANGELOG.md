@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 五号组件 idempotent 落地 + 全组件扩展口子统一 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
 
+### Fixed
+- **idempotent 代际令牌时序精度 bug**（demo 实证）：引擎用带纳秒的 LocalDateTime 做键
+  窗口边界，MySQL DATETIME 秒精度截断后 complete 的 expire_at 等值条件永不命中——
+  终态落不下去（行滞留 PROCESSING，后续同键请求等成 CONFLICT）。修法：窗口边界统一
+  归整到秒（windowEnd），代际令牌在 DATETIME/定长 ISO/memory 三形态精度一致
+- **sequence 装配循环依赖**（demo 实证）：扩展口拉齐后主发号器急切解析分配器 Bean，
+  MyBatis 分配器工厂又急切解析发号器写审计行主键——环。修法：MyBatis 分配器的审计
+  行发号改惰性解析（分配时才取，取不到回自举雪花——自举兜底本为此设计）；顺带修正
+  存量暗坑：mode=mysql + MyBatis 在场时分配器 Bean 此前建而未用（租约实际走 raw JDBC）
+- **demo README 存量坑**：步骤 1 的 docker run 未建 starsite_demo 库（compose 文件才有）
+  ——补 MYSQL_DATABASE；demo 升级五组件（新增幂等下单端点与回放演示）
+
 ### Added
 - **idempotent 组件 v0.1（五号组件）**：API 幂等键，Stripe 同款语义——同一键重复请求
   **恰一执行 + 首次成功结果回放**（不只是拦截）。`@StarsiteIdempotent(key = "#orderId")`

@@ -1,6 +1,7 @@
 package com.starsite.demo;
 
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
+import com.xp.starsite.idempotent.api.StarsiteIdempotent;
 import com.xp.starsite.lock.client.LockClient;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import java.time.LocalDateTime;
@@ -57,5 +58,19 @@ public class DemoController {
             lockClient.unlock(lockName);
         }
         return Map.of("lockName", lockName, "acquired", acquired);
+    }
+
+    /**
+     * Idempotent order creation: same orderId executes the business logic exactly once
+     * within the 24h key window — duplicate requests (double click / network retry) get
+     * the FIRST result replayed (same orderNo & createdAt, not an error).
+     */
+    @PostMapping("/order")
+    @StarsiteIdempotent(key = "#orderId")
+    public Map<String, Object> createOrder(String orderId) {
+        return Map.of(
+                "orderId", orderId,
+                "orderNo", idGenerator.nextStr(),
+                "createdAt", LocalDateTime.now().toString());
     }
 }

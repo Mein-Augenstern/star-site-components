@@ -1,6 +1,6 @@
 # schedule · 分布式定时任务恰一执行
 
-> **状态：已实现 v0.1（2026-11-02——core+starter 双模块 55 项测试全绿，全库 8 模块 BUILD SUCCESS；真库 IT 见 JdbcRunLogStoreIT）**
+> **状态：已实现 v0.1（2026-11-02 交付——core+starter 双模块 55 项测试全绿；真库 IT 见 JdbcRunLogStoreIT）**
 > [← 返回概览](../README.md)
 
 **一句话**：注解驱动的定时任务"恰一执行"组件——每实例都配同一 cron，但每个触发点**全集群只跑一次**。
@@ -130,7 +130,7 @@ CREATE TABLE schedule_run_log (
 业务手工锁）。SQL 外置铁律（D5）：MyBatis Mapper XML 同包路径 + JDBC 方言
 `resources/sql/mysql/schedule-mysql.xml`，Java 零 SQL 字符串。
 
-### 5.2 store 三形态（策略模式，与三组件同构）
+### 5.2 store 三形态（策略模式，与家族组件同构）
 
 `memory`（单机观测/测试）→ `jdbc` → `mybatis`（classpath 自动探测，消费方零配置）。
 
