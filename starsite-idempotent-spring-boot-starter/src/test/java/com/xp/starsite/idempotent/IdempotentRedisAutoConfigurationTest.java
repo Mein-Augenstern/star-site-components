@@ -124,7 +124,8 @@ class IdempotentRedisAutoConfigurationTest {
                 mock(org.springframework.data.redis.core.HashOperations.class);
         when(tpl.<String, String>opsForHash()).thenReturn(hashOps);
         IdempotentStore degraded = new RedisIdempotentStore(tpl, "x:");
-        IdempotentHealthIndicator health = new IdempotentHealthIndicator(degraded).health();
+        org.springframework.boot.actuate.health.Health health =
+                new IdempotentHealthIndicator(degraded).health();
         assertThat(health.getStatus().toString()).isEqualTo("UP");
         assertThat(health.getDetails()).isEmpty(); // 三态计数全 -1 → 全省略
     }
@@ -134,7 +135,8 @@ class IdempotentRedisAutoConfigurationTest {
     void healthIndicatorKeepsCountableDetails() {
         IdempotentStore countable = new com.xp.starsite.idempotent.store.memory.MemoryIdempotentStore(
                 () -> 1L);
-        IdempotentHealthIndicator health = new IdempotentHealthIndicator(countable).health();
+        org.springframework.boot.actuate.health.Health health =
+                new IdempotentHealthIndicator(countable).health();
         assertThat(health.getDetails()).containsKeys("processing", "done", "failed");
         assertThat(health.getDetails().get("done")).isEqualTo(0L); // 零值也上报（与 -1 省略区分）
     }

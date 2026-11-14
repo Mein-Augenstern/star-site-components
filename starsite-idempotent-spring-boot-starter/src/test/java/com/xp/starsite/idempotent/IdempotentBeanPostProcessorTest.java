@@ -244,7 +244,7 @@ class IdempotentBeanPostProcessorTest {
                     assertThat(s.placeholder()).isEqualTo("ph");
                     assertThat(cfg.keyForms.placeholderRuns.get()).isEqualTo(1);
                     // 记录键与 scope 形态
-                    store = ctx.getBean(IdempotentStore.class);
+                    IdempotentStore store = ctx.getBean(IdempotentStore.class);
                     assertThat(store.find("report", "export-2026-11-12")).isPresent();
                     assertThat(store.find("settle", "daily-settle")).isPresent();
                     assertThat(store.find("IdempotentBeanPostProcessorTest$KeyFormsService#placeholder",
@@ -272,7 +272,7 @@ class IdempotentBeanPostProcessorTest {
                         "starsite.idempotent.poll-millis=50")
                 .withUserConfiguration(ServiceConfig.class).run(ctx -> {
                     FlakyService s = ctx.getBean(FlakyService.class);
-                    store = ctx.getBean(IdempotentStore.class);
+                    IdempotentStore store2 = ctx.getBean(IdempotentStore.class);
                     int runsBefore = ctx.getBean(ServiceConfig.class).flaky.runs.get();
                     // 第一代失败落 FAILED
                     try {
@@ -282,12 +282,12 @@ class IdempotentBeanPostProcessorTest {
                         // 原异常重抛语义
                     }
                     // 预置"等待目睹失败"：手工落 PROCESSING 在飞行，动作线程内再置 FAILED
-                    store.tryClaim("flaky", "k-2", LocalDateTime.now().plusHours(24), "other:1");
+                    store2.tryClaim("flaky", "k-2", LocalDateTime.now().plusHours(24), "other:1");
                     Thread failureSetter = new Thread(() -> {
                         try {
                             Thread.sleep(300); // 让等待者先进入在飞轮询（等待窗口 2000ms 内）
-                            com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("flaky", "k-2").get();
-                            store.fail("flaky", "k-2", row.getExpireAt(), "IllegalStateException: 下游 500");
+                            com.xp.starsite.idempotent.api.IdempotentRecord row = store2.find("flaky", "k-2").get();
+                            store2.fail("flaky", "k-2", row.getExpireAt(), "IllegalStateException: 下游 500");
                         } catch (Exception ignored) {
                             // 时序兜底
                         }

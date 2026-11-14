@@ -90,7 +90,8 @@ class TunerAutoConfigurationTest {
             assertThat(pool.getCorePoolSize()).isEqualTo(6);
             assertThat(client.recentAudits(5)).hasSize(1);
             // 健康明细
-            health = ctx.getBean(TunerHealthIndicator.class).health();
+            org.springframework.boot.actuate.health.Health health =
+                    ctx.getBean(TunerHealthIndicator.class).health();
             assertThat(health.getDetails()).containsEntry("pools", 1)
                     .containsEntry("bindings", 1L);
         });
