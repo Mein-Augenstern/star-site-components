@@ -16,7 +16,6 @@
 package com.xp.starsite.idempotent;
 
 import com.xp.starsite.idempotent.api.IdempotentClient;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -78,11 +77,19 @@ public class IdempotentRetentionLifecycle implements SmartLifecycle {
         if (running) {
             return;
         }
-        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "starsite-idempotent-retention");
-            t.setDaemon(true);
-            return t;
-        });
+        // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护语义等价
+        var factory = new java.util.concurrent.ThreadFactory() {
+            private final java.util.concurrent.atomic.AtomicInteger seq =
+                    new java.util.concurrent.atomic.AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "starsite-idempotent-retention-" + seq.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }
+        };
+        scheduler = new java.util.concurrent.ScheduledThreadPoolExecutor(1, factory);
         scheduler.scheduleWithFixedDelay(this::purgeWindow, interval.toMillis(),
                 interval.toMillis(), TimeUnit.MILLISECONDS);
         running = true;

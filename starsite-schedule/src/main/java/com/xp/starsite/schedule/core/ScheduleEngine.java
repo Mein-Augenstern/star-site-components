@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -169,17 +168,15 @@ public class ScheduleEngine implements ScheduleClient {
             log.info("[starsite-schedule] 启动巡检：{} 条悬挂 RUNNING 标 STALE（阈值 {}）",
                     stale, staleThreshold);
         }
-        // 线程池先行创建（misfire 补跑在任务初始化时即提交执行）
-        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "starsite-schedule-tick");
-            t.setDaemon(true);
-            return t;
-        });
-        workerPool = Executors.newFixedThreadPool(Math.max(1, poolSize), r -> {
-            Thread t = new Thread(r, "starsite-schedule-worker");
-            t.setDaemon(true);
-            return t;
-        });
+        // 线程池先行创建（misfire 补跑在任务初始化时即提交执行）。
+        // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护
+        // 语义等价，corePoolSize/队列/拒绝策略显式可见
+        scheduler = new java.util.concurrent.ScheduledThreadPoolExecutor(1,
+                namedDaemonFactory("starsite-schedule-tick"));
+        workerPool = new java.util.concurrent.ThreadPoolExecutor(Math.max(1, poolSize),
+                Math.max(1, poolSize), 0L, TimeUnit.MILLISECONDS,
+                new java.util.concurrent.LinkedTransferQueue<>(),
+                namedDaemonFactory("starsite-schedule-worker"));
         LocalDateTime now = time.now();
         for (ScheduledTaskDef def : registry.all()) {
             TaskState state = stateOf(def);
@@ -352,5 +349,20 @@ public class ScheduleEngine implements ScheduleClient {
         }
         LocalDateTime candidate = trigger.nextAfter(lastDone.get());
         return candidate.isBefore(now) ? candidate : null;
+    }
+
+    /**
+     * 命名守护线程工厂（线程池显式创建的配套——线程名可观测，守护态不阻断 JVM 退出）。
+     *
+     * @param name 线程名（starsite-schedule-tick / starsite-schedule-worker）
+     * @return 守护线程工厂
+     */
+    private static java.util.concurrent.ThreadFactory namedDaemonFactory(String name) {
+        final java.util.concurrent.atomic.AtomicInteger seq = new java.util.concurrent.atomic.AtomicInteger();
+        return r -> {
+            Thread t = new Thread(r, name + "-" + seq.incrementAndGet());
+            t.setDaemon(true);
+            return t;
+        };
     }
 }

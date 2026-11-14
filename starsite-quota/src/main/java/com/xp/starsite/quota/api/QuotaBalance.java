@@ -110,4 +110,43 @@ public final class QuotaBalance {
     public long getAvailable() {
         return total - occupied - frozen;
     }
+
+    /**
+     * 值等价（四字段全等——不可变值对象语义，集合去重/比较安全）。
+     *
+     * @param o 比较对象
+     * @return true 同为 QuotaBalance 且四字段相等
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof QuotaBalance other)) {
+            return false;
+        }
+        return total == other.total && occupied == other.occupied
+                && frozen == other.frozen && java.util.Objects.equals(quotaKey, other.quotaKey);
+    }
+
+    /**
+     * 哈希（与 equals 同字段）。
+     *
+     * @return 哈希值
+     */
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(quotaKey, total, occupied, frozen);
+    }
+
+    /**
+     * 可读账面（日志/排障用）。
+     *
+     * @return 账面摘要
+     */
+    @Override
+    public String toString() {
+        return "QuotaBalance{key=" + quotaKey + ", total=" + total
+                + ", occupied=" + occupied + ", frozen=" + frozen + ", available=" + getAvailable() + "}";
+    }
 }

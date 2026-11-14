@@ -183,7 +183,7 @@ public class MemoryIdempotentStore implements IdempotentStore {
         synchronized (ref) {
             IdempotentRecord cur = ref.get();
             if (cur == null || cur.getStatus() != IdempotentStatus.PROCESSING
-                    || !cur.getExpireAt().equals(claimExpireAt)) {
+                    || !sameGeneration(cur.getExpireAt(), claimExpireAt)) {
                 return false;
             }
             ref.set(new IdempotentRecord(cur.getId(), cur.getScope(), cur.getIdemKey(),
@@ -191,6 +191,23 @@ public class MemoryIdempotentStore implements IdempotentStore {
                     cur.getGmtCreate(), time.now()));
             return true;
         }
+    }
+
+    /**
+     * 代际令牌等值（显式精度契约）：两侧统一截断到秒再比较——表形态 DATETIME 秒精度
+     * / memory 测试假时钟可含纳秒，精度不一致时 equals 会静默换代失败（DATETIME 截断
+     * bug 的 memory 版暗雷）。截断后 equals 在同代恒真、跨代恒假，契约进代码不进注释。
+     *
+     * @param stored       行内持的窗口边界（本代认领写入值）
+     * @param claimExpireAt 调用方透传的代际令牌
+     * @return true 同代
+     */
+    private static boolean sameGeneration(LocalDateTime stored, LocalDateTime claimExpireAt) {
+        if (stored == null || claimExpireAt == null) {
+            return false;
+        }
+        return stored.truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+                .equals(claimExpireAt.truncatedTo(java.time.temporal.ChronoUnit.SECONDS));
     }
 
     /**

@@ -208,4 +208,23 @@ class MemoryIdempotentStoreTest {
         long second = store.tryClaim("", "i2", EXPIRE, "h").record().getId();
         assertThat(second).isGreaterThan(first);
     }
+
+    /**
+     * 代际令牌精度契约（P3C 巡检修复的锁定测试）：认领写入带纳秒、终态透传秒精度
+     * （模拟表形态 DATETIME 截断回读），仍判同代——sameGeneration 统一截断到秒后比较。
+     */
+    @Test
+    void generationTokenPrecisionTolerant() {
+        LocalDateTime withNanos = LocalDateTime.of(2026, 11, 14, 10, 0, 0, 123_000_000);
+        ClaimOutcome outcome = store.tryClaim("", "prec-1", withNanos, "h1");
+        assertThat(outcome.claimed()).isTrue();
+        // 秒精度回读（DATETIME 截断语义）→ 仍同代，终态写入成功
+        assertThat(store.complete("", "prec-1",
+                withNanos.truncatedTo(java.time.temporal.ChronoUnit.SECONDS), "ok")).isTrue();
+        // 真跨代（差 1 秒）仍拒绝
+        ClaimOutcome gen2 = store.tryClaim("", "prec-2",
+                LocalDateTime.of(2026, 11, 14, 10, 0, 0, 500_000_000), "h1");
+        assertThat(store.complete("", "prec-2", LocalDateTime.of(2026, 11, 14, 10, 0, 1), "late"))
+                .isFalse();
+    }
 }

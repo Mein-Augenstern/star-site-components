@@ -34,7 +34,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -167,11 +166,19 @@ public class AsyncCommandScheduler {
         this.registry = registry;
         this.time = time;
         this.metrics = metrics;
-        this.executor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "starsite-async-cmd");
-            t.setDaemon(true);
-            return t;
-        });
+        // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护语义等价
+        var tickFactory = new java.util.concurrent.ThreadFactory() {
+            private final java.util.concurrent.atomic.AtomicInteger seq =
+                    new java.util.concurrent.atomic.AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "starsite-async-cmd-" + seq.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }
+        };
+        this.executor = new java.util.concurrent.ScheduledThreadPoolExecutor(1, tickFactory);
         this.sharedPool = new ThreadPoolExecutor(
                 config.getSharedPoolCoreSize(), config.getSharedPoolMaxSize(),
                 60, TimeUnit.SECONDS,

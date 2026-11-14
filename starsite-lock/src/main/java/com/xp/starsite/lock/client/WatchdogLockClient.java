@@ -17,7 +17,6 @@ package com.xp.starsite.lock.client;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -117,11 +116,19 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
         this.ttlMs = ttlMs;
         this.renewIntervalMs = Math.max(ttlMs / 3, 1000); // 最小 1s 防过于频繁
         this.lockLostListener = lockLostListener;
-        this.watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "starsite-lock-watchdog");
-            t.setDaemon(true);
-            return t;
-        });
+        // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护语义等价
+        var factory = new java.util.concurrent.ThreadFactory() {
+            private final java.util.concurrent.atomic.AtomicInteger seq =
+                    new java.util.concurrent.atomic.AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "starsite-lock-watchdog-" + seq.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }
+        };
+        this.watchdog = new java.util.concurrent.ScheduledThreadPoolExecutor(1, factory);
     }
 
     /**
