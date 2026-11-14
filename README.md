@@ -36,6 +36,9 @@ starsite-tuner ─────────► starsite-tuner-spring-boot-starter
 
 ## 快速开始
 
+> 📖 **完整用户手册**（新项目接入/依赖清单/全量配置表/使用示例/FAQ/生产清单）：[docs/user-guide.md](docs/user-guide.md)
+
+
 ```xml
 <dependency>
     <groupId>com.xp.starsite</groupId>

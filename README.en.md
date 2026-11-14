@@ -59,6 +59,9 @@ Most distributed lock libraries need Redis. Most task schedulers need a dedicate
 
 ## Quick Start
 
+> 📖 **Full user guide** (onboarding / dependencies / config reference / examples / FAQ): [docs/user-guide.md](docs/user-guide.md) *(Chinese)*
+
+
 **From source (until Maven Central publish):**
 
 ```bash

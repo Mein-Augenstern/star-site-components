@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ——补 MYSQL_DATABASE；demo 升级五组件（新增幂等下单端点与回放演示）
 
 ### Added
+- **用户手册 docs/user-guide.md**：新项目 3 分钟接入手册——三种接入形态（MySQL/
+  Redis/单机）依赖清单、全量配置键参考（七组件）、各组件最小使用示例（可直接 copy）、
+  组合拳（quota+idempotent 防超防重 / schedule+async 定时+重试）、排障 FAQ（启动
+  快速失败对照表）、生产部署检查清单（JDBC 超时/连接池公式/retention/fail-open）。
+  README 双语快速开始挂链接。
 - **tuner 组件 v0.1（七号组件，2026-11-14）**：线程池参数预案与治理——没有配置中心的
   团队的 DynamicTp 替代（市面方案均依赖 Nacos/Apollo 或独立 Server）。预案/窗口/绑定/
   审计四表模型；窗口生效=纯时间函数（startCron.nextAfter>endCron.nextAfter 判定，多实例
