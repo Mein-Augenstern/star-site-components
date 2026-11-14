@@ -49,11 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   （公司内部平台/ZK/StatefulSet 序号发机器位即插即用）。
 
 ### Changed
-- **实现按存储拆包**（SNAPSHOT 阶段 breaking，五组件统一）：`store/`（sequence 为
-  `allocator/`）只留契约层（Store SPI + 方言接口 + 值对象），实现各归自家包——
-  `jdbc/`、`memory/`、`redis/`、`mybatis/`；lock 的 DB 实现整体 `store/`→`db/`；
-  sequence 实现按形态 `mysql/`、`redis/`、`standalone/`。包名变更影响直接 import
-  实现类的消费方（走 SPI/门面/Bean 注入的不受影响）；Mapper XML 同包发现不受影响
+- **存储实现拆包并归位抽象包下**（SNAPSHOT 阶段 breaking，五组件统一）：`store/`
+  （sequence 为 `allocator/`）作为独立抽象包只放契约层（Store SPI + 方言接口 + 值对象），
+  实现作为其**子包**（开闭原则：契约对修改关闭，新增存储=新增子包零改动）——
+  `store.jdbc`/`store.memory`/`store.redis`/`store.mybatis`，lock 另有 `store.db`，
+  sequence 为 `allocator.mysql`/`allocator.redis`/`allocator.standalone`/`allocator.mybatis`。
+  包名变更影响直接 import 实现类的消费方（走 SPI/门面/Bean 注入的不受影响）；
+  Mapper XML 同包发现（D3）随子包迁移同步
 - **idempotent SPI 终态操作改自然键寻址**（SNAPSHOT 阶段 breaking）：complete/fail
   签名从 `(long id, expireAt, ...)` 改为 `(scope, idemKey, expireAt, ...)`——表形态
   uk 命中与 Redis 形态存储键同一寻址位，SPI 一套签名服务全部形态（第三方扩展不受

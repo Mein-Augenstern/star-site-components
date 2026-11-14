@@ -21,7 +21,7 @@ import com.xp.starsite.lock.client.LockClient;
 import com.xp.starsite.schedule.api.MisfirePolicy;
 import com.xp.starsite.schedule.api.RunStatus;
 import com.xp.starsite.schedule.clock.TimeSource;
-import com.xp.starsite.schedule.memory.MemoryRunLogStore;
+import com.xp.starsite.schedule.store.memory.MemoryRunLogStore;
 import com.xp.starsite.schedule.trigger.DailyAtTrigger;
 import java.time.LocalDateTime;
 import java.time.ZoneId;

@@ -3,7 +3,7 @@
   starsite-schedule 流水表 MySQL 方言（JDBC 存储路径的 SQL 配置文件）
   约定与 async-command 同形：{table} 为白名单校验后的表名占位（存储层渲染）；
   参数一律 ? 占位符；statement id 与 ScheduleRunLogSql 接口方法一一对应；
-  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/schedule/mybatis/ScheduleRunLogMapper.xml；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/schedule/store/mybatis/ScheduleRunLogMapper.xml；
   生产 DDL 见 sql/mysql/schedule_run_log_ddl.sql
 -->
 <dialect component="schedule" database="mysql">

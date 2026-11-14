@@ -19,8 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import com.xp.starsite.lock.client.LockClient;
-import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
-import com.xp.starsite.lock.redis.RedisLockClient;
+import com.xp.starsite.lock.store.mybatis.ScheduleLockMapper;
+import com.xp.starsite.lock.store.redis.RedisLockClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;

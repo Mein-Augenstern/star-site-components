@@ -16,10 +16,10 @@
 package com.xp.starsite.sequence;
 
 import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import com.xp.starsite.sequence.allocator.mybatis.MyBatisMysqlWorkerIdAllocator;
+import com.xp.starsite.sequence.allocator.mybatis.SequenceMapper;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
-import com.xp.starsite.sequence.mybatis.MyBatisMysqlWorkerIdAllocator;
-import com.xp.starsite.sequence.mybatis.SequenceMapper;
 import java.util.function.LongSupplier;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -59,7 +59,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @ConditionalOnClass(SqlSessionFactory.class)
 @ConditionalOnBean(SqlSessionFactory.class)
 @ConditionalOnProperty(prefix = "starsite.sequence", name = "enabled", havingValue = "true", matchIfMissing = true)
-@MapperScan(basePackages = "com.xp.starsite.sequence.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
+@MapperScan(basePackages = "com.xp.starsite.sequence.allocator.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
 public class SequenceMyBatisAutoConfiguration {
 
     /** 日志 */

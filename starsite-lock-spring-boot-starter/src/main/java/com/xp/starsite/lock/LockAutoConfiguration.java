@@ -17,10 +17,10 @@ package com.xp.starsite.lock;
 
 import com.xp.starsite.lock.client.LockAdminClient;
 import com.xp.starsite.lock.client.LockClient;
-import com.xp.starsite.lock.db.DbLockAdminClient;
-import com.xp.starsite.lock.db.DbLockClient;
-import com.xp.starsite.lock.db.LockTableProvisioner;
-import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
+import com.xp.starsite.lock.store.db.DbLockAdminClient;
+import com.xp.starsite.lock.store.db.DbLockClient;
+import com.xp.starsite.lock.store.db.LockTableProvisioner;
+import com.xp.starsite.lock.store.mybatis.ScheduleLockMapper;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,7 +94,7 @@ public class LockAutoConfiguration {
             throw new IllegalStateException(
                     "starsite.lock.mode=mysql 需要 ScheduleLockMapper Bean（"
                             + "消费方需有 mybatis-spring-boot-starter + DataSource，"
-                            + "或配置 @MapperScan 包含 com.xp.starsite.lock.mybatis）");
+                            + "或配置 @MapperScan 包含 com.xp.starsite.lock.store.mybatis）");
         }
         StarsiteIdGenerator idGen = idGenProvider.getIfAvailable();
         if (idGen == null) {
@@ -152,7 +152,7 @@ public class LockAutoConfiguration {
             }
             log.info("[starsite-lock] 存储形态：redis（prefix={}，owner={}）",
                     props.getRedisKeyPrefix(), props.getOwnerId());
-            return new com.xp.starsite.lock.redis.RedisLockClient(redisTemplate, props);
+            return new com.xp.starsite.lock.store.redis.RedisLockClient(redisTemplate, props);
         }
     }
 

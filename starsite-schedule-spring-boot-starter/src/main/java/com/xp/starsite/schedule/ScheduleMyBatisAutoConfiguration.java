@@ -15,9 +15,9 @@
  */
 package com.xp.starsite.schedule;
 
-import com.xp.starsite.schedule.mybatis.MyBatisRunLogStore;
-import com.xp.starsite.schedule.mybatis.ScheduleRunLogMapper;
 import com.xp.starsite.schedule.store.RunLogStore;
+import com.xp.starsite.schedule.store.mybatis.MyBatisRunLogStore;
+import com.xp.starsite.schedule.store.mybatis.ScheduleRunLogMapper;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;

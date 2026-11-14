@@ -5,7 +5,7 @@
   且 CDATA 可承载多行原生 SQL 与逐条注释（properties 单行装不下带注释的 DDL）。
   约定：{table} 为白名单校验后的表名占位（存储层渲染）；参数一律 ? 占位符；
   statement id 与 AsyncCommandSql 接口方法一一对应；
-  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/asynccmd/mybatis/AsyncCommandMapper.xml；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/asynccmd/store/mybatis/AsyncCommandMapper.xml；
   索引清单见 sql/mysql/async_command_ddl.sql
 -->
 <dialect component="async-command" database="mysql">

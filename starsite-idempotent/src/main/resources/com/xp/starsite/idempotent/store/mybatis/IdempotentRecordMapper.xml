@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-idempotent 幂等表 MyBatis 映射（与 JDBC 方言 dialect/mysql/idempotent-mysql.xml 同语义；
+  ${table} 为白名单校验后的表名（MyBatisIdempotentStore 构造期校验 [A-Za-z0-9_]）；
+  本组件无列表查询——findByKey 点查即详情，result/error 详情列全列返回（D6）。
+  resultType 走全参构造映射（11 参，IdempotentRecord 不可变模型）。
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xp.starsite.idempotent.store.mybatis.IdempotentRecordMapper">
+
+    <!-- 构造器映射（不可变模型无 setter；包装类型找构造器——status 走枚举枚举器） -->
+    <resultMap id="fullRow" type="com.xp.starsite.idempotent.api.IdempotentRecord">
+        <constructor>
+            <idArg column="id" javaType="long"/>
+            <arg column="scope" javaType="String"/>
+            <arg column="idemKey" javaType="String"/>
+            <arg column="status" javaType="com.xp.starsite.idempotent.api.IdempotentStatus"/>
+            <arg column="result" javaType="String"/>
+            <arg column="error" javaType="String"/>
+            <arg column="expireAt" javaType="java.time.LocalDateTime"/>
+            <arg column="finishedAt" javaType="java.time.LocalDateTime"/>
+            <arg column="host" javaType="String"/>
+            <arg column="gmtCreate" javaType="java.time.LocalDateTime"/>
+            <arg column="gmtModified" javaType="java.time.LocalDateTime"/>
+        </constructor>
+    </resultMap>
+
+    <update id="createTable">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS ${table} (
+          id            BIGINT        NOT NULL,
+          scope         VARCHAR(64)   NOT NULL DEFAULT '',
+          idem_key      VARCHAR(128)  NOT NULL,
+          status        VARCHAR(16)   NOT NULL,
+          result        TEXT,
+          error         VARCHAR(500),
+          expire_at     DATETIME      NOT NULL,
+          finished_at   DATETIME,
+          host          VARCHAR(128)  NOT NULL,
+          gmt_create    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_idem_scope_key (scope, idem_key),
+          KEY idx_idem_expire (expire_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ]]>
+    </update>
+
+    <insert id="insert">
+        INSERT INTO ${table} (id, scope, idem_key, status, expire_at, host, gmt_create)
+        VALUES (#{row.id}, #{row.scope}, #{row.idemKey}, #{row.status}, #{row.expireAt},
+                #{row.host}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <select id="findByKey" resultMap="fullRow">
+        SELECT id, scope, idem_key AS idemKey, status, result, error, expire_at AS expireAt,
+               finished_at AS finishedAt, host,
+               gmt_create AS gmtCreate, gmt_modified AS gmtModified
+        FROM ${table} WHERE scope = #{scope} AND idem_key = #{idemKey}
+    </select>
+
+    <update id="reclaim">
+        UPDATE ${table}
+        SET status = 'PROCESSING', result = NULL, error = NULL, finished_at = NULL,
+            expire_at = #{expireAt}, host = #{host}, gmt_modified = CURRENT_TIMESTAMP
+        WHERE scope = #{scope} AND idem_key = #{idemKey}
+          AND (status = 'FAILED' OR expire_at &lt; #{now}
+               OR (status = 'PROCESSING' AND gmt_modified &lt; #{staleBefore}))
+    </update>
+
+    <!-- 双条件守卫：PROCESSING + expire_at=本代认领值（代际令牌，与 JDBC 方言同语义；
+         uk 自然键寻址——与 Redis 形态同键位） -->
+    <update id="complete">
+        UPDATE ${table}
+        SET status = 'DONE', result = #{result}, finished_at = CURRENT_TIMESTAMP
+        WHERE scope = #{scope} AND idem_key = #{idemKey}
+          AND status = 'PROCESSING' AND expire_at = #{claimExpireAt}
+    </update>
+
+    <update id="fail">
+        UPDATE ${table}
+        SET status = 'FAILED', error = #{error}, finished_at = CURRENT_TIMESTAMP
+        WHERE scope = #{scope} AND idem_key = #{idemKey}
+          AND status = 'PROCESSING' AND expire_at = #{claimExpireAt}
+    </update>
+
+    <select id="countByStatus" resultType="long">
+        SELECT COUNT(*) FROM ${table} WHERE status = #{status}
+    </select>
+
+    <select id="selectExpiredIds" resultType="long">
+        SELECT id FROM ${table} WHERE expire_at &lt; #{now} LIMIT #{batchSize}
+    </select>
+
+    <delete id="deleteByIds">
+        DELETE FROM ${table} WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </delete>
+
+    <!-- 结构校验（BUG-009）：表名参数绑定 + 大小写无关比对（H2 大写存储）；与 async-command 同形 -->
+    <select id="selectColumns" resultType="string">
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE UPPER(TABLE_NAME) = UPPER(#{table})
+    </select>
+
+</mapper>

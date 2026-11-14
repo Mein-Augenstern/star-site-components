@@ -16,11 +16,11 @@
 package com.xp.starsite.sequence;
 
 import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import com.xp.starsite.sequence.allocator.mysql.MysqlWorkerIdAllocator;
+import com.xp.starsite.sequence.allocator.standalone.FixedWorkerIdAllocator;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
 import com.xp.starsite.sequence.health.StarsiteSequenceHealthIndicator;
-import com.xp.starsite.sequence.mysql.MysqlWorkerIdAllocator;
-import com.xp.starsite.sequence.standalone.FixedWorkerIdAllocator;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -203,7 +203,7 @@ public class StarsiteSequenceAutoConfiguration {
                 ObjectProvider<WorkerIdAllocator> customAllocator) throws Exception {
             WorkerIdAllocator allocator = customAllocator.getIfAvailable();
             if (allocator == null) {
-                allocator = new com.xp.starsite.sequence.redis.RedisWorkerIdAllocator(
+                allocator = new com.xp.starsite.sequence.allocator.redis.RedisWorkerIdAllocator(
                         redis, props.getServiceName(),
                         props.getInstanceTag() == null || props.getInstanceTag().isBlank()
                                 ? "%s@%d@%d".formatted(props.getServiceName(),

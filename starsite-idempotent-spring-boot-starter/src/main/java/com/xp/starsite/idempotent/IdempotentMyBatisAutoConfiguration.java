@@ -15,9 +15,9 @@
  */
 package com.xp.starsite.idempotent;
 
-import com.xp.starsite.idempotent.mybatis.IdempotentRecordMapper;
-import com.xp.starsite.idempotent.mybatis.MyBatisIdempotentStore;
 import com.xp.starsite.idempotent.store.IdempotentStore;
+import com.xp.starsite.idempotent.store.mybatis.IdempotentRecordMapper;
+import com.xp.starsite.idempotent.store.mybatis.MyBatisIdempotentStore;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;

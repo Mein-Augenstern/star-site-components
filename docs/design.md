@@ -119,3 +119,15 @@ standalone/redis 形态下公司平台分配器 Bean 会被无视。拉齐为所
 时要在混目录里翻找；拆包后"看包名即知存储载体"，与三层扩展通道（D12）的 L3 场景
 （实现某存储的扩展包）天然对位。SNAPSHOT 阶段允许 breaking（包名变更，0.2.0 facade/
 统一改名同款先例）；Mapper XML 同包发现（D3）不受影响（mybatis 包未动）。
+
+## D14 · 存储实现归位 store 子包（D13 修订）：包结构表达开闭原则（2026-11-14）
+
+**决策**：D13 的"实现与契约平铺"修订为**层级归位**——store/（sequence 为 allocator/）
+作为独立抽象包只放契约（SPI + 方言 + 值对象），各存储实现作为其**子包**存在：
+`store.jdbc` / `store.memory` / `store.redis` / `store.mybatis` / `lock.store.db`、
+sequence 的 `allocator.mysql` / `allocator.redis` / `allocator.standalone`。
+**为什么**：包结构本身表达开闭原则——契约层对修改关闭（引擎只 import store.* 契约类型），
+实现层对扩展开放（新增存储 = 新增一个 store.<载体> 子包 + 注册 Bean，既有代码零改动，
+策略模式的"抽象-实现"层级在目录树上一眼可辨）。D13 的平铺解决了"混居"，但把实现与
+契约放在同一层级，抽象的"根"地位不可见——内部落地（extension.md L3 通道）写扩展实现时，
+应该知道往哪个命名空间下放自己的包。

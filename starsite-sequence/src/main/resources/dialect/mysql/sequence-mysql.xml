@@ -5,7 +5,7 @@
   且 CDATA 可承载多行原生 SQL 与逐条注释。
   约定：{table} 为白名单校验后的表名占位（分配器渲染）；参数一律 ? 占位符；
   statement id 与 SequenceSql 接口方法一一对应；
-  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/sequence/mybatis/SequenceMapper.xml；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/sequence/allocator/mybatis/SequenceMapper.xml；
   索引清单见 sql/mysql/sys_sequence_ddl.sql
 -->
 <dialect component="sequence" database="mysql">

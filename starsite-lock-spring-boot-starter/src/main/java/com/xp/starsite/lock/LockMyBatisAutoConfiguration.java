@@ -38,7 +38,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 @ConditionalOnClass(SqlSessionFactory.class)
 @ConditionalOnBean(SqlSessionFactory.class)
 @ConditionalOnProperty(prefix = "starsite.lock", name = "enabled", havingValue = "true", matchIfMissing = true)
-@MapperScan(basePackages = "com.xp.starsite.lock.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
+@MapperScan(basePackages = "com.xp.starsite.lock.store.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
 public class LockMyBatisAutoConfiguration {
     // 纯扫描注册：无 Bean 方法——锁客户端装配在 LockAutoConfiguration.lockClient
 }

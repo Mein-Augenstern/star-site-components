@@ -15,9 +15,9 @@
  */
 package com.xp.starsite.asynccmd;
 
-import com.xp.starsite.asynccmd.mybatis.AsyncCommandMapper;
-import com.xp.starsite.asynccmd.mybatis.MyBatisAsyncCommandStore;
 import com.xp.starsite.asynccmd.store.AsyncCommandStore;
+import com.xp.starsite.asynccmd.store.mybatis.AsyncCommandMapper;
+import com.xp.starsite.asynccmd.store.mybatis.MyBatisAsyncCommandStore;
 import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
@@ -54,7 +54,7 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnClass(SqlSessionFactory.class)
 @ConditionalOnBean(SqlSessionFactory.class)
 @ConditionalOnProperty(prefix = "starsite.async-command", name = "enabled", havingValue = "true", matchIfMissing = true)
-@MapperScan(basePackages = "com.xp.starsite.asynccmd.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
+@MapperScan(basePackages = "com.xp.starsite.asynccmd.store.mybatis", annotationClass = org.apache.ibatis.annotations.Mapper.class)
 public class AsyncCommandMyBatisAutoConfiguration {
 
     /** 日志 */
