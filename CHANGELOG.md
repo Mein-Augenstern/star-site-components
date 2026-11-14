@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-五/六号组件（idempotent/quota）落地 + 全组件扩展口子统一 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
+五/六/七号组件（idempotent/quota/tuner）落地 + 全组件扩展口子统一 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
 
 ### Fixed
 - **idempotent 代际令牌时序精度 bug**（demo 实证）：引擎用带纳秒的 LocalDateTime 做键
@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ——补 MYSQL_DATABASE；demo 升级五组件（新增幂等下单端点与回放演示）
 
 ### Added
+- **tuner 组件 v0.1（七号组件，2026-11-14）**：线程池参数预案与治理——没有配置中心的
+  团队的 DynamicTp 替代（市面方案均依赖 Nacos/Apollo 或独立 Server）。预案/窗口/绑定/
+  审计四表模型；窗口生效=纯时间函数（startCron.nextAfter>endCron.nextAfter 判定，多实例
+  各自求值天然收敛，无推送无 misfire）；条件应用（与池现值对比，no-op 不调 setter 不写
+  审计；收缩先降 core 再降 max/扩张先抬 max——JDK core<=max 双向顺序，设计期误判被
+  测试连抓两次）；per-host 变更审计（合规留痕：10 实例切换=10 行真实账面）；admin 端点
+  （三级鉴权 async 同款）；cron 复用 schedule 解析器（family 内部复用是特性）。21 项
+  单测 + 真库 IT 5 项。v2：可变容量队列（美团方案）/健康度联动/审批钩子。
 - **quota 组件 v0.1（六号组件，2026-11-14）**：余额型配额——防超额的通用内核
   （信贷"防超贷"痛点剥领域后的抽象：额度/库存/席位/保证金/令牌池同一抽象）。
   五原子操作（占用/释放/冻结/解冻/冻结转占用单语句换位）+ 恒不变式

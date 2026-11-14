@@ -9,7 +9,7 @@
 
 Lightweight distributed components for Spring Boot 3 — **DB-first, only needs MySQL**.
 
-Six production-proven components that compose together:
+Seven production-proven components that compose together:
 
 | Component | What it does | Single machine | Distributed | Docs |
 |---|---|---|---|---|
@@ -19,6 +19,7 @@ Six production-proven components that compose together:
 | **schedule** | Scheduled task exactly-once (annotation + cron + run log) | In-memory observation | Reuses lock claim + run_log | [docs/schedule.md](docs/schedule.md) |
 | **idempotent** | API idempotency key (Stripe-style: intercept + **result replay**) | In-memory state machine | MySQL uk atomic claim / Redis Lua + TTL | [docs/idempotent.md](docs/idempotent.md) |
 | **quota** | Balance-type quota (5 atomic ops + invariant occupied+frozen≤total) | In-memory atomic block | MySQL conditional UPDATE / Redis Lua | [docs/quota.md](docs/quota.md) |
+| **tuner** | Thread-pool preset & governance (calendar presets auto-apply + per-host audit) | In-memory | MySQL poll-pull (pure-function-of-time convergence) | [docs/tuner.md](docs/tuner.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -27,6 +28,7 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 starsite-schedule ──────► starsite-schedule-spring-boot-starter
 starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 starsite-quota ─────────► starsite-quota-spring-boot-starter
+starsite-tuner ─────────► starsite-tuner-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2+ · Zero Lombok in core · Apache-2.0
@@ -36,7 +38,7 @@ starsite-quota ─────────► starsite-quota-spring-boot-starter
 | 17 | ✅ | Minimum (Spring Boot 3 requirement) |
 | 21 | ✅ | Recommended |
 | 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
-- **285 unit tests** + Testcontainers MySQL integration tests
+- **307 unit tests** + Testcontainers MySQL integration tests
 - **Internal adoption & extension**: [docs/extension.md](docs/extension.md) — three integration channels (config-swap / dialect Bean / SPI impl) + bean-yield mechanism + per-component extension point inventory
 - Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
 

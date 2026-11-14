@@ -8,7 +8,7 @@
 **[English](README.en.md)**
 
 star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spring-boot-starter（装配）**的开源标准结构，
-六个组件均同时考虑**单机与分布式**两种运行形态。引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
+七个组件均同时考虑**单机与分布式**两种运行形态。引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
 
 | 组件 | 一句话 | 单机 | 分布式 | 详细文档 |
 |---|---|---|---|---|
@@ -18,6 +18,7 @@ star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spr
 | **schedule** | 定时任务恰一执行（注解 + 自研 cron + 执行流水） | memory 观测 | 复用 lock 争锁恰一 + run_log | [docs/schedule.md](docs/schedule.md) |
 | **idempotent** | API 幂等键（Stripe 同款：拦截 + **结果回放**） | memory 状态机 | MySQL uk 原子认领 / Redis Lua + TTL | [docs/idempotent.md](docs/idempotent.md) |
 | **quota** | 余额型配额（五原子操作 + 不变式 occupied+frozen≤total） | memory 原子块 | MySQL 条件 UPDATE / Redis Lua | [docs/quota.md](docs/quota.md) |
+| **tuner** | 线程池参数预案与治理（日历预案自动切换 + per-host 审计） | memory | MySQL 轮询拉取（纯时间函数收敛） | [docs/tuner.md](docs/tuner.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -26,10 +27,11 @@ starsite-lock ──────────► starsite-lock-spring-boot-starte
 starsite-schedule ──────► starsite-schedule-spring-boot-starter
 starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 starsite-quota ─────────► starsite-quota-spring-boot-starter
+starsite-tuner ─────────► starsite-tuner-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
-- 当前全量 **285 项单测**（12 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
+- 当前全量 **307 项单测**（14 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 - **公司内部落地/扩展**：[docs/extension.md](docs/extension.md)——三层接入通道（配置换连/方言替换/SPI 实现）+ Bean 让位机制 + 五组件扩展点清单
 
 ## 快速开始
@@ -74,7 +76,7 @@ starsite-quota ─────────► starsite-quota-spring-boot-starter
 消费方 classpath 有 MyBatis 时**零配置自动切换** MyBatis 存储路径；无 DB 的 WebFlux 网关设
 `starsite.async-command.enabled=false` + `starsite.lock.enabled=false` + `starsite.schedule.enabled=false`。
 
-## 组件表规范（六组件统一铁律）
+## 组件表规范（七组件统一铁律）
 
 - **物理主键 id 由 sequence 组件发号**（禁 AUTO_INCREMENT）
 - **标准时间列 `gmt_create` / `gmt_modified`**

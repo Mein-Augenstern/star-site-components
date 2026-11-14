@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>star-site-components</artifactId>
+    <version>0.2.3</version>
+  </parent>
+
+  <artifactId>starsite-tuner</artifactId>
+  <name>starsite-tuner</name>
+  <description>参数预案与治理核心库（动态线程池——没有配置中心的团队的 DynamicTp 替代）：预案/窗口/绑定/审计四表模型 + 窗口生效=纯时间函数（多实例收敛无需推送）+ 条件应用（先 max 后 core 收缩序）+ per-host 变更审计（jdbc(MySQL)/mybatis/memory 三存储；cron 复用 schedule 解析器）</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <!-- 存储技术选型：spring-jdbc（core 不引 Spring Boot，仅此一项 Spring 依赖；家族同形） -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+    </dependency>
+    <!-- cron 解析复用 schedule 组件（家族内部复用是特性——不造第二个解析器，D16） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-schedule</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- MyBatis 存储路径（家族同形态：Mapper+XML 在 core，mybatis 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- 测试 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

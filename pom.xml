@@ -46,6 +46,8 @@
     <module>starsite-idempotent-spring-boot-starter</module>
     <module>starsite-quota</module>
     <module>starsite-quota-spring-boot-starter</module>
+    <module>starsite-tuner</module>
+    <module>starsite-tuner-spring-boot-starter</module>
   </modules>
 
   <properties>

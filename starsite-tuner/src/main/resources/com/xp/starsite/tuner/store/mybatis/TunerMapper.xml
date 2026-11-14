@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-tuner 治理三表 MyBatis 映射（与 JDBC 方言 dialect/mysql/tuner-mysql.xml 同语义；
+  ${table} 家族约定为白名单校验后的表名占位；
+  四表 DDL 与方言一致；upsert 用 ON DUPLICATE KEY（MySQL 语义）。
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xp.starsite.tuner.store.mybatis.TunerMapper">
+
+    <!-- 预案构造器映射（包装类型形态——家族同形） -->
+    <resultMap id="presetRow" type="com.xp.starsite.tuner.api.TunerPreset">
+        <constructor>
+            <arg column="preset_name" javaType="String"/>
+            <arg column="core_size" javaType="java.lang.Integer"/>
+            <arg column="max_size" javaType="java.lang.Integer"/>
+            <arg column="keep_alive_seconds" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 窗口构造器映射（Long id 形态） -->
+    <resultMap id="windowRow" type="com.xp.starsite.tuner.api.TunerWindow">
+        <constructor>
+            <arg column="id" javaType="java.lang.Long"/>
+            <arg column="pool_name" javaType="String"/>
+            <arg column="preset_name" javaType="String"/>
+            <arg column="start_cron" javaType="String"/>
+            <arg column="end_cron" javaType="String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 审计构造器映射（13 参全列） -->
+    <resultMap id="auditRow" type="com.xp.starsite.tuner.api.TunerAuditEntry">
+        <constructor>
+            <arg column="id" javaType="java.lang.Long"/>
+            <arg column="occurred_at" javaType="java.time.LocalDateTime"/>
+            <arg column="host" javaType="String"/>
+            <arg column="pool_name" javaType="String"/>
+            <arg column="preset_name" javaType="String"/>
+            <arg column="source" javaType="com.xp.starsite.tuner.api.TunerAuditEntry$Source"/>
+            <arg column="old_core" javaType="java.lang.Integer"/>
+            <arg column="old_max" javaType="java.lang.Integer"/>
+            <arg column="old_keep" javaType="java.lang.Integer"/>
+            <arg column="new_core" javaType="java.lang.Integer"/>
+            <arg column="new_max" javaType="java.lang.Integer"/>
+            <arg column="new_keep" javaType="java.lang.Integer"/>
+        </constructor>
+    </resultMap>
+
+    <update id="createPresetTable">
+        CREATE TABLE IF NOT EXISTS ${table} (
+          id BIGINT NOT NULL, preset_name VARCHAR(64) NOT NULL,
+          core_size INT NOT NULL, max_size INT NOT NULL, keep_alive_seconds INT NOT NULL,
+          gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id), UNIQUE KEY uk_preset_name (preset_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    </update>
+
+    <update id="createWindowTable">
+        CREATE TABLE IF NOT EXISTS ${table} (
+          id BIGINT NOT NULL, pool_name VARCHAR(128) NOT NULL, preset_name VARCHAR(64) NOT NULL,
+          start_cron VARCHAR(64) NOT NULL, end_cron VARCHAR(64) NOT NULL,
+          gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id), KEY idx_window_pool (pool_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    </update>
+
+    <update id="createBindingTable">
+        CREATE TABLE IF NOT EXISTS ${table} (
+          id BIGINT NOT NULL, pool_name VARCHAR(128) NOT NULL, preset_name VARCHAR(64) NOT NULL,
+          gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id), UNIQUE KEY uk_binding_pool (pool_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    </update>
+
+    <update id="createAuditTable">
+        CREATE TABLE IF NOT EXISTS ${table} (
+          id BIGINT NOT NULL, occurred_at DATETIME NOT NULL, host VARCHAR(128) NOT NULL,
+          pool_name VARCHAR(128) NOT NULL, preset_name VARCHAR(64) NOT NULL,
+          source VARCHAR(16) NOT NULL,
+          old_core INT NOT NULL, old_max INT NOT NULL, old_keep INT NOT NULL,
+          new_core INT NOT NULL, new_max INT NOT NULL, new_keep INT NOT NULL,
+          gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id), KEY idx_audit_pool_time (pool_name, occurred_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    </update>
+
+    <insert id="upsertPreset">
+        INSERT INTO ${table} (id, preset_name, core_size, max_size, keep_alive_seconds, gmt_create)
+        VALUES (#{seq}, #{row.presetName}, #{row.coreSize}, #{row.maxSize},
+                #{row.keepAliveSeconds}, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE core_size = VALUES(core_size), max_size = VALUES(max_size),
+                                keep_alive_seconds = VALUES(keep_alive_seconds)
+    </insert>
+
+    <select id="findPreset" resultMap="presetRow">
+        SELECT preset_name, core_size, max_size, keep_alive_seconds
+        FROM ${table} WHERE preset_name = #{name}
+    </select>
+
+    <select id="listPresets" resultMap="presetRow">
+        SELECT preset_name, core_size, max_size, keep_alive_seconds
+        FROM ${table} ORDER BY preset_name
+    </select>
+
+    <insert id="upsertBinding">
+        INSERT INTO ${table} (id, pool_name, preset_name, gmt_create)
+        VALUES (#{seq}, #{poolName}, #{presetName}, CURRENT_TIMESTAMP)
+        ON DUPLICATE KEY UPDATE preset_name = VALUES(preset_name)
+    </insert>
+
+    <select id="findBinding" resultType="string">
+        SELECT preset_name FROM ${table} WHERE pool_name = #{poolName}
+    </select>
+
+    <select id="countBindings" resultType="long">
+        SELECT COUNT(*) FROM ${table}
+    </select>
+
+    <insert id="insertWindow">
+        INSERT INTO ${table} (id, pool_name, preset_name, start_cron, end_cron, gmt_create)
+        VALUES (#{id}, #{w.poolName}, #{w.presetName}, #{w.startCron}, #{w.endCron}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <update id="updateWindow">
+        UPDATE ${table} SET pool_name = #{w.poolName}, preset_name = #{w.presetName},
+                            start_cron = #{w.startCron}, end_cron = #{w.endCron}
+        WHERE id = #{w.id}
+    </update>
+
+    <delete id="removeWindow">
+        DELETE FROM ${table} WHERE id = #{id}
+    </delete>
+
+    <select id="listWindows" resultMap="windowRow">
+        SELECT id, pool_name, preset_name, start_cron, end_cron
+        FROM ${table}
+        <where>
+            <if test="poolName != null">pool_name = #{poolName}</if>
+        </where>
+        ORDER BY pool_name, id
+    </select>
+
+    <insert id="appendAudit">
+        INSERT INTO ${table} (id, occurred_at, host, pool_name, preset_name, source,
+                              old_core, old_max, old_keep, new_core, new_max, new_keep, gmt_create)
+        VALUES (#{row.id}, #{row.occurredAt}, #{row.host}, #{row.poolName}, #{row.presetName},
+                #{row.source}, #{row.oldCore}, #{row.oldMax}, #{row.oldKeep},
+                #{row.newCore}, #{row.newMax}, #{row.newKeep}, CURRENT_TIMESTAMP)
+    </insert>
+
+    <select id="recentAudits" resultMap="auditRow">
+        SELECT id, occurred_at, host, pool_name, preset_name, source,
+               old_core, old_max, old_keep, new_core, new_max, new_keep
+        FROM ${table} ORDER BY occurred_at DESC, id DESC LIMIT #{limit}
+    </select>
+
+    <select id="versionStamp" resultType="string">
+        SELECT CAST(GREATEST(
+          COALESCE((SELECT MAX(gmt_modified) FROM ${presetTable}), '1970-01-01'),
+          COALESCE((SELECT MAX(gmt_modified) FROM ${windowTable}), '1970-01-01'),
+          COALESCE((SELECT MAX(gmt_modified) FROM ${bindingTable}), '1970-01-01'),
+          COALESCE((SELECT MAX(gmt_modified) FROM ${auditTable}), '1970-01-01')
+        ) AS CHAR)
+    </select>
+
+</mapper>

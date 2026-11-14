@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-tuner 治理三表 MySQL 方言（JDBC 存储路径的 SQL 配置文件）
+  约定与家族同形：{presetTable}/{windowTable}/{auditTable} 为白名单校验后的表名占位；
+  参数一律 ? 占位符；statement id 与 TunerSql 接口方法一一对应；
+  MyBatis 同语义语句在 resources/com/xp/starsite/tuner/store/mybatis/TunerMapper.xml
+-->
+<dialect component="tuner" database="mysql">
+
+    <statement id="createPresetTable" note="预案表（幂等 IF NOT EXISTS）。id 由 sequence 发号禁 AUTO_INCREMENT（D2）；preset_name uk=按名幂等 upsert 锚">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {presetTable} (
+  id                 BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  preset_name        VARCHAR(64)  NOT NULL COMMENT '预案名（repayday/daily/batch-window）',
+  core_size          INT          NOT NULL COMMENT '核心线程数',
+  max_size           INT          NOT NULL COMMENT '最大线程数',
+  keep_alive_seconds INT          NOT NULL COMMENT '空闲保活秒',
+  gmt_create         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tuner_preset_name (preset_name) COMMENT '按名幂等 upsert 锚'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='线程池参数预案'
+        ]]>
+    </statement>
+
+    <statement id="createWindowTable" note="窗口表（幂等）：pool_name+start/end cron 对；命中判定=纯时间函数（nextAfter 比较），多实例各自求值收敛">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {windowTable} (
+  id                 BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  pool_name          VARCHAR(128) NOT NULL COMMENT '受管池名',
+  preset_name        VARCHAR(64)  NOT NULL COMMENT '窗口内应用的预案名',
+  start_cron         VARCHAR(64)  NOT NULL COMMENT '窗口开始 cron（6 字段）',
+  end_cron           VARCHAR(64)  NOT NULL COMMENT '窗口结束 cron',
+  gmt_create         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (id),
+  KEY idx_tw_pool (pool_name) COMMENT '按池查窗口'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='参数窗口（预案按时段生效）'
+        ]]>
+    </statement>
+
+    <statement id="createBindingTable" note="绑定表（幂等）：池默认预案（无窗口命中时应用）；pool_name uk">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {bindingTable} (
+  id                 BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  pool_name          VARCHAR(128) NOT NULL COMMENT '受管池名',
+  preset_name        VARCHAR(64)  NOT NULL COMMENT '默认预案名',
+  gmt_create         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_tb_pool (pool_name) COMMENT '按池幂等 upsert 锚'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='池默认预案绑定'
+        ]]>
+    </statement>
+
+    <statement id="createAuditTable" note="审计表（幂等）：per-host 实际变更留痕（合规要求——谁/何时/旧到新/触发源）；host+pool+time 组合查询锚">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {auditTable} (
+  id                 BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  occurred_at        DATETIME     NOT NULL COMMENT '变更时刻',
+  host               VARCHAR(128) NOT NULL COMMENT '实例 hostname:pid（per-host 真实账面变化）',
+  pool_name          VARCHAR(128) NOT NULL COMMENT '受管池名',
+  preset_name        VARCHAR(64)  NOT NULL COMMENT '生效预案名',
+  source             VARCHAR(16)  NOT NULL COMMENT '触发源 SCHEDULE/MANUAL/STARTUP',
+  old_core           INT          NOT NULL COMMENT '旧核心数',
+  old_max            INT          NOT NULL COMMENT '旧最大数',
+  old_keep           INT          NOT NULL COMMENT '旧保活秒',
+  new_core           INT          NOT NULL COMMENT '新核心数',
+  new_max            INT          NOT NULL COMMENT '新最大数',
+  new_keep           INT          NOT NULL COMMENT '新保活秒',
+  gmt_create         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (id),
+  KEY idx_ta_pool_time (pool_name, occurred_at) COMMENT '按池查变更史'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='参数变更审计'
+        ]]>
+    </statement>
+
+    <statement id="upsertPreset" note="按名幂等 upsert（uk 冲突转更新——治理面重复提交安全）">
+        <![CDATA[
+INSERT INTO {presetTable} (id, preset_name, core_size, max_size, keep_alive_seconds, gmt_create)
+VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+ON DUPLICATE KEY UPDATE core_size = VALUES(core_size), max_size = VALUES(max_size),
+                        keep_alive_seconds = VALUES(keep_alive_seconds)
+        ]]>
+    </statement>
+
+    <statement id="findPreset" note="预案点查">
+        <![CDATA[
+SELECT preset_name, core_size, max_size, keep_alive_seconds
+FROM {presetTable} WHERE preset_name = ?
+        ]]>
+    </statement>
+
+    <statement id="listPresets" note="全部预案">
+        <![CDATA[
+SELECT preset_name, core_size, max_size, keep_alive_seconds
+FROM {presetTable} ORDER BY preset_name
+        ]]>
+    </statement>
+
+    <statement id="upsertBinding" note="按池幂等 upsert 默认预案绑定">
+        <![CDATA[
+INSERT INTO {bindingTable} (id, pool_name, preset_name, gmt_create)
+VALUES (?,?,?,CURRENT_TIMESTAMP)
+ON DUPLICATE KEY UPDATE preset_name = VALUES(preset_name)
+        ]]>
+    </statement>
+
+    <statement id="findBinding" note="池默认预案点查">
+        <![CDATA[
+SELECT preset_name FROM {bindingTable} WHERE pool_name = ?
+        ]]>
+    </statement>
+
+    <statement id="countBindings" note="绑定计数（健康端点——治理面全局可见）">
+        <![CDATA[
+SELECT COUNT(*) FROM {bindingTable}
+        ]]>
+    </statement>
+
+    <statement id="insertWindow" note="新增窗口">
+        <![CDATA[
+INSERT INTO {windowTable} (id, pool_name, preset_name, start_cron, end_cron, gmt_create)
+VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+        ]]>
+    </statement>
+
+    <statement id="updateWindow" note="按 id 更新窗口">
+        <![CDATA[
+UPDATE {windowTable}
+SET pool_name = ?, preset_name = ?, start_cron = ?, end_cron = ?
+WHERE id = ?
+        ]]>
+    </statement>
+
+    <statement id="removeWindow" note="删除窗口">
+        <![CDATA[
+DELETE FROM {windowTable} WHERE id = ?
+        ]]>
+    </statement>
+
+    <statement id="listWindows" note="窗口清单（pool 为 null 查全部）——动态过滤用白名单方法而非拼接（D5）">
+        <![CDATA[
+SELECT id, pool_name, preset_name, start_cron, end_cron
+FROM {windowTable}
+WHERE (? IS NULL OR pool_name = ?)
+ORDER BY pool_name, id
+        ]]>
+    </statement>
+
+    <statement id="appendAudit" note="追加审计（实际变更行，per-host）">
+        <![CDATA[
+INSERT INTO {auditTable}
+  (id, occurred_at, host, pool_name, preset_name, source,
+   old_core, old_max, old_keep, new_core, new_max, new_keep, gmt_create)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+        ]]>
+    </statement>
+
+    <statement id="recentAudits" note="最近审计（新→旧；occurred_at 倒序）">
+        <![CDATA[
+SELECT id, occurred_at, host, pool_name, preset_name, source,
+       old_core, old_max, old_keep, new_core, new_max, new_keep
+FROM {auditTable} ORDER BY occurred_at DESC, id DESC LIMIT ?
+        ]]>
+    </statement>
+
+    <statement id="versionStamp" note="配置版本戳（三表 gmt_modified 最大值——轮询短路依据，写后必变）">
+        <![CDATA[
+SELECT GREATEST(
+  COALESCE((SELECT MAX(gmt_modified) FROM {presetTable}), '1970-01-01'),
+  COALESCE((SELECT MAX(gmt_modified) FROM {windowTable}), '1970-01-01'),
+  COALESCE((SELECT MAX(gmt_modified) FROM {bindingTable}), '1970-01-01'),
+  COALESCE((SELECT MAX(gmt_modified) FROM {auditTable}), '1970-01-01')
+) AS stamp
+        ]]>
+    </statement>
+
+</dialect>
