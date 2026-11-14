@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>star-site-components</artifactId>
+    <version>0.2.3</version>
+  </parent>
+
+  <artifactId>starsite-quota</artifactId>
+  <name>starsite-quota</name>
+  <description>余额型配额核心库（防超额的通用内核：占用/释放/冻结/解冻/冻结转占用五原子操作 + 恒不变式 occupied+frozen≤total——额度/库存/席位/保证金/令牌池同一抽象）：单条条件 UPDATE 原子保证（jdbc(MySQL)/mybatis/memory/redis-Lua 四存储，零 Spring Boot 依赖可脱离 starter 独立使用）</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <!-- 存储技术选型：spring-jdbc（core 不引 Spring Boot，仅此一项 Spring 依赖；与家族组件同形） -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-jdbc</artifactId>
+    </dependency>
+
+    <!-- MyBatis 存储路径（家族同形态：Mapper+XML 在 core，mybatis 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Redis 存储路径（与 lock/idempotent 同形态：optional 由消费方 classpath 提供） -->
+    <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-redis</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- 测试 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mybatis</groupId>
+      <artifactId>mybatis-spring</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

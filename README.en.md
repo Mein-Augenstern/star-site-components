@@ -9,7 +9,7 @@
 
 Lightweight distributed components for Spring Boot 3 — **DB-first, only needs MySQL**.
 
-Five production-proven components that compose together:
+Six production-proven components that compose together:
 
 | Component | What it does | Single machine | Distributed | Docs |
 |---|---|---|---|---|
@@ -18,6 +18,7 @@ Five production-proven components that compose together:
 | **lock** | Distributed lock (reentrant, timed wait, self-healing) | — | DB unique key / Redis hash | [docs/lock.md](docs/lock.md) |
 | **schedule** | Scheduled task exactly-once (annotation + cron + run log) | In-memory observation | Reuses lock claim + run_log | [docs/schedule.md](docs/schedule.md) |
 | **idempotent** | API idempotency key (Stripe-style: intercept + **result replay**) | In-memory state machine | MySQL uk atomic claim / Redis Lua + TTL | [docs/idempotent.md](docs/idempotent.md) |
+| **quota** | Balance-type quota (5 atomic ops + invariant occupied+frozen≤total) | In-memory atomic block | MySQL conditional UPDATE / Redis Lua | [docs/quota.md](docs/quota.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -25,6 +26,7 @@ starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
 starsite-schedule ──────► starsite-schedule-spring-boot-starter
 starsite-idempotent ────► starsite-idempotent-spring-boot-starter
+starsite-quota ─────────► starsite-quota-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2+ · Zero Lombok in core · Apache-2.0
@@ -34,7 +36,7 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 | 17 | ✅ | Minimum (Spring Boot 3 requirement) |
 | 21 | ✅ | Recommended |
 | 8/11 | ❌ | Requires Spring Boot 2.x (not supported) |
-- **250 unit tests** + Testcontainers MySQL integration tests
+- **285 unit tests** + Testcontainers MySQL integration tests
 - **Internal adoption & extension**: [docs/extension.md](docs/extension.md) — three integration channels (config-swap / dialect Bean / SPI impl) + bean-yield mechanism + per-component extension point inventory
 - Production-proven in [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) (12 microservices, 18 containers)
 
@@ -51,6 +53,7 @@ Most distributed lock libraries need Redis. Most task schedulers need a dedicate
 | XXL-Job (27k★) | Dedicated scheduler + DB | Embedded, no extra server |
 | Leaf (4.5k★) | Dedicated Leaf server | Embedded starter |
 | Stripe-style idempotency | API gateway / Redis | One annotation, MySQL uk claim |
+| Quota / inventory oversell guards | Custom concurrent accounting | Conditional UPDATE with invariant in WHERE |
 
 ## Quick Start
 

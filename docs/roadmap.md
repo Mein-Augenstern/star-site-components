@@ -17,6 +17,9 @@
       +redis 形态（Lua 四操作 + TTL 键记忆窗口）与第三方存储扩展指南——2026-11-13
 - [x] 全组件扩展口子统一（docs/extension.md）：三层接入通道 + 五组件扩展点清单 +
       sequence WorkerIdAllocator 让位拉齐（所有形态 Bean 优先）——2026-11-13
+- [x] quota：余额型配额（六号组件——五原子操作 + 不变式 occupied+frozen≤total 的
+      防超额通用内核，信贷"防超贷"剥领域后的抽象； jdbc/memory/redis/mybatis 四形态 +
+      四载体条件对齐测试）——2026-11-14 v0.1
 
 ## 待办（按优先级）
 

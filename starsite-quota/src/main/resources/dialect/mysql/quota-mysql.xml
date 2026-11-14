@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-quota 配额表 MySQL 方言（JDBC 存储路径的 SQL 配置文件）
+  约定与家族组件同形：{table} 为白名单校验后的表名占位（存储层渲染）；
+  参数一律 ? 占位符；statement id 与 QuotaSql 接口方法一一对应；
+  MyBatis 消费方的同语义语句在 resources/com/xp/starsite/quota/store/mybatis/QuotaAccountMapper.xml；
+  生产 DDL 见 sql/mysql/quota_account_ddl.sql
+-->
+<dialect component="quota" database="mysql">
+
+    <statement id="createTable" note="建表（幂等 IF NOT EXISTS）。id 由 sequence 组件发号禁 AUTO_INCREMENT（D2 铁律）；gmt 两列标准时间（D2）；uk_quota 为点查/条件更新锚（五原子操作全部 quota_key 点查命中）；三计数器非负由条件 UPDATE 语义保证（不变式 occupied+frozen &lt;= total 在各操作 WHERE 内原子判定）">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS {table} (
+  id            BIGINT       NOT NULL COMMENT '主键（starsite-sequence 组件生成）',
+  quota_key     VARCHAR(128) NOT NULL COMMENT '配额键（业务自定——额度/库存/席位/保证金）',
+  total_amount  BIGINT       NOT NULL COMMENT '总量（单位业务自定：分/件/个）',
+  occupied      BIGINT       NOT NULL DEFAULT 0 COMMENT '已占用',
+  frozen        BIGINT       NOT NULL DEFAULT 0 COMMENT '冻结中',
+  gmt_create    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  gmt_modified  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_quota_key (quota_key) COMMENT '建户互斥与全部操作点查锚'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='余额型配额账户'
+        ]]>
+    </statement>
+
+    <statement id="insert" note="建户（gmt_create 参数绑定——与调用方/测试时钟同源可测；uk 冲突由存储层翻译为已存在——保留现量返回账面）">
+        <![CDATA[
+INSERT INTO {table} (id, quota_key, total_amount, occupied, frozen, gmt_create)
+VALUES (?,?,?,0,0,?)
+        ]]>
+    </statement>
+
+    <statement id="findByKey" note="键点查账面（uk 命中；五列显式清单）">
+        <![CDATA[
+SELECT id, quota_key, total_amount, occupied, frozen
+FROM {table} WHERE quota_key = ?
+        ]]>
+    </statement>
+
+    <statement id="occupy" note="占用（不变式在 WHERE 内原子判定：占用+冻结+增量 &lt;= 总量——多实例并发下超量必拒；gmt_modified 由 ON UPDATE 自动维护）">
+        <![CDATA[
+UPDATE {table}
+SET occupied = occupied + ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE quota_key = ? AND occupied + frozen + ? <= total_amount
+        ]]>
+    </statement>
+
+    <statement id="release" note="释放占用（占用充足条件在 WHERE；不中即业务记账错乱信号——引擎翻译 QuotaStateException）">
+        <![CDATA[
+UPDATE {table}
+SET occupied = occupied - ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE quota_key = ? AND occupied >= ?
+        ]]>
+    </statement>
+
+    <statement id="freeze" note="冻结（与 occupy 共享总量池：同一不变式条件）">
+        <![CDATA[
+UPDATE {table}
+SET frozen = frozen + ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE quota_key = ? AND occupied + frozen + ? <= total_amount
+        ]]>
+    </statement>
+
+    <statement id="unfreeze" note="解冻（冻结充足条件在 WHERE）">
+        <![CDATA[
+UPDATE {table}
+SET frozen = frozen - ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE quota_key = ? AND frozen >= ?
+        ]]>
+    </statement>
+
+    <statement id="confirm" note="冻结转占用（单语句双计数换位：frozen-=x 且 occupied+=x 同一 UPDATE——换位期间不变式天然保持无窗口；总量池内换位不再验不变式，仅验冻结充足）">
+        <![CDATA[
+UPDATE {table}
+SET frozen = frozen - ?, occupied = occupied + ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE quota_key = ? AND frozen >= ?
+        ]]>
+    </statement>
+
+    <statement id="adjustTotal" note="调整总量（提额/降额/补货；降额保护条件在 WHERE：新总量须覆盖占用+冻结——不允许调出负可用量）">
+        <![CDATA[
+UPDATE {table}
+SET total_amount = total_amount + ?, gmt_modified = CURRENT_TIMESTAMP
+WHERE quota_key = ? AND total_amount + ? >= occupied + frozen
+        ]]>
+    </statement>
+
+    <statement id="countAccounts" note="账户计数（健康端点低频查询）">
+        <![CDATA[
+SELECT COUNT(*) FROM {table}
+        ]]>
+    </statement>
+
+</dialect>

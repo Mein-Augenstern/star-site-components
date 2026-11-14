@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  starsite-quota 配额表 MyBatis 映射（与 JDBC 方言 dialect/mysql/quota-mysql.xml 同语义；
+  ${table} 为白名单校验后的表名（MyBatisQuotaStore 构造期校验 [A-Za-z0-9_]）；
+  QuotaBalance 为 record——构造器映射；五原子操作的条件 UPDATE 与方言逐条对齐（对齐测试互证）。
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xp.starsite.quota.store.mybatis.QuotaAccountMapper">
+
+    <!-- record 构造器映射：包装类型形态（家族同形——MyBatis 反射按包装类型找构造器，
+         业务侧实参自动装箱；列别名对齐四参顺序） -->
+    <resultMap id="balanceRow" type="com.xp.starsite.quota.api.QuotaBalance">
+        <constructor>
+            <arg column="quotaKey" javaType="java.lang.String"/>
+            <arg column="total" javaType="java.lang.Long"/>
+            <arg column="occupied" javaType="java.lang.Long"/>
+            <arg column="frozen" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <update id="createTable">
+        <![CDATA[
+CREATE TABLE IF NOT EXISTS ${table} (
+          id            BIGINT       NOT NULL,
+          quota_key     VARCHAR(128) NOT NULL,
+          total_amount  BIGINT       NOT NULL,
+          occupied      BIGINT       NOT NULL DEFAULT 0,
+          frozen        BIGINT       NOT NULL DEFAULT 0,
+          gmt_create    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          gmt_modified  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uk_quota_key (quota_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ]]>
+    </update>
+
+    <insert id="insert">
+        INSERT INTO ${table} (id, quota_key, total_amount, occupied, frozen, gmt_create)
+        VALUES (#{id}, #{quotaKey}, #{total}, 0, 0, #{gmtCreate})
+    </insert>
+
+    <select id="findByKey" resultMap="balanceRow">
+        SELECT quota_key AS quotaKey, total_amount AS total, occupied, frozen
+        FROM ${table} WHERE quota_key = #{quotaKey}
+    </select>
+
+    <update id="occupy">
+        UPDATE ${table}
+        SET occupied = occupied + #{amount}, gmt_modified = CURRENT_TIMESTAMP
+        WHERE quota_key = #{quotaKey} AND occupied + frozen + #{amount} &lt;= total_amount
+    </update>
+
+    <update id="release">
+        UPDATE ${table}
+        SET occupied = occupied - #{amount}, gmt_modified = CURRENT_TIMESTAMP
+        WHERE quota_key = #{quotaKey} AND occupied &gt;= #{amount}
+    </update>
+
+    <update id="freeze">
+        UPDATE ${table}
+        SET frozen = frozen + #{amount}, gmt_modified = CURRENT_TIMESTAMP
+        WHERE quota_key = #{quotaKey} AND occupied + frozen + #{amount} &lt;= total_amount
+    </update>
+
+    <update id="unfreeze">
+        UPDATE ${table}
+        SET frozen = frozen - #{amount}, gmt_modified = CURRENT_TIMESTAMP
+        WHERE quota_key = #{quotaKey} AND frozen &gt;= #{amount}
+    </update>
+
+    <!-- 单语句双计数换位（与方言 confirm 同占位语义） -->
+    <update id="confirm">
+        UPDATE ${table}
+        SET frozen = frozen - #{amount}, occupied = occupied + #{amount},
+            gmt_modified = CURRENT_TIMESTAMP
+        WHERE quota_key = #{quotaKey} AND frozen &gt;= #{amount}
+    </update>
+
+    <update id="adjustTotal">
+        UPDATE ${table}
+        SET total_amount = total_amount + #{delta}, gmt_modified = CURRENT_TIMESTAMP
+        WHERE quota_key = #{quotaKey} AND total_amount + #{delta} &gt;= occupied + frozen
+    </update>
+
+    <select id="countAccounts" resultType="long">
+        SELECT COUNT(*) FROM ${table}
+    </select>
+
+    <!-- 结构校验（BUG-009）：表名参数绑定 + 大小写无关比对（与家族同形） -->
+    <select id="selectColumns" resultType="string">
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE UPPER(TABLE_NAME) = UPPER(#{table})
+    </select>
+
+</mapper>

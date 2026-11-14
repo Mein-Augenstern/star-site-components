@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-五号组件 idempotent 落地 + 全组件扩展口子统一 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
+五/六号组件（idempotent/quota）落地 + 全组件扩展口子统一 + 伴随的构建改进（schedule 组件 2026-11 交付一并归入本段）。
 
 ### Fixed
 - **idempotent 代际令牌时序精度 bug**（demo 实证）：引擎用带纳秒的 LocalDateTime 做键
@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ——补 MYSQL_DATABASE；demo 升级五组件（新增幂等下单端点与回放演示）
 
 ### Added
+- **quota 组件 v0.1（六号组件，2026-11-14）**：余额型配额——防超额的通用内核
+  （信贷"防超贷"痛点剥领域后的抽象：额度/库存/席位/保证金/令牌池同一抽象）。
+  五原子操作（占用/释放/冻结/解冻/冻结转占用单语句换位）+ 恒不变式
+  occupied+frozen≤total（多实例并发下超量必拒——正确性全部在存储端原子操作：
+  表形态=不变式在 WHERE 内的条件 UPDATE，Redis=单段 Lua，memory=compute 原子块）；
+  异常定责三分类（Exceeded 带可用量可展示 / State=业务记账错乱防御性拒绝 / NotFound
+  fail-fast 不猜建户）；init 幂等保留现量 + adjustTotal 降额保护；四形态
+  （jdbc/mybatis/memory/redis）+ D14 布局 + 四载体条件对齐测试 + 16 线程并发不变式
+  边界测试（恰 10 成功 6 拒）；35 项单测 + 真库 IT 5 项。
 - **idempotent 组件 v0.1（五号组件）**：API 幂等键，Stripe 同款语义——同一键重复请求
   **恰一执行 + 首次成功结果回放**（不只是拦截）。`@StarsiteIdempotent(key = "#orderId")`
   注解路径（SpEL 键 + Jackson 回放 + 启动期缺 Jackson 快速失败）与 `IdempotentClient.guard`

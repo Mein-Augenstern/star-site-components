@@ -1,6 +1,6 @@
 # 扩展指南（公司内部落地）
 
-> [← 返回概览](../README.md) · 适用版本：0.2.3+（五组件）
+> [← 返回概览](../README.md) · 适用版本：0.2.3+（六组件）
 >
 > 这套组件库在公司内部使用时必然遇到适配问题：自建存储（TBase/OceanBase/Tair）、
 > 内部平台（鉴权/监控/机器位管理）、私有部署形态。本文是**全部扩展口子的权威清单**——
@@ -31,7 +31,7 @@ Spring Boot 依赖——非 Boot 应用可手工 `new` 组装（各 core 的门�
 > ——语句全部外置（Mapper XML / dialect XML / Lua），Java 零 SQL 字符串的架构本身
 > 就是为换方言准备的（design.md D5）。
 
-## 2. 五组件扩展点清单
+## 2. 六组件扩展点清单
 
 ### sequence（雪花 ID）
 
@@ -81,6 +81,13 @@ Spring Boot 依赖——非 Boot 应用可手工 `new` 组装（各 core 的门�
 |---|---|---|---|
 | 存储 | `IdempotentStore` | 自研 KV / 公司缓存平台 / Tair | **四操作存储端原子**：tryClaim / tryReclaim / complete / fail（多实例恰一执行的全部正确性来源）；观测方法（countByStatus/purgeExpired）是缺省实现，按能力选择覆写 |
 | 方言 | `IdempotentSql` | PG 系库 | 9 语句语义对齐（uk 认领 / 三合一回收 / 双条件守卫） |
+
+### quota（余额型配额）
+
+| 扩展点 | 接口 | 场景 | 硬契约 |
+|---|---|---|---|
+| 存储 | `QuotaStore` | 自建存储/内部账务平台 | **五原子操作存储端原子**（条件判定+计数更新同一语句）——不变式 occupied+frozen≤total 的全部正确性来源；先读后写两步实现一律不合格 |
+| 方言 | `QuotaSql` | PG 系库 | 条件片段语义对齐（不变式/充足性/降额保护） |
 
 详见 [idempotent.md §5.5](idempotent.md)（含 TBase PG 方言与自研 KV 两个示例）。
 

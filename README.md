@@ -8,7 +8,7 @@
 **[English](README.en.md)**
 
 star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spring-boot-starter（装配）**的开源标准结构，
-五个组件均同时考虑**单机与分布式**两种运行形态。引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
+六个组件均同时考虑**单机与分布式**两种运行形态。引 starter + 配置即用；core 可脱离 Spring Boot 独立引用。
 
 | 组件 | 一句话 | 单机 | 分布式 | 详细文档 |
 |---|---|---|---|---|
@@ -17,6 +17,7 @@ star-site 系列通用组件库：**core（纯库 + MyBatis 可选路径）+ spr
 | **lock** | 分布式锁（可重入 / 限时等待 / 自愈） | —（天然多实例） | DB 唯一键 / Redis hash | [docs/lock.md](docs/lock.md) |
 | **schedule** | 定时任务恰一执行（注解 + 自研 cron + 执行流水） | memory 观测 | 复用 lock 争锁恰一 + run_log | [docs/schedule.md](docs/schedule.md) |
 | **idempotent** | API 幂等键（Stripe 同款：拦截 + **结果回放**） | memory 状态机 | MySQL uk 原子认领 / Redis Lua + TTL | [docs/idempotent.md](docs/idempotent.md) |
+| **quota** | 余额型配额（五原子操作 + 不变式 occupied+frozen≤total） | memory 原子块 | MySQL 条件 UPDATE / Redis Lua | [docs/quota.md](docs/quota.md) |
 
 ```
 starsite-sequence ──────► starsite-sequence-spring-boot-starter
@@ -24,10 +25,11 @@ starsite-async-command ─► starsite-async-command-spring-boot-starter
 starsite-lock ──────────► starsite-lock-spring-boot-starter
 starsite-schedule ──────► starsite-schedule-spring-boot-starter
 starsite-idempotent ────► starsite-idempotent-spring-boot-starter
+starsite-quota ─────────► starsite-quota-spring-boot-starter
 ```
 
 - JDK 17+ · Spring Boot 3.2.x · **core 零 Lombok** · Apache-2.0 · 已在 [star-site-backend](https://github.com/Mein-Augenstern/star-site-backend) 生产接入
-- 当前全量 **250 项单测**（10 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
+- 当前全量 **285 项单测**（12 模块全绿；权威声明口径——以 `mvn verify` 实时值为准）
 - **公司内部落地/扩展**：[docs/extension.md](docs/extension.md)——三层接入通道（配置换连/方言替换/SPI 实现）+ Bean 让位机制 + 五组件扩展点清单
 
 ## 快速开始
@@ -58,6 +60,11 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
     <artifactId>starsite-idempotent-spring-boot-starter</artifactId>
     <version>0.1.0-SNAPSHOT</version>
 </dependency>
+<dependency>
+    <groupId>com.xp.starsite</groupId>
+    <artifactId>starsite-quota-spring-boot-starter</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
 ```
 
 无需 `@Import`、无需 `@EnableScheduling`——自动装配完成一切。定时任务加 `@StarsiteScheduled(cron = "0 0 8 * * ?")`
@@ -67,7 +74,7 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 消费方 classpath 有 MyBatis 时**零配置自动切换** MyBatis 存储路径；无 DB 的 WebFlux 网关设
 `starsite.async-command.enabled=false` + `starsite.lock.enabled=false` + `starsite.schedule.enabled=false`。
 
-## 组件表规范（五组件统一铁律）
+## 组件表规范（六组件统一铁律）
 
 - **物理主键 id 由 sequence 组件发号**（禁 AUTO_INCREMENT）
 - **标准时间列 `gmt_create` / `gmt_modified`**
@@ -83,7 +90,7 @@ starsite-idempotent ────► starsite-idempotent-spring-boot-starter
 | 策略 | WorkerIdAllocator / AsyncCommandStore / LockClient / IdempotentStore——`mode`/`store` 一行配置切形态 |
 | 门面 | StarsiteIdGenerator / AsyncCommandClient / LockClient / IdempotentClient——业务只面对一个入口 |
 | 适配器 | starter 的 SmartLifecycle 托管（core 零 Spring 依赖） |
-| 乐观并发 | DB 令牌认领 / lock_name 唯键单行 UPDATE / 幂等键 uk INSERT 认领 + 条件回收（代际令牌守卫） |
+| 乐观并发 | DB 令牌认领 / lock_name 唯键单行 UPDATE / 幂等键 uk INSERT 认领 + 条件回收（代际令牌守卫）/ 配额条件 UPDATE（不变式在 WHERE 内） |
 
 `@ConditionalOnMissingBean` 全量让位 · `@ConditionalOnClass` 按 classpath 装配 · 健康检查被动上报。
 
