@@ -62,6 +62,9 @@ public class TunerEngine implements TunerClient {
     /** 最近应用时刻 */
     private final Map<String, LocalDateTime> lastAppliedAt = new ConcurrentHashMap<>();
 
+    /** per-pool 应用锁（并发 applyAll 串行化——审计不重复） */
+    private final Map<String, Object> applyLocks = new ConcurrentHashMap<>();
+
     /** 治理存储（共享参数源） */
     private final TunerStore store;
 
@@ -202,6 +205,24 @@ public class TunerEngine implements TunerClient {
      */
     private void applyPool(String poolName, ThreadPoolExecutor pool, LocalDateTime now,
                            TunerAuditEntry.Source source) {
+        // per-pool 串行化：poll/admin/register 三路并发 applyAll 时，"读现值→比 lastApplied
+        // →调 setter→写审计"必须原子——否则双读旧值会产生重复审计行（假变更记录，
+        // 污染"审计只留真变更"承诺；P3C 巡检轮用户质询并发安全时实证补修）
+        synchronized (applyLocks.computeIfAbsent(poolName, k -> new Object())) {
+            doApplyPool(poolName, pool, now, source);
+        }
+    }
+
+    /**
+     * 单池求值与应用主体（per-pool 锁内执行）。
+     *
+     * @param poolName 池名
+     * @param pool     线程池
+     * @param now      当前时刻
+     * @param source   触发源
+     */
+    private void doApplyPool(String poolName, ThreadPoolExecutor pool, LocalDateTime now,
+                             TunerAuditEntry.Source source) {
         Optional<TunerPreset> target = resolveTarget(poolName, now);
         if (target.isEmpty()) {
             return; // 无绑定无窗口——保持基线（不猜）

@@ -79,6 +79,7 @@ curl -X POST .../tuner/reload   # 立即生效（与自动轮询同一路径，�
 | 多窗口重叠 | 命中者中取 endCron.nextAfter 最远（剩余最长）；写入期 WARN 可见 | R1-③ |
 | 应用顺序 | **收缩先降 core 再降 max / 扩张先抬 max 再抬 core**（JDK 恒 core≤max；设计期两版误判被测试连抓两次——见 D16） | R1 测试实证 |
 | no-op 去重 | 与池现值一致的求值不调 setter 不写审计——治理噪音零容忍 | R1 |
+| 应用并发安全 | poll/admin/register 三路并发 applyAll 经 **per-pool 锁串行化**（读现值→比 lastApplied→调 setter→写审计原子）；池 setter 本身由 JDK mainLock 串行——业务线程提交/执行完全无感 | 巡检质询实证 |
 | 审计粒度 | 仅实际变更行（per-host）——10 行切换审计是真实性不是冗余 | R1 |
 | versionStamp | 秒级精度契约（表形态同秒多写可能同戳，无害多一轮重载）；memory 严格单调 | 真库 IT 实证 |
 | 写入期校验 | cron 语法→预案存在→参数合法全 fail-fast（配置错误暴露在治理面而非运行期）；cron 求值失败按"永不触发"处理（不拖垮业务池，WARN 可见） | R2 |

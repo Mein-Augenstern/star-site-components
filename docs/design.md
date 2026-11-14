@@ -167,3 +167,6 @@ sequence 的 `allocator.mysql` / `allocator.redis` / `allocator.standalone`。
 2. versionStamp 秒级精度：同秒多写同戳（idempotent DATETIME 截断同源教训）——
    契约改为"秒级精度，同秒同戳无害"；memory 严格单调
 3. 校验顺序：cron 语法（纯本地）先行、预案存在性（存储查询）在后——报错定位更快
+4. 交付当天用户质询并发安全：applyPool 读-比-写-审计四步在 poll/admin/register 三路
+   并发下非原子（双读旧值=重复审计假变更行）——per-pool 锁串行化修复；教训：组件的
+   审计类承诺必须覆盖"谁在并发调用我"的完整清单

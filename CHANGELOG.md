@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   测试连抓两次）；per-host 变更审计（合规留痕：10 实例切换=10 行真实账面）；admin 端点
   （三级鉴权 async 同款）；cron 复用 schedule 解析器（family 内部复用是特性）。21 项
   单测 + 真库 IT 5 项。v2：可变容量队列（美团方案）/健康度联动/审批钩子。
+  交付当天巡检质询补修：applyPool 的"读现值→比 lastApplied→调 setter→写审计"在
+  poll/admin/register 三路并发下非原子（双读旧值=重复审计假变更）——per-pool 锁
+  串行化修复 + 8 线程并发 reload 恰 1 条审计锁定测试。
 - **quota 组件 v0.1（六号组件，2026-11-14）**：余额型配额——防超额的通用内核
   （信贷"防超贷"痛点剥领域后的抽象：额度/库存/席位/保证金/令牌池同一抽象）。
   五原子操作（占用/释放/冻结/解冻/冻结转占用单语句换位）+ 恒不变式

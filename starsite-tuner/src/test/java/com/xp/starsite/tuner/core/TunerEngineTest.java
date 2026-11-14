@@ -207,18 +207,23 @@ class TunerEngineTest {
                 .isEqualTo(TunerAuditEntry.Source.STARTUP);
     }
 
-    /** 并发应用安全：多线程同时 register + reload 不互斥冲突、池参数终态合法（core<=max） */
+    /** 并发应用安全：8 线程并发 reload——per-pool 锁串行化，审计恰好 1 条（假变更零容忍） */
     @Test
     void concurrentApplySafe() throws Exception {
         engine.upsertPreset(new TunerPreset("daily", 4, 6, 60));
         engine.bindDefault("pool-a", "daily");
         engine.register("pool-a", pool);
         int threads = 8;
+        CountDownLatch start = new CountDownLatch(threads);
         CountDownLatch done = new CountDownLatch(threads);
         for (int i = 0; i < threads; i++) {
             new Thread(() -> {
+                start.countDown();
                 try {
+                    start.await();
                     engine.reload();
+                } catch (Exception ignored) {
+                    // 断言在终态
                 } finally {
                     done.countDown();
                 }
@@ -226,7 +231,9 @@ class TunerEngineTest {
         }
         assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(pool.getCorePoolSize()).isLessThanOrEqualTo(pool.getMaximumPoolSize());
-        assertThat(engine.recentAudits(10)).hasSizeLessThanOrEqualTo(1); // no-op 去重
+        assertThat(pool.getCorePoolSize()).isEqualTo(4);
+        // per-pool 锁：8 线程并发 reload 恰 1 条审计（双读双写假变更零容忍）
+        assertThat(engine.recentAudits(10)).hasSize(1);
     }
 
     /** 池快照：活跃度与目标预案名可见（治理视图） */
