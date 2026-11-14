@@ -195,8 +195,8 @@ class SnowflakeIdGeneratorTest {
                 SnowflakeIdGenerator.BackwardPolicy.CLAMP);
         int threads = 8;
         int perThread = 12_500;
-        var ids = java.util.Collections.synchronizedSet(new HashSet<Long>());
-        var latch = new CountDownLatch(threads);
+        java.util.Set<Long> ids = java.util.Collections.synchronizedSet(new java.util.HashSet<Long>());
+        CountDownLatch latch = new CountDownLatch(threads);
         for (int t = 0; t < threads; t++) {
             new Thread(() -> {
                 try {

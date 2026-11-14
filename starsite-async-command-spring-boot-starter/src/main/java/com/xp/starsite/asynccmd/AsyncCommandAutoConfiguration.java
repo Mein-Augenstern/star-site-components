@@ -40,13 +40,13 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -65,7 +65,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * @author muyi
  * @date 2026/10/25
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "starsite.async-command", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(AsyncCommandProperties.class)
 public class AsyncCommandAutoConfiguration {
@@ -92,12 +92,11 @@ public class AsyncCommandAutoConfiguration {
                                                ObjectProvider<StarsiteIdGenerator> idGenProvider,
                                                AsyncCommandSql sql) {
         // 枚举 switch 表达式：STANDALONE/MYSQL 两分支穷尽且均以 yield 终止，无需 default
-        return switch (props.getMode()) {
-            case STANDALONE -> {
-                log.info("[starsite-async-command] 存储形态：standalone（单机无 DB；重启丢命令）");
-                yield new InMemoryAsyncCommandStore();
-            }
-            case MYSQL -> {
+        if (props.getMode() == AsyncCommandProperties.Mode.STANDALONE) {
+            log.info("[starsite-async-command] 存储形态：standalone（单机无 DB；重启丢命令）");
+            return new InMemoryAsyncCommandStore();
+        }
+        if (props.getMode() == AsyncCommandProperties.Mode.MYSQL) {
                 JdbcTemplate jdbc = jdbcTemplateProvider.getIfAvailable();
                 if (jdbc == null) {
                     throw new IllegalStateException(
@@ -114,9 +113,10 @@ public class AsyncCommandAutoConfiguration {
                 }
                 log.info("[starsite-async-command] 存储形态：jdbc（table={}，单机/分布式通用令牌认领）",
                         props.getTableName());
-                yield new JdbcAsyncCommandStore(jdbc, props.getTableName(), sql, props.isInitDdl(), idGen::next);
+                return new JdbcAsyncCommandStore(jdbc, props.getTableName(), sql, props.isInitDdl(), idGen::next);
             }
-        };
+        throw new IllegalStateException(
+                "未知 starsite.async-command.mode: " + props.getMode());
     }
 
     /**
@@ -133,7 +133,7 @@ public class AsyncCommandAutoConfiguration {
     public AsyncCommandClient asyncCommandClient(AsyncCommandStore store, AsyncCommandProperties props,
                                                  Environment env, AsyncCommandMetrics metrics) {
         // 未显式配置 owner 时回填应用名，保证多实例下的认领主体可区分、可追溯
-        if (props.getOwner() == null || props.getOwner().isBlank()) {
+        if (props.getOwner() == null || props.getOwner().trim().isEmpty()) {
             props.setOwner(env.getProperty("spring.application.name", "unknown"));
         }
         return new AsyncCommandClient(store, props, TimeSource.system(), metrics);
@@ -339,7 +339,7 @@ public class AsyncCommandAutoConfiguration {
                                                                    ObjectProvider<AsyncCommandAdminGuard> guardProvider,
                                                                    AsyncCommandProperties props) {
         if (guardProvider.getIfAvailable() == null
-                && (props.getAdminToken() == null || props.getAdminToken().isBlank())) {
+                && (props.getAdminToken() == null || props.getAdminToken().trim().isEmpty())) {
             log.warn("[starsite-async-command] 管控端点已开启但未配置鉴权（无自定义 AsyncCommandAdminGuard Bean "
                     + "且 starsite.async-command.admin-token 为空）——当前放行所有请求，仅适合本地开发；"
                     + "生产请配置 admin-token 或提供自定义守卫 Bean");

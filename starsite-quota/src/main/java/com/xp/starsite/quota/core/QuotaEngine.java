@@ -136,19 +136,21 @@ public class QuotaEngine implements QuotaClient {
         }
         // 条件不中：定责（账户不在 vs 额度不足 vs 记账错乱）
         QuotaBalance snapshot = store.find(key).orElseThrow(() -> new QuotaNotFoundException(key));
-        switch (opName) {
-            case "占用", "冻结" -> throw new QuotaExceededException(key, operand, snapshot.getAvailable());
-            case "调整总量" -> throw new QuotaStateException(
-                    ("降额越界: key=%s, 现总量=%d, 占用+冻结=%d, 增量=%d——不允许调出负可用量")
-                            .formatted(key, snapshot.getTotal(),
-                                    snapshot.getOccupied() + snapshot.getFrozen(), operand),
-                    key);
-            default -> throw new QuotaStateException(
-                    ("账面计数不足: key=%s, %s 量=%d, 当前占用=%d, 冻结=%d——业务侧记账错乱的信号"
-                            + "（重复释放/漏记占用？），防御性拒绝").formatted(key, opName, operand,
-                            snapshot.getOccupied(), snapshot.getFrozen()),
+        if ("占用".equals(opName) || "冻结".equals(opName)) {
+            throw new QuotaExceededException(key, operand, snapshot.getAvailable());
+        }
+        if ("调整总量".equals(opName)) {
+            throw new QuotaStateException(
+                    String.format("降额越界: key=%s, 现总量=%d, 占用+冻结=%d, 增量=%d——不允许调出负可用量",
+                            key, snapshot.getTotal(),
+                            snapshot.getOccupied() + snapshot.getFrozen(), operand),
                     key);
         }
+        throw new QuotaStateException(
+                String.format("账面计数不足: key=%s, %s 量=%d, 当前占用=%d, 冻结=%d——业务侧记账错乱的信号"
+                                + "（重复释放/漏记占用？），防御性拒绝", key, opName, operand,
+                        snapshot.getOccupied(), snapshot.getFrozen()),
+                key);
     }
 
     /**
@@ -157,7 +159,7 @@ public class QuotaEngine implements QuotaClient {
      * @param quotaKey 配额键
      */
     private static void validateKey(String quotaKey) {
-        if (quotaKey == null || quotaKey.isBlank()) {
+        if (quotaKey == null || quotaKey.trim().isEmpty()) {
             throw new IllegalArgumentException("配额键不可为空");
         }
         if (quotaKey.trim().length() > KEY_MAX) {

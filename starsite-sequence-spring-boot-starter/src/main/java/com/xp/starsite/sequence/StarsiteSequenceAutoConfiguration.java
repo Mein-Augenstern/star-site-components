@@ -25,12 +25,12 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * starsite-sequence 自动装配（starter 模块，仅粘合；发号器本体在 core）：
@@ -45,7 +45,7 @@ import org.springframework.context.annotation.Bean;
  * @author muyi
  * @date 2026/10/25
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "starsite.sequence", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(SequenceProperties.class)
 public class StarsiteSequenceAutoConfiguration {
@@ -164,21 +164,21 @@ public class StarsiteSequenceAutoConfiguration {
      */
     private WorkerIdAllocator buildAllocator(SequenceProperties props,
                                              ObjectProvider<DataSource> dataSourceProvider) {
-        return switch (props.getMode()) {
-            case STANDALONE -> new FixedWorkerIdAllocator(props.getWorkerId());
-            case MYSQL -> {
-                DataSource ds = dataSourceProvider.getIfAvailable();
-                if (ds == null) {
-                    throw new IllegalStateException(
-                            "starsite.sequence.mode=mysql 需要 DataSource；单机场景请改 mode=standalone");
-                }
-                String tag = buildInstanceTag(props);
-                yield new MysqlWorkerIdAllocator(ds, props.getTableName(), props.getServiceName(), tag,
-                        props.isInitDdl(), props.getWorkerIdBits(), props.getWraparoundPolicy());
+        if (props.getMode() == SequenceProperties.Mode.STANDALONE) {
+            return new FixedWorkerIdAllocator(props.getWorkerId());
+        }
+        if (props.getMode() == SequenceProperties.Mode.MYSQL) {
+            DataSource ds = dataSourceProvider.getIfAvailable();
+            if (ds == null) {
+                throw new IllegalStateException(
+                        "starsite.sequence.mode=mysql 需要 DataSource；单机场景请改 mode=standalone");
             }
-            case REDIS -> throw new IllegalStateException(
-                    "Redis 形态经 SequenceRedisAutoConfiguration 嵌套类装配，此处不可达");
-        };
+            String tag = buildInstanceTag(props);
+            return new MysqlWorkerIdAllocator(ds, props.getTableName(), props.getServiceName(), tag,
+                    props.isInitDdl(), props.getWorkerIdBits(), props.getWraparoundPolicy());
+        }
+        throw new IllegalStateException(
+                "Redis 形态经 SequenceRedisAutoConfiguration 嵌套类装配，此处不可达");
     }
 
     /**
@@ -205,9 +205,9 @@ public class StarsiteSequenceAutoConfiguration {
             if (allocator == null) {
                 allocator = new com.xp.starsite.sequence.allocator.redis.RedisWorkerIdAllocator(
                         redis, props.getServiceName(),
-                        props.getInstanceTag() == null || props.getInstanceTag().isBlank()
-                                ? "%s@%d@%d".formatted(props.getServiceName(),
-                                        ProcessHandle.current().pid(), System.currentTimeMillis())
+                        props.getInstanceTag() == null || props.getInstanceTag().trim().isEmpty()
+                                ? String.format("%s@%d@%d", props.getServiceName(),
+                                        Long.parseLong(java.lang.management.ManagementFactory.getRuntimeMXBean().getName().split("@")[0]), System.currentTimeMillis())
                                 : props.getInstanceTag(),
                         props.getWorkerIdBits(), props.getWraparoundPolicy());
             }
@@ -225,8 +225,8 @@ public class StarsiteSequenceAutoConfiguration {
      * 构造实例标签（审计可见的进程标识）。
      */
     private String buildInstanceTag(SequenceProperties props) {
-        return props.getInstanceTag() == null || props.getInstanceTag().isBlank()
-                ? "%s@%d@%d".formatted(props.getServiceName(), ProcessHandle.current().pid(),
+        return props.getInstanceTag() == null || props.getInstanceTag().trim().isEmpty()
+                ? String.format("%s@%d@%d", props.getServiceName(), Long.parseLong(java.lang.management.ManagementFactory.getRuntimeMXBean().getName().split("@")[0]),
                         System.currentTimeMillis())
                 : props.getInstanceTag();
     }

@@ -128,6 +128,6 @@ public class RedisWorkerIdAllocator implements WorkerIdAllocator {
      */
     @Override
     public String describe() {
-        return "redis-lease(service=%s, tag=%s)".formatted(serviceName, instanceTag);
+        return String.format("redis-lease(service=%s, tag=%s)", serviceName, instanceTag);
     }
 }

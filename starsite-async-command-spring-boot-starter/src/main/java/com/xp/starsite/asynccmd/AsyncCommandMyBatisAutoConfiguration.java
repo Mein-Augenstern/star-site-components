@@ -24,7 +24,6 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -32,6 +31,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * MyBatis 适配自动装配：容器中存在 MyBatis 会话工厂（{@code SqlSessionFactory} Bean，
@@ -48,7 +48,7 @@ import org.springframework.context.annotation.Bean;
  * @author muyi
  * @date 2026/10/25
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @AutoConfigureAfter(name = "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration")
 @AutoConfigureBefore(AsyncCommandAutoConfiguration.class)
 @ConditionalOnClass(SqlSessionFactory.class)

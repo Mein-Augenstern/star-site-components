@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.schedule.core;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.lock.client.LockClient;
@@ -25,6 +24,7 @@ import com.xp.starsite.schedule.store.memory.MemoryRunLogStore;
 import com.xp.starsite.schedule.trigger.DailyAtTrigger;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -115,7 +115,7 @@ class ExactlyOnceRunnerTest {
 
         assertThat(ran).isTrue();
         assertThat(cluster.held).isEmpty();  // 释放干净（TTL 不用兜底）
-        var log = store.recentByTask("t1", 10).get(0);
+        com.xp.starsite.schedule.api.RunLog log = store.recentByTask("t1", 10).get(0);
         assertThat(log.getStatus()).isEqualTo(RunStatus.DONE);
         assertThat(log.getDurationMs()).isNotNull();
         assertThat(log.getHost()).contains(":");  // hostname:pid 形态
@@ -134,9 +134,9 @@ class ExactlyOnceRunnerTest {
 
         assertThat(ran).isTrue();  // 执行了（失败也是执行）
         assertThat(cluster.held).isEmpty();  // 失败也释放
-        var log = store.recentByTask("t1", 10).get(0);
+        com.xp.starsite.schedule.api.RunLog log = store.recentByTask("t1", 10).get(0);
         assertThat(log.getStatus()).isEqualTo(RunStatus.FAILED);
-        var detail = store.findById(log.getId()).orElseThrow();
+        com.xp.starsite.schedule.api.RunLog detail = store.findById(log.getId()).get();
         assertThat(detail.getError()).contains("IllegalStateException").contains("boom");
         assertThat(detail.getFinishedAt()).isNotNull();
     }
@@ -178,7 +178,7 @@ class ExactlyOnceRunnerTest {
         AtomicInteger executions = new AtomicInteger();
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(2);
-        for (ExactlyOnceRunner r : List.of(a, b)) {
+        for (ExactlyOnceRunner r : Arrays.asList(a, b)) {
             new Thread(() -> {
                 try {
                     start.await();

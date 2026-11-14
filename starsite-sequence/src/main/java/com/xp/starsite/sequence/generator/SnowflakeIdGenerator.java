@@ -127,7 +127,7 @@ public class SnowflakeIdGenerator {
         long maxWorkerId = ~(-1L << workerIdBits);
         if (workerId < 0 || workerId > maxWorkerId) {
             throw new IllegalArgumentException(
-                    "workerId 必须在 0~%d 之间（%d 位机器位）: %d".formatted(maxWorkerId, workerIdBits, workerId));
+                    String.format("workerId 必须在 0~%d 之间（%d 位机器位）: %d", maxWorkerId, workerIdBits, workerId));
         }
         if (workerIdBits + sequenceBits > 22) {
             throw new IllegalArgumentException("workerIdBits + sequenceBits 不能超过 22（时间戳至少保留 41 位）");
@@ -179,7 +179,7 @@ public class SnowflakeIdGenerator {
                 if (sequence == 0) {
                     // 序列耗尽：自旋等物理时间越过 lastTimestamp（被钳制时即等真实时钟追平）
                     while ((timestamp = time.currentTimeMillis()) <= lastTimestamp) {
-                        Thread.onSpinWait();
+                        Thread.yield(); // JDK8：onSpinWait 为 9+，yield 语义等价（自旋让出）
                     }
                 }
             } else {

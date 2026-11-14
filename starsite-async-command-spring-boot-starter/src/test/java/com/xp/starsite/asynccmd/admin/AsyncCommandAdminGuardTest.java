@@ -19,12 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.http.HttpStatus;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -36,34 +34,34 @@ import org.springframework.web.server.ResponseStatusException;
  */
 class AsyncCommandAdminGuardTest {
 
-    /** 构造带 token 请求头的 mock 请求 */
-    private static HttpServletRequest requestWithToken(String token) {
-        MockHttpServletRequest request = new MockHttpServletRequest();
+    /** 构造带 token 请求头的 Map 快照 */
+    private static java.util.Map<String, String> headersWithToken(String token) {
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
         if (token != null) {
-            request.addHeader(StaticTokenAdminGuard.HEADER_NAME, token);
+            headers.put(StaticTokenAdminGuard.HEADER_NAME, token);
         }
-        return request;
+        return headers;
     }
 
     @Test
     void 正确token_放行() {
         StaticTokenAdminGuard guard = new StaticTokenAdminGuard("s3cret");
-        assertThatCode(() -> guard.check(requestWithToken("s3cret"))).doesNotThrowAnyException();
+        assertThatCode(() -> guard.check(headersWithToken("s3cret"))).doesNotThrowAnyException();
     }
 
     @Test
     void 错误token_抛401() {
         StaticTokenAdminGuard guard = new StaticTokenAdminGuard("s3cret");
-        assertThatThrownBy(() -> guard.check(requestWithToken("wrong")))
+        assertThatThrownBy(() -> guard.check(headersWithToken("wrong")))
                 .isInstanceOf(ResponseStatusException.class)
-                .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+                .extracting(e -> ((ResponseStatusException) e).getStatus())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
     void 缺请求头_抛401() {
         StaticTokenAdminGuard guard = new StaticTokenAdminGuard("s3cret");
-        assertThatThrownBy(() -> guard.check(requestWithToken(null)))
+        assertThatThrownBy(() -> guard.check(headersWithToken(null)))
                 .isInstanceOf(ResponseStatusException.class);
     }
 

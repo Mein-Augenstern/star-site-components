@@ -70,8 +70,8 @@ class TunerEngineV2Test {
     void queueCapacityAppliedToResizableQueue() {
         pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS,
                 new ResizableCapacityLinkedBlockingQueue<>(100));
-        var store = new MemoryTunerStore(clock::get);
-        var engine = engine(store, TunerOptions.defaults());
+        MemoryTunerStore store = new MemoryTunerStore(clock::get);
+        TunerEngine engine = engine(store, TunerOptions.defaults());
         engine.register("pool-a", pool);
         engine.upsertPreset(new TunerPreset("flood", 4, 8, 60, 500));
         engine.bindDefault("pool-a", "flood");
@@ -79,7 +79,7 @@ class TunerEngineV2Test {
         assertThat(pool.getQueue().size()).isZero();
         assertThat(((ResizableCapacityLinkedBlockingQueue<?>) pool.getQueue()).getCapacity())
                 .isEqualTo(500);
-        var audit = engine.recentAudits(5).get(0);
+        com.xp.starsite.tuner.api.TunerAuditEntry audit = engine.recentAudits(5).get(0);
         assertThat(audit.getOldQueue()).isEqualTo(100);
         assertThat(audit.getNewQueue()).isEqualTo(500);
         // 回程收缩
@@ -95,7 +95,7 @@ class TunerEngineV2Test {
     void queueCapacitySkippedForNonResizable() {
         pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(100));
-        var engine = engine(new MemoryTunerStore(clock::get), TunerOptions.defaults());
+        TunerEngine engine = engine(new MemoryTunerStore(clock::get), TunerOptions.defaults());
         engine.register("pool-a", pool);
         engine.upsertPreset(new TunerPreset("flood", 3, 4, 60, 500));
         engine.bindDefault("pool-a", "flood");
@@ -111,7 +111,7 @@ class TunerEngineV2Test {
         pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS,
                 new ResizableCapacityLinkedBlockingQueue<>(100));
         AtomicInteger approvals = new AtomicInteger();
-        var engine = engine(new MemoryTunerStore(clock::get), TunerOptions.builder()
+        TunerEngine engine = engine(new MemoryTunerStore(clock::get), TunerOptions.builder()
                 .approvalHook(request -> {
                     approvals.incrementAndGet();
                     return request.newCore() > 4
@@ -140,8 +140,8 @@ class TunerEngineV2Test {
                 new ResizableCapacityLinkedBlockingQueue<>(100));
         java.util.concurrent.atomic.AtomicBoolean emergency =
                 new java.util.concurrent.atomic.AtomicBoolean(true);
-        var engine = engine(new MemoryTunerStore(clock::get), TunerOptions.builder()
-                .adaptiveRules(List.of(snapshot -> emergency.get()
+        TunerEngine engine = engine(new MemoryTunerStore(clock::get), TunerOptions.builder()
+                .adaptiveRules(java.util.Arrays.asList(snapshot -> emergency.get()
                         ? Optional.of("protect")
                         : Optional.empty()))
                 .adaptiveCooldown(java.time.Duration.ofMinutes(2))
@@ -173,7 +173,7 @@ class TunerEngineV2Test {
         assertThat(engine.recentAudits(5).get(0).getSource())
                 .isEqualTo(TunerAuditEntry.Source.ADAPTIVE);
         // 恰 3 条真实变更（ADAPTIVE/SCHEDULE/ADAPTIVE）——no-op 零噪音
-        var audits = engine.recentAudits(10);
+        List<com.xp.starsite.tuner.api.TunerAuditEntry> audits = engine.recentAudits(10);
         assertThat(audits).hasSize(3);
         assertThat(audits).extracting(TunerAuditEntry::getSource)
                 .containsExactly(TunerAuditEntry.Source.ADAPTIVE,
@@ -185,9 +185,9 @@ class TunerEngineV2Test {
     void alarmHookWithCooldown() {
         pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS,
                 new ResizableCapacityLinkedBlockingQueue<>(100));
-        var fired = new AtomicReference<TunerAlarm>();
+        AtomicReference<TunerAlarm> fired = new AtomicReference<TunerAlarm>();
         AtomicInteger count = new AtomicInteger();
-        var engine = engine(new MemoryTunerStore(clock::get), TunerOptions.builder()
+        TunerEngine engine = engine(new MemoryTunerStore(clock::get), TunerOptions.builder()
                 .alarmHook(alarm -> {
                     fired.set(alarm);
                     count.incrementAndGet();
@@ -220,8 +220,8 @@ class TunerEngineV2Test {
     void auditRetentionPurgesExpiredOnly() {
         pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS,
                 new ResizableCapacityLinkedBlockingQueue<>(100));
-        var store = new MemoryTunerStore(clock::get);
-        var engine = engine(store, TunerOptions.builder()
+        MemoryTunerStore store = new MemoryTunerStore(clock::get);
+        TunerEngine engine = engine(store, TunerOptions.builder()
                 .auditRetentionDays(7)
                 .build());
         engine.register("pool-a", pool);

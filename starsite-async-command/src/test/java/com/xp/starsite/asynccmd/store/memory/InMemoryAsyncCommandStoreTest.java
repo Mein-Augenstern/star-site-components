@@ -86,8 +86,8 @@ class InMemoryAsyncCommandStoreTest {
 
         assertThat(store.claim("tok-a", 1, LocalDateTime.now())).isEqualTo(1);
         assertThat(store.claim("tok-b", 5, LocalDateTime.now())).isEqualTo(1); // 只剩 1 条待认领
-        List<Long> idsA = store.findByToken("tok-a").stream().map(AsyncCommand::getId).toList();
-        List<Long> idsB = store.findByToken("tok-b").stream().map(AsyncCommand::getId).toList();
+        List<Long> idsA = store.findByToken("tok-a").stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
+        List<Long> idsB = store.findByToken("tok-b").stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
         assertThat(idsA).doesNotContainAnyElementsOf(idsB);
     }
 

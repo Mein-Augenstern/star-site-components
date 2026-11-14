@@ -17,8 +17,6 @@ package com.xp.starsite.quota.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -121,7 +119,8 @@ class QuotaSqlMySqlTest {
      */
     private static String resource(String rel) {
         try {
-            return Files.readString(Path.of(rel));
+            return new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(rel)),
+                    java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new IllegalStateException("读资源失败: " + rel, e);
         }
@@ -161,6 +160,6 @@ class QuotaSqlMySqlTest {
         assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
         pool.shutdownNow();
         assertThat(ok.get()).isEqualTo(10);
-        assertThat(store.find("k").orElseThrow().getOccupied()).isEqualTo(100);
+        assertThat(store.find("k").get().getOccupied()).isEqualTo(100);
     }
 }

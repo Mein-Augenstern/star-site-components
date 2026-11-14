@@ -122,11 +122,13 @@ public final class QuotaBalance {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof QuotaBalance other)) {
+        if (!(o instanceof QuotaBalance)) {
             return false;
         }
-        return total == other.total && occupied == other.occupied
-                && frozen == other.frozen && java.util.Objects.equals(quotaKey, other.quotaKey);
+        QuotaBalance other = (QuotaBalance) o;
+        return total == other.getTotal() && occupied == other.getOccupied()
+                && frozen == other.getFrozen()
+                && java.util.Objects.equals(quotaKey, other.getQuotaKey());
     }
 
     /**

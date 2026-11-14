@@ -37,7 +37,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
     /** 并发准入精确性：16 线程各 offer 到容量 100——恰 100 成功，size 不超容 */
     @Test
     void concurrentOfferNeverExceedsCapacity() throws Exception {
-        var queue = new ResizableCapacityLinkedBlockingQueue<Integer>(100);
+        ResizableCapacityLinkedBlockingQueue<Integer> queue = new ResizableCapacityLinkedBlockingQueue<Integer>(100);
         int threads = 16;
         CountDownLatch start = new CountDownLatch(threads);
         CountDownLatch done = new CountDownLatch(threads);
@@ -68,7 +68,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
     /** 收缩软水位线：1000→100，已入队 800 不丢（drain 验证），期间新 offer 被拒 */
     @Test
     void shrinkIsSoftWatermark() {
-        var queue = new ResizableCapacityLinkedBlockingQueue<Integer>(1000);
+        ResizableCapacityLinkedBlockingQueue<Integer> queue = new ResizableCapacityLinkedBlockingQueue<Integer>(1000);
         for (int i = 0; i < 800; i++) {
             assertThat(queue.offer(i)).isTrue();
         }
@@ -86,7 +86,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
     /** 扩容立即可见 + getCapacity/remainingCapacity */
     @Test
     void growImmediatelyVisible() {
-        var queue = new ResizableCapacityLinkedBlockingQueue<Integer>(10);
+        ResizableCapacityLinkedBlockingQueue<Integer> queue = new ResizableCapacityLinkedBlockingQueue<Integer>(10);
         for (int i = 0; i < 10; i++) {
             queue.offer(i);
         }
@@ -101,7 +101,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
     /** put/take 往返（阻塞语义）+ take 后腾容量唤醒语义（经 take 驱动） */
     @Test
     void putTakeRoundTrip() throws Exception {
-        var queue = new ResizableCapacityLinkedBlockingQueue<Integer>(3);
+        ResizableCapacityLinkedBlockingQueue<Integer> queue = new ResizableCapacityLinkedBlockingQueue<Integer>(3);
         queue.put(1);
         queue.put(2);
         queue.put(3);
@@ -115,7 +115,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
     @Test
     void invalidCapacityRejected() {
         assertThatThrownByByDesign(() -> new ResizableCapacityLinkedBlockingQueue<>(0));
-        var queue = new ResizableCapacityLinkedBlockingQueue<>(10);
+        ResizableCapacityLinkedBlockingQueue queue = new ResizableCapacityLinkedBlockingQueue<>(10);
         assertThatThrownByByDesign(() -> queue.setCapacity(0));
         assertThatThrownByByDesign(() -> queue.setCapacity(-5));
         assertThat(queue.getCapacity()).isEqualTo(10); // 非法调整不生效
@@ -124,7 +124,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
     /** remove/contains/iterator/clear 基础契约 */
     @Test
     void basicCollectionContract() {
-        var queue = new ResizableCapacityLinkedBlockingQueue<String>(10);
+        ResizableCapacityLinkedBlockingQueue<String> queue = new ResizableCapacityLinkedBlockingQueue<String>(10);
         queue.offer("a");
         queue.offer("b");
         queue.offer("c");
@@ -132,7 +132,7 @@ class ResizableCapacityLinkedBlockingQueueTest {
         assertThat(queue.contains("z")).isFalse();
         assertThat(queue.remove("b")).isTrue();
         assertThat(queue.contains("b")).isFalse();
-        var seen = new ArrayList<>();
+        ArrayList seen = new ArrayList<>();
         for (String s : queue) {
             seen.add(s);
         }
@@ -144,9 +144,9 @@ class ResizableCapacityLinkedBlockingQueueTest {
     /** TPE 集成：收缩队列 + max 满 → 拒绝语义触发（backpressure 端到端） */
     @Test
     void threadPoolIntegrationRejectsWhenShrunk() throws Exception {
-        var queue = new ResizableCapacityLinkedBlockingQueue<Runnable>(2);
-        var rejected = new AtomicInteger();
-        var pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS, queue,
+        ResizableCapacityLinkedBlockingQueue<Runnable> queue = new ResizableCapacityLinkedBlockingQueue<Runnable>(2);
+        AtomicInteger rejected = new AtomicInteger();
+        ThreadPoolExecutor pool = new ThreadPoolExecutor(2, 4, 60, TimeUnit.SECONDS, queue,
                 r -> {
                     Thread t = new Thread(r, "tuner-q-test");
                     t.setDaemon(true);

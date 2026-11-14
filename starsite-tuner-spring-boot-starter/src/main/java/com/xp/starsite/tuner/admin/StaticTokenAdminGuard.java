@@ -15,7 +15,6 @@
  */
 package com.xp.starsite.tuner.admin;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
@@ -50,8 +49,8 @@ public class StaticTokenAdminGuard implements TunerAdminGuard {
 
     /** {@inheritDoc} 常量时间比对（长度差异前先哈希抹平） */
     @Override
-    public boolean allow(HttpServletRequest request) {
-        String provided = request.getHeader(HEADER);
+    public boolean allow(java.util.Map<String, String> headers) {
+        String provided = headers.get(HEADER);
         if (provided == null) {
             return false;
         }

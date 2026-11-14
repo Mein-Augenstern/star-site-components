@@ -26,7 +26,34 @@ package com.xp.starsite.tuner.api;
  * @author muyi
  * @date 2026/11/14
  */
-public record TunerAlarm(String poolName, Type type, double value, double threshold) {
+public final class TunerAlarm {
+
+    /** 池名 */
+    private final String poolName;
+
+    /** 告警类型 */
+    private final Type type;
+
+    /** 当前值（比例 0.0~1.0+） */
+    private final double value;
+
+    /** 触发阈值 */
+    private final double threshold;
+
+    /**
+     * 构造。
+     *
+     * @param poolName  池名
+     * @param type      告警类型
+     * @param value     当前值
+     * @param threshold 触发阈值
+     */
+    public TunerAlarm(String poolName, Type type, double value, double threshold) {
+        this.poolName = poolName;
+        this.type = type;
+        this.value = value;
+        this.threshold = threshold;
+    }
 
     /** 告警类型 */
     public enum Type {

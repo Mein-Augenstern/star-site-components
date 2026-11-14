@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.tuner.api.TunerPreset;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 
@@ -74,8 +73,9 @@ class TunerSqlMySqlTest {
     /** 双载体对齐：JDBC 方言与 MyBatis Mapper XML 的语句集/表名占位互证（R2-⑥ 防漂移） */
     @Test
     void jdbcDialectAndMapperAligned() throws Exception {
-        String mapper = Files.readString(Path.of(
-                "src/main/resources/com/xp/starsite/tuner/store/mybatis/TunerMapper.xml"));
+        String mapper = new String(Files.readAllBytes(java.nio.file.Paths.get(
+                "src/main/resources/com/xp/starsite/tuner/store/mybatis/TunerMapper.xml")),
+                java.nio.charset.StandardCharsets.UTF_8);
         // Mapper 四表建表存在
         for (String id : new String[]{"createPresetTable", "createWindowTable",
                 "createBindingTable", "createAuditTable"}) {
@@ -93,7 +93,7 @@ class TunerSqlMySqlTest {
     /** memory 存储写后必变（versionStamp 契约——轮询短路的正确性前提） */
     @Test
     void memoryVersionStampMonotonic() {
-        var store = new com.xp.starsite.tuner.store.memory.MemoryTunerStore(
+        com.xp.starsite.tuner.store.memory.MemoryTunerStore store = new com.xp.starsite.tuner.store.memory.MemoryTunerStore(
                 LocalDateTime::now);
         long before = store.versionStamp();
         store.upsertPreset(new TunerPreset("daily", 2, 4, 60));

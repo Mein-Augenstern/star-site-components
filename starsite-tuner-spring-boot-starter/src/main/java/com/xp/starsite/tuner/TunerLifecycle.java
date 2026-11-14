@@ -63,7 +63,7 @@ public class TunerLifecycle implements SmartLifecycle {
         if (running) {
             return;
         }
-        var factory = new java.util.concurrent.ThreadFactory() {
+        java.util.concurrent.ThreadFactory factory = new java.util.concurrent.ThreadFactory() {
             private final AtomicInteger seq = new AtomicInteger();
 
             @Override

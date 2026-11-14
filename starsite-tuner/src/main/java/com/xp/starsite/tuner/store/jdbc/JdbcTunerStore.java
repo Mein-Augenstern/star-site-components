@@ -138,17 +138,12 @@ public class JdbcTunerStore implements TunerStore {
             log.warn("[starsite-tuner] JdbcTemplate 无 DataSource——跳过结构校验");
             return;
         }
-        Map<String, java.util.Set<String>> contracts = Map.of(
-                presetTable, java.util.Set.of("ID", "PRESET_NAME", "CORE_SIZE", "MAX_SIZE",
-                        "KEEP_ALIVE_SECONDS", "QUEUE_CAPACITY", "GMT_CREATE", "GMT_MODIFIED"),
-                windowTable, java.util.Set.of("ID", "POOL_NAME", "PRESET_NAME", "START_CRON",
-                        "END_CRON", "GMT_CREATE", "GMT_MODIFIED"),
-                bindingTable, java.util.Set.of("ID", "POOL_NAME", "PRESET_NAME",
-                        "GMT_CREATE", "GMT_MODIFIED"),
-                auditTable, java.util.Set.of("ID", "OCCURRED_AT", "HOST", "POOL_NAME",
-                        "PRESET_NAME", "SOURCE", "OLD_CORE", "OLD_MAX", "OLD_KEEP",
-                        "NEW_CORE", "NEW_MAX", "NEW_KEEP", "OLD_QUEUE", "NEW_QUEUE",
-                        "GMT_CREATE", "GMT_MODIFIED"));
+        Map<String, java.util.Set<String>> contracts = new java.util.HashMap<>();
+        contracts.put(presetTable, new java.util.HashSet<>(java.util.Arrays.asList("ID", "PRESET_NAME", "CORE_SIZE", "MAX_SIZE", "KEEP_ALIVE_SECONDS", "QUEUE_CAPACITY", "GMT_CREATE", "GMT_MODIFIED")));
+        contracts.put(windowTable, new java.util.HashSet<>(java.util.Arrays.asList("ID", "POOL_NAME", "PRESET_NAME", "START_CRON", "END_CRON", "GMT_CREATE", "GMT_MODIFIED")));
+        contracts.put(bindingTable, new java.util.HashSet<>(java.util.Arrays.asList("ID", "POOL_NAME", "PRESET_NAME", "GMT_CREATE", "GMT_MODIFIED")));
+        contracts.put(auditTable, new java.util.HashSet<>(java.util.Arrays.asList("ID", "OCCURRED_AT", "HOST", "POOL_NAME", "PRESET_NAME", "SOURCE", "OLD_CORE", "OLD_MAX", "OLD_KEEP",
+                "NEW_CORE", "NEW_MAX", "NEW_KEEP", "OLD_QUEUE", "NEW_QUEUE", "GMT_CREATE", "GMT_MODIFIED")));
         for (Map.Entry<String, java.util.Set<String>> contract : contracts.entrySet()) {
             String table = contract.getKey();
             java.util.Set<String> actual = new java.util.HashSet<>();
@@ -165,11 +160,10 @@ public class JdbcTunerStore implements TunerStore {
             if (actual.isEmpty()) {
                 continue; // 表不存在——DBA/迁移脚本管理
             }
-            var missing = contract.getValue().stream().filter(c -> !actual.contains(c)).toList();
+            List<String> missing = contract.getValue().stream().filter(c -> !actual.contains(c)).collect(java.util.stream.Collectors.toList());
             if (!missing.isEmpty()) {
-                throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧。"
-                        + "请按 resources/sql/mysql/tuner_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
-                        .formatted(table, missing));
+                throw new IllegalStateException(String.format("表 %s 已存在但缺少列 %s——结构陈旧。"
+                    + "请按 resources/sql/mysql/tuner_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER", table, missing));
             }
         }
         log.debug("[starsite-tuner] 四表结构校验通过");

@@ -28,12 +28,12 @@ import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -47,7 +47,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * @author muyi
  * @date 2026/11/14
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(QuotaProperties.class)
 @ConditionalOnProperty(prefix = "starsite.quota", name = "enabled", havingValue = "true",
         matchIfMissing = true)

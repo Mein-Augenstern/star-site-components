@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 package com.xp.starsite.tuner.admin;
-
 import com.xp.starsite.tuner.api.TunerClient;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -62,8 +62,8 @@ public class TunerAdminController {
      * @return 快照列表
      */
     @GetMapping("/pools")
-    public List<PoolSnapshotView> pools(jakarta.servlet.http.HttpServletRequest request) {
-        return guard(request) ? toViews(client.pools()) : List.of();
+    public List<PoolSnapshotView> pools(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers) {
+        return guard(headers) ? toViews(client.pools()) : Arrays.asList();
     }
 
     /**
@@ -75,9 +75,9 @@ public class TunerAdminController {
      */
     @GetMapping("/audit")
     public List<com.xp.starsite.tuner.api.TunerAuditEntry> audit(
-            jakarta.servlet.http.HttpServletRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
             @RequestParam(defaultValue = "20") int limit) {
-        return guard(request) ? client.recentAudits(limit) : List.of();
+        return guard(headers) ? client.recentAudits(limit) : Arrays.asList();
     }
 
     /**
@@ -88,20 +88,20 @@ public class TunerAdminController {
      * @return 结果
      */
     @PostMapping("/preset")
-    public Map<String, Object> upsertPreset(jakarta.servlet.http.HttpServletRequest request,
+    public Map<String, Object> upsertPreset(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
                                             @RequestBody Map<String, Object> body) {
-        if (!guard(request)) {
-            return Map.of("ok", false, "message", "forbidden");
+        if (!guard(headers)) {
+            return mapOf("ok", false, "message", "forbidden");
         }
         Object queueRaw = body.get("queueCapacity");
-        var preset = new com.xp.starsite.tuner.api.TunerPreset(
+        com.xp.starsite.tuner.api.TunerPreset preset = new com.xp.starsite.tuner.api.TunerPreset(
                 String.valueOf(body.get("name")),
                 ((Number) body.get("core")).intValue(),
                 ((Number) body.get("max")).intValue(),
                 ((Number) body.getOrDefault("keepAliveSeconds", 60)).intValue(),
                 queueRaw == null ? null : ((Number) queueRaw).intValue());
         client.upsertPreset(preset);
-        return Map.of("ok", true);
+        return mapOf("ok", true);
     }
 
     /**
@@ -112,13 +112,13 @@ public class TunerAdminController {
      * @return 结果
      */
     @PostMapping("/binding")
-    public Map<String, Object> bind(jakarta.servlet.http.HttpServletRequest request,
+    public Map<String, Object> bind(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
                                     @RequestBody Map<String, String> body) {
-        if (!guard(request)) {
-            return Map.of("ok", false, "message", "forbidden");
+        if (!guard(headers)) {
+            return mapOf("ok", false, "message", "forbidden");
         }
         client.bindDefault(body.get("poolName"), body.get("presetName"));
-        return Map.of("ok", true);
+        return mapOf("ok", true);
     }
 
     /**
@@ -129,15 +129,15 @@ public class TunerAdminController {
      * @return 结果
      */
     @PostMapping("/window")
-    public Map<String, Object> upsertWindow(jakarta.servlet.http.HttpServletRequest request,
+    public Map<String, Object> upsertWindow(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
                                             @RequestBody Map<String, String> body) {
-        if (!guard(request)) {
-            return Map.of("ok", false, "message", "forbidden");
+        if (!guard(headers)) {
+            return mapOf("ok", false, "message", "forbidden");
         }
-        var saved = client.upsertWindow(new com.xp.starsite.tuner.api.TunerWindow(
+        com.xp.starsite.tuner.api.TunerWindow saved = client.upsertWindow(new com.xp.starsite.tuner.api.TunerWindow(
                 body.get("poolName"), body.get("presetName"),
                 body.get("startCron"), body.get("endCron")));
-        return Map.of("ok", true, "id", saved.getId());
+        return mapOf("ok", true, "id", saved.getId());
     }
 
     /**
@@ -147,17 +147,17 @@ public class TunerAdminController {
      * @return 结果
      */
     @PostMapping("/reload")
-    public Map<String, Object> reload(jakarta.servlet.http.HttpServletRequest request) {
-        if (!guard(request)) {
-            return Map.of("ok", false, "message", "forbidden");
+    public Map<String, Object> reload(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers) {
+        if (!guard(headers)) {
+            return mapOf("ok", false, "message", "forbidden");
         }
         client.reload();
-        return Map.of("ok", true);
+        return mapOf("ok", true);
     }
 
     /** 守卫判定（guard 为 null = 装配期已 WARN 的放行形态） */
-    private boolean guard(jakarta.servlet.http.HttpServletRequest request) {
-        return guard == null || guard.allow(request);
+    private boolean guard(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers) {
+        return guard == null || guard.allow(headers);
     }
 
     /** 快照视图（供 JSON 序列化的平铺形态） */
@@ -165,12 +165,143 @@ public class TunerAdminController {
         return pools.stream().map(p -> new PoolSnapshotView(p.getPoolName(), p.getCoreSize(),
                 p.getMaxSize(), p.getKeepAliveSeconds(), p.getActiveCount(), p.getQueueDepth(),
                 p.getTargetPreset(), p.getLastAppliedAt() == null ? null
-                        : p.getLastAppliedAt().toString())).toList();
+                        : p.getLastAppliedAt().toString())).collect(java.util.stream.Collectors.toList());
     }
 
-    /** JSON 视图记录 */
-    record PoolSnapshotView(String poolName, int coreSize, int maxSize, int keepAliveSeconds,
-                            int activeCount, int queueDepth, String targetPreset,
-                            String lastAppliedAt) {
+    /** JSON 视图（Jackson 序列化——getter 形态） */
+    static class PoolSnapshotView {
+
+        /** 池名 */
+        final String poolName;
+
+        /** 核心数 */
+        final int coreSize;
+
+        /** 最大数 */
+        final int maxSize;
+
+        /** 保活秒 */
+        final int keepAliveSeconds;
+
+        /** 活跃数 */
+        final int activeCount;
+
+        /** 队列积压 */
+        final int queueDepth;
+
+        /** 目标预案名 */
+        final String targetPreset;
+
+        /** 最近变更时刻 */
+        final String lastAppliedAt;
+
+        /**
+         * 构造。
+         *
+         * @param poolName         池名
+         * @param coreSize         核心数
+         * @param maxSize          最大数
+         * @param keepAliveSeconds 保活秒
+         * @param activeCount      活跃数
+         * @param queueDepth       队列积压
+         * @param targetPreset     目标预案
+         * @param lastAppliedAt    最近变更时刻
+         */
+        PoolSnapshotView(String poolName, int coreSize, int maxSize, int keepAliveSeconds,
+                         int activeCount, int queueDepth, String targetPreset, String lastAppliedAt) {
+            this.poolName = poolName;
+            this.coreSize = coreSize;
+            this.maxSize = maxSize;
+            this.keepAliveSeconds = keepAliveSeconds;
+            this.activeCount = activeCount;
+            this.queueDepth = queueDepth;
+            this.targetPreset = targetPreset;
+            this.lastAppliedAt = lastAppliedAt;
+        }
+
+        /**
+         * 获取池名。
+         *
+         * @return 池名
+         */
+        public String getPoolName() {
+            return poolName;
+        }
+
+        /**
+         * 获取核心数。
+         *
+         * @return 核心数
+         */
+        public int getCoreSize() {
+            return coreSize;
+        }
+
+        /**
+         * 获取最大数。
+         *
+         * @return 最大数
+         */
+        public int getMaxSize() {
+            return maxSize;
+        }
+
+        /**
+         * 获取保活秒。
+         *
+         * @return 保活秒
+         */
+        public int getKeepAliveSeconds() {
+            return keepAliveSeconds;
+        }
+
+        /**
+         * 获取活跃数。
+         *
+         * @return 活跃数
+         */
+        public int getActiveCount() {
+            return activeCount;
+        }
+
+        /**
+         * 获取队列积压。
+         *
+         * @return 积压数
+         */
+        public int getQueueDepth() {
+            return queueDepth;
+        }
+
+        /**
+         * 获取目标预案名。
+         *
+         * @return 预案名
+         */
+        public String getTargetPreset() {
+            return targetPreset;
+        }
+
+        /**
+         * 获取最近变更时刻。
+         *
+         * @return 时刻
+         */
+        public String getLastAppliedAt() {
+            return lastAppliedAt;
+        }
+    }
+    /**
+     * JDK8 版 Map.of 替身（null 值安全——巡检第 3 尺：Map.of 不接受 null）。
+     *
+     * @param kv 键值对序列（偶数长度）
+     * @return 不可变映射
+     */
+    private static java.util.Map<String, Object> mapOf(Object... kv) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            map.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return java.util.Collections.unmodifiableMap(map);
     }
 }

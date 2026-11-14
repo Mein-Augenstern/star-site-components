@@ -37,11 +37,11 @@ class MemoryRunLogStoreTest {
     @Test
     void startFinishRoundTrip() {
         MemoryRunLogStore store = new MemoryRunLogStore();
-        var log = store.start("t", "sch:t", t(8), t(8), "host:1");
+        com.xp.starsite.schedule.api.RunLog log = store.start("t", "sch:t", t(8), t(8), "host:1");
         assertThat(log.getStatus()).isEqualTo(RunStatus.RUNNING);
 
         store.finish(log.getId(), RunStatus.DONE, 42L, null);
-        var done = store.findById(log.getId()).orElseThrow();
+        com.xp.starsite.schedule.api.RunLog done = store.findById(log.getId()).get();
         assertThat(done.getStatus()).isEqualTo(RunStatus.DONE);
         assertThat(done.getDurationMs()).isEqualTo(42L);
         assertThat(done.getFinishedAt()).isNotNull();
@@ -51,20 +51,20 @@ class MemoryRunLogStoreTest {
     void recentByTaskOmitsErrorButDetailHasIt() {
         // 列表/详情分列铁律（D6）
         MemoryRunLogStore store = new MemoryRunLogStore();
-        var log = store.start("t", "sch:t", t(8), t(8), "host:1");
+        com.xp.starsite.schedule.api.RunLog log = store.start("t", "sch:t", t(8), t(8), "host:1");
         store.finish(log.getId(), RunStatus.FAILED, 1L, "IllegalStateException: boom");
 
         List<com.xp.starsite.schedule.api.RunLog> list = store.recentByTask("t", 10);
         assertThat(list).hasSize(1);
         assertThat(list.get(0).getError()).isNull();
-        assertThat(store.findById(log.getId()).orElseThrow().getError()).contains("boom");
+        assertThat(store.findById(log.getId()).get().getError()).contains("boom");
     }
 
     @Test
     void recentByTaskOrdersByIdDescAndFilters() {
         MemoryRunLogStore store = new MemoryRunLogStore();
         for (int i = 1; i <= 3; i++) {
-            var log = store.start("t", "sch:t", t(7 + i), t(7 + i), "host:1");
+            com.xp.starsite.schedule.api.RunLog log = store.start("t", "sch:t", t(7 + i), t(7 + i), "host:1");
             store.finish(log.getId(), RunStatus.DONE, 1L, null);
         }
         store.start("other", "sch:other", t(9), t(9), "host:1");
@@ -80,11 +80,11 @@ class MemoryRunLogStoreTest {
         MemoryRunLogStore store = new MemoryRunLogStore();
         assertThat(store.lastDoneTriggerTime("t")).isEmpty();
 
-        var a = store.start("t", "sch:t", t(8), t(8), "h:1");
+        com.xp.starsite.schedule.api.RunLog a = store.start("t", "sch:t", t(8), t(8), "h:1");
         store.finish(a.getId(), RunStatus.DONE, 1L, null);
-        var b = store.start("t", "sch:t", t(9), t(9), "h:1");
+        com.xp.starsite.schedule.api.RunLog b = store.start("t", "sch:t", t(9), t(9), "h:1");
         store.finish(b.getId(), RunStatus.FAILED, 1L, null);  // 更晚但失败——不算 DONE
-        var c = store.start("t", "sch:t", t(10), t(10), "h:1");
+        com.xp.starsite.schedule.api.RunLog c = store.start("t", "sch:t", t(10), t(10), "h:1");
         store.finish(c.getId(), RunStatus.DONE, 1L, null);
 
         assertThat(store.lastDoneTriggerTime("t")).contains(t(10));
@@ -93,17 +93,17 @@ class MemoryRunLogStoreTest {
     @Test
     void markStaleOnlyTouchesOldRunning() {
         MemoryRunLogStore store = new MemoryRunLogStore();
-        var old = store.start("t", "sch:t", t(1), t(1), "h:1");       // 昨天 01:00 开始
-        var fresh = store.start("t2", "sch:t2", t(11), t(11), "h:1");  // 11:00 开始（新）
-        var done = store.start("t3", "sch:t3", t(1), t(1), "h:1");
+        com.xp.starsite.schedule.api.RunLog old = store.start("t", "sch:t", t(1), t(1), "h:1");       // 昨天 01:00 开始
+        com.xp.starsite.schedule.api.RunLog fresh = store.start("t2", "sch:t2", t(11), t(11), "h:1");  // 11:00 开始（新）
+        com.xp.starsite.schedule.api.RunLog done = store.start("t3", "sch:t3", t(1), t(1), "h:1");
         store.finish(done.getId(), RunStatus.DONE, 1L, null);
 
         int marked = store.markStaleRunning(t(9));  // 09:00 前开始的 RUNNING 判死
 
         assertThat(marked).isEqualTo(1);
-        assertThat(store.findById(old.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.STALE);
-        assertThat(store.findById(fresh.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.RUNNING);
-        assertThat(store.findById(done.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.DONE);
+        assertThat(store.findById(old.getId()).get().getStatus()).isEqualTo(RunStatus.STALE);
+        assertThat(store.findById(fresh.getId()).get().getStatus()).isEqualTo(RunStatus.RUNNING);
+        assertThat(store.findById(done.getId()).get().getStatus()).isEqualTo(RunStatus.DONE);
     }
 
     @Test

@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd.executor;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
@@ -22,6 +21,7 @@ import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.memory.InMemoryAsyncCommandStore;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
@@ -95,7 +95,7 @@ class ExecutionModeTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingExecutor exec = new RecordingExecutor("inline", ExecutionMode.SCHEDULED);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("inline", "k1", "{}");
         scheduler.tick();
@@ -112,7 +112,7 @@ class ExecutionModeTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingExecutor exec = new RecordingExecutor("pooled", ExecutionMode.ASYNC_POOL);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("pooled", "k1", "{}");
         scheduler.tick(); // 只认领分发，不内联
@@ -130,7 +130,7 @@ class ExecutionModeTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         IsolatedExecutor exec = new IsolatedExecutor("ai", ExecutionMode.ASYNC_POOL, namedPool("iso-pool-ai"));
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("ai", "k1", "{}");
         scheduler.tick();
@@ -147,7 +147,7 @@ class ExecutionModeTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingExecutor exec = new RecordingExecutor("now", ExecutionMode.IMMEDIATE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
         // 装配层在生产环境回填钩子；测试手工等价接线
         client.setSubmitHook(scheduler::onSubmit);
 
@@ -166,7 +166,7 @@ class ExecutionModeTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingExecutor exec = new RecordingExecutor("now", ExecutionMode.IMMEDIATE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
         client.setSubmitHook(scheduler::onSubmit);
 
         client.submitAt("now", "k1", "{}", java.time.LocalDateTime.now().plusHours(1)); // 未到期
@@ -183,7 +183,7 @@ class ExecutionModeTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingExecutor exec = new RecordingExecutor("now", ExecutionMode.IMMEDIATE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
         // 先提交并让"他方"抢先认领，再回填钩子——模拟认领竞争已发生后的重复回调
         AsyncCommand cmd = client.submit("now", "k1", "{}");
         assertThat(store.claimById(cmd.getId(), "other-instance")).isTrue();

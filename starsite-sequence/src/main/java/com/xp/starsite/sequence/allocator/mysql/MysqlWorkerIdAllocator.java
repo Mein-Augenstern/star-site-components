@@ -24,6 +24,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
@@ -101,8 +102,8 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      * 陈旧结构，运行期必然以更糟的方式失败（如缺 id 列时静默回落 hash workerId 撞号），
      * 故启动期 fail-fast。表不存在则视为 DBA 管理，跳过校验。
      */
-    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
-            "ID", "SERVICE_NAME", "WORKER_ID", "INSTANCE", "GMT_CREATE", "GMT_MODIFIED");
+    private static final java.util.Set<String> REQUIRED_COLUMNS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ID", "SERVICE_NAME", "WORKER_ID", "INSTANCE", "GMT_CREATE", "GMT_MODIFIED"));
 
     /** 结构校验只做一次（幂等标志；分配器生命周期内表结构不回退） */
     private volatile boolean schemaVerified = false;
@@ -221,8 +222,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
             recordOwnership(conn, workerId);
             if (workerId > maxWorkerId) {
                 if (wraparoundPolicy == WraparoundPolicy.FAIL) {
-                    throw new SQLException("全局池已分配到 %d 超过机器位上限 %d，按 FAIL 策略拒绝"
-                            .formatted(workerId, maxWorkerId));
+                    throw new SQLException(String.format("全局池已分配到 %d 超过机器位上限 %d，按 FAIL 策略拒绝", workerId, maxWorkerId));
                 }
                 // RESET：重置全局池后重新取号（两次取号间仍有理论撞号窗口，靠告警可见）
                 log.warn("[starsite-sequence] workerId 回绕：全局池已分配到 {} 超过机器位上限 {}，"
@@ -243,7 +243,7 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      */
     @Override
     public String describe() {
-        return "mysql-lease(table=%s, service=%s, tag=%s)".formatted(tableName, serviceName, instanceTag);
+        return String.format("mysql-lease(table=%s, service=%s, tag=%s)", tableName, serviceName, instanceTag);
     }
 
     /**
@@ -307,11 +307,10 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
             return;
         }
         schemaVerified = true;
-        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).collect(java.util.stream.Collectors.toList());
         if (!missing.isEmpty()) {
-            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
-                    + "请按 resources/sql/mysql/sys_sequence_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
-                    .formatted(tableName, missing));
+            throw new IllegalStateException(String.format("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/sys_sequence_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER", tableName, missing));
         }
         log.debug("[starsite-sequence] 表 {} 结构校验通过（{} 列契约）", tableName, REQUIRED_COLUMNS.size());
     }

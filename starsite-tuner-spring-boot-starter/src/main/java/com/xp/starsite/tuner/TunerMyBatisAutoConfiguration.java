@@ -26,12 +26,12 @@ import org.mybatis.spring.SqlSessionFactoryBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * MyBatis 路径自动装配（显式 {@code starsite.tuner.store=mybatis}；imports 中先于
@@ -41,7 +41,7 @@ import org.springframework.context.annotation.Bean;
  * @author muyi
  * @date 2026/11/14
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @ConditionalOnClass({SqlSessionFactory.class, SqlSessionFactoryBean.class, TunerMapper.class})
 @ConditionalOnProperty(prefix = "starsite.tuner", name = "enabled", havingValue = "true",
         matchIfMissing = true)

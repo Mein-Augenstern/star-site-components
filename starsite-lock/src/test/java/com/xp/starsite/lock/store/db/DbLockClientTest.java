@@ -332,7 +332,7 @@ class DbLockClientTest {
         // 标准 JDBC 元数据（不依赖 H2 方言视图）：H2 大写化表名
         int uniqueIndexKinds = 0;
         String lastName = null;
-        try (var rs = dataSource.getConnection().getMetaData()
+        try (java.sql.ResultSet rs = dataSource.getConnection().getMetaData()
                 .getIndexInfo(null, null, "STARSITE_LOCK", false, false)) {
             while (rs.next()) {
                 if (!rs.getBoolean("NON_UNIQUE")) {

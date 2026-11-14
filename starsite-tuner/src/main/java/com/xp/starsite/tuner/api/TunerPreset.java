@@ -104,7 +104,7 @@ public class TunerPreset {
      * @throws IllegalArgumentException 参数非法
      */
     public void validate() {
-        if (presetName == null || presetName.isBlank()) {
+        if (presetName == null || presetName.trim().isEmpty()) {
             throw new IllegalArgumentException("预案名不可为空");
         }
         if (coreSize <= 0) {

@@ -67,6 +67,84 @@ public interface LockAdminClient {
     LockInfo getLockInfo(String lockName);
 
     /** 锁状态快照值对象（运维只读视角） */
-    record LockInfo(String lockName, String ownerId, int holdCount,
-                    java.time.LocalDateTime lockedUntil, java.time.LocalDateTime gmtModified) {}
+    final class LockInfo {
+
+        /** 锁名 */
+        private final String lockName;
+
+        /** 持有者 */
+        private final String ownerId;
+
+        /** 重入层数 */
+        private final int holdCount;
+
+        /** 持有到期时刻 */
+        private final java.time.LocalDateTime lockedUntil;
+
+        /** 最后修改时刻 */
+        private final java.time.LocalDateTime gmtModified;
+
+        /**
+         * 构造。
+         *
+         * @param lockName    锁名
+         * @param ownerId     持有者
+         * @param holdCount   重入层数
+         * @param lockedUntil 持有到期时刻
+         * @param gmtModified 最后修改时刻
+         */
+        public LockInfo(String lockName, String ownerId, int holdCount,
+                        java.time.LocalDateTime lockedUntil, java.time.LocalDateTime gmtModified) {
+            this.lockName = lockName;
+            this.ownerId = ownerId;
+            this.holdCount = holdCount;
+            this.lockedUntil = lockedUntil;
+            this.gmtModified = gmtModified;
+        }
+
+        /**
+         * 获取锁名。
+         *
+         * @return 锁名
+         */
+        public String lockName() {
+            return lockName;
+        }
+
+        /**
+         * 获取持有者。
+         *
+         * @return 持有者
+         */
+        public String ownerId() {
+            return ownerId;
+        }
+
+        /**
+         * 获取重入层数。
+         *
+         * @return 重入层数
+         */
+        public int holdCount() {
+            return holdCount;
+        }
+
+        /**
+         * 获取持有到期时刻。
+         *
+         * @return 到期时刻
+         */
+        public java.time.LocalDateTime lockedUntil() {
+            return lockedUntil;
+        }
+
+        /**
+         * 获取最后修改时刻。
+         *
+         * @return 最后修改时刻
+         */
+        public java.time.LocalDateTime gmtModified() {
+            return gmtModified;
+        }
+    }
 }

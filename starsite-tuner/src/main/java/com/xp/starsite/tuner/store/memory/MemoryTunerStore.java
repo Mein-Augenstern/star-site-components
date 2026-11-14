@@ -176,7 +176,7 @@ public class MemoryTunerStore implements com.xp.starsite.tuner.store.TunerStore 
     public long purgeExpiredAudits(int batchSize, LocalDateTime threshold) {
         int removed = 0;
         synchronized (audits) {
-            var it = audits.iterator();
+            java.util.Iterator<TunerAuditEntry> it = audits.iterator();
             while (it.hasNext() && removed < batchSize) {
                 TunerAuditEntry e = it.next();
                 if (e.getOccurredAt() != null && e.getOccurredAt().isBefore(threshold)) {

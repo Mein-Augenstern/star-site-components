@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
 import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
-import java.util.List;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -50,7 +49,7 @@ class ExecutorRegistryTest {
      */
     @Test
     void 按类型查找_命中与未命中() {
-        ExecutorRegistry registry = new ExecutorRegistry(() -> List.of(exec("a"), exec("b")));
+        ExecutorRegistry registry = new ExecutorRegistry(() -> java.util.Arrays.asList(exec("a"), exec("b")));
         assertThat(registry.find("a")).isNotNull();
         assertThat(registry.find("b")).isNotNull();
         assertThat(registry.find("c")).isNull();
@@ -62,7 +61,7 @@ class ExecutorRegistryTest {
      */
     @Test
     void 重复type_启动期拒绝且信息含冲突键() {
-        ExecutorRegistry registry = new ExecutorRegistry(() -> List.of(exec("dup"), exec("dup")));
+        ExecutorRegistry registry = new ExecutorRegistry(() -> java.util.Arrays.asList(exec("dup"), exec("dup")));
         assertThatThrownBy(registry::types)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("dup");
@@ -73,7 +72,7 @@ class ExecutorRegistryTest {
      */
     @Test
     void 空执行器集合_合法_全部命令按无执行器重试() {
-        ExecutorRegistry registry = new ExecutorRegistry(() -> List.of());
+        ExecutorRegistry registry = new ExecutorRegistry(() -> Arrays.asList());
         assertThat(registry.find("anything")).isNull();
         assertThat(registry.types()).isEmpty();
     }

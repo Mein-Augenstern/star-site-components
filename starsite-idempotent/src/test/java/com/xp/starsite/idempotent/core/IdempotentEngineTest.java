@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.idempotent.core;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -26,7 +25,7 @@ import com.xp.starsite.idempotent.store.ClaimOutcome;
 import com.xp.starsite.idempotent.store.memory.MemoryIdempotentStore;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -106,7 +105,7 @@ class IdempotentEngineTest {
         assertThat(r.isExecuted()).isTrue();
         assertThat(r.getPayload()).isEqualTo("payload-a");
         assertThat(actionRuns.get()).isEqualTo(1);
-        var row = store.find("", "order-1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("", "order-1").get();
         assertThat(row.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(row.getResult()).isEqualTo("payload-a");
     }
@@ -162,7 +161,7 @@ class IdempotentEngineTest {
         assertThatThrownBy(() -> engine.guard("", "pay-1", counting(() -> {
             throw new IllegalStateException("余额不足");
         }))).isInstanceOf(IllegalStateException.class).hasMessage("余额不足");
-        var row = store.find("", "pay-1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("", "pay-1").get();
         assertThat(row.getStatus()).isEqualTo(IdempotentStatus.FAILED);
         assertThat(row.getError()).contains("IllegalStateException").contains("余额不足");
     }
@@ -183,7 +182,7 @@ class IdempotentEngineTest {
     @Test
     void expiredDoneKeyForgottenAndReexecutes() {
         engine.guard("", "order-1", act("old"));
-        clock.advanceSeconds(Duration.ofHours(25).toSeconds()); // 跨过 24h 窗口
+        clock.advanceSeconds(Duration.ofHours(25).getSeconds()); // 跨过 24h 窗口
         IdempotentResult second = engine.guard("", "order-1", act("new"));
         assertThat(second.isExecuted()).isTrue();
         assertThat(second.getPayload()).isEqualTo("new");
@@ -200,7 +199,7 @@ class IdempotentEngineTest {
         assertThat(r.isExecuted()).isTrue();
         assertThat(r.getPayload()).isEqualTo("reclaimed");
         assertThat(actionRuns.get()).isEqualTo(1);
-        var row = store.find("job", "report-1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("job", "report-1").get();
         assertThat(row.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(row.getHost()).isNotEqualTo("ghost:1");
     }
@@ -280,7 +279,7 @@ class IdempotentEngineTest {
     void blankOrOverlongKeyRejected() {
         assertThatThrownBy(() -> engine.guard("", "  ", act("x")))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> engine.guard("", "k".repeat(129), act("x")))
+        assertThatThrownBy(() -> engine.guard("", "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk", act("x")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("128");
     }
@@ -290,7 +289,7 @@ class IdempotentEngineTest {
     void purgeExpiredRemovesExpiredRows() {
         engine.guard("", "k1", act("v1"));
         engine.guard("", "k2", act("v2"));
-        clock.advanceSeconds(Duration.ofHours(25).toSeconds());
+        clock.advanceSeconds(Duration.ofHours(25).getSeconds());
         long removed = engine.purgeExpired(10);
         assertThat(removed).isEqualTo(2);
         assertThat(store.countByStatus(IdempotentStatus.DONE)).isZero();
@@ -311,7 +310,7 @@ class IdempotentEngineTest {
                 gen1.record().getExpireAt(), "ghost-result");
         assertThat(ghostWrite).isFalse();
         // 行仍是第二代的 DONE 结果——未被污染
-        assertThat(store.find("", "gen-1").orElseThrow().getResult()).isEqualTo("gen2-result");
+        assertThat(store.find("", "gen-1").get().getResult()).isEqualTo("gen2-result");
     }
 
     /** 空结果载荷（void 语义）：DONE 回放为 null 载荷 */
@@ -329,7 +328,7 @@ class IdempotentEngineTest {
     /** 多键并行互不干扰（store 视角计数与逐键回放） */
     @Test
     void multipleKeysIndependent() {
-        List.of("a", "b", "c").forEach(k -> engine.guard("", k, act("v-" + k)));
+        Arrays.asList("a", "b", "c").forEach(k -> engine.guard("", k, act("v-" + k)));
         assertThat(store.countByStatus(IdempotentStatus.DONE)).isEqualTo(3);
         assertThat(engine.guard("", "b", act("v-b")).isReplayed()).isTrue();
     }

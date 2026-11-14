@@ -106,7 +106,7 @@ class QuotaEngineTest {
     void freezeUnfreezePool() {
         quota.init("credit:A", 1000);
         assertThat(quota.freeze("credit:A", 400).getFrozen()).isEqualTo(400);
-        assertThat(quota.balance("credit:A").orElseThrow().getAvailable()).isEqualTo(600);
+        assertThat(quota.balance("credit:A").get().getAvailable()).isEqualTo(600);
         QuotaBalance unfrozen = quota.unfreeze("credit:A", 400);
         assertThat(unfrozen.getFrozen()).isZero();
         assertThat(unfrozen.getAvailable()).isEqualTo(1000);
@@ -163,7 +163,7 @@ class QuotaEngineTest {
             () -> quota.freeze("nope", 1), () -> quota.unfreeze("nope", 1),
             () -> quota.confirm("nope", 1), () -> quota.adjustTotal("nope", 1)
         };
-        for (var action : actions) {
+        for (org.assertj.core.api.ThrowableAssert.ThrowingCallable action : actions) {
             assertThatThrownBy(action).isInstanceOf(QuotaNotFoundException.class);
         }
         assertThat(quota.balance("nope")).isEmpty();
@@ -185,7 +185,7 @@ class QuotaEngineTest {
     @Test
     void argumentValidation() {
         assertThatThrownBy(() -> quota.init(" ", 100)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> quota.init("k".repeat(129), 100))
+        assertThatThrownBy(() -> quota.init("kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk", 100))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("128");
         assertThatThrownBy(() -> quota.init("k", -1)).isInstanceOf(IllegalArgumentException.class);
         quota.init("k", 100);
@@ -225,7 +225,7 @@ class QuotaEngineTest {
         assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
         assertThat(succeeded.get()).as("恰 10 笔成功").isEqualTo(10);
         assertThat(rejected.get()).as("恰 6 笔被不变式拒绝").isEqualTo(6);
-        QuotaBalance finalBalance = quota.balance("credit:A").orElseThrow();
+        QuotaBalance finalBalance = quota.balance("credit:A").get();
         assertThat(finalBalance.getOccupied()).isEqualTo(1000);
         assertThat(finalBalance.getAvailable()).isZero();
     }
@@ -266,7 +266,7 @@ class QuotaEngineTest {
             });
         }
         assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
-        QuotaBalance b = quota.balance("credit:A").orElseThrow();
+        QuotaBalance b = quota.balance("credit:A").get();
         assertThat(b.getOccupied() + b.getFrozen()).as("不变式：占用+冻结<=总量").isLessThanOrEqualTo(2000);
         assertThat(b.getOccupied()).as("占用非负").isGreaterThanOrEqualTo(0);
         assertThat(b.getFrozen()).as("冻结非负").isGreaterThanOrEqualTo(0);

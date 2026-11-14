@@ -51,10 +51,10 @@
   </modules>
 
   <properties>
-    <java.version>17</java.version>
-    <maven.compiler.release>17</maven.compiler.release>
+    <java.version>8</java.version>
+    <maven.compiler.release>8</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <spring-boot.version>3.2.4</spring-boot.version>
+    <spring-boot.version>2.7.18</spring-boot.version>
     <testcontainers.version>1.21.3</testcontainers.version>
     <!-- 真库 IT 默认跳过（macOS Docker Desktop 非标准 socket 场景多）；mvn verify -Pit 显式开启 -->
     <skipITs>true</skipITs>
@@ -175,9 +175,9 @@
             <excludes>
               <exclude>**/*IT.java</exclude>
             </excludes>
-            <!-- JDK 21.0.12+（2025-10 CPU，JDK-8345742）默认禁动态 attach，
-                 Mockito inline mockmaker 的 ByteBuddy 自附加会失败（Agent failed to start），显式放开 -->
-            <argLine>-XX:+EnableDynamicAgentLoading</argLine>
+            <!-- JDK 21 本地/CI 跑 Java-8 字节码测试：动态 attach 放开 + ByteBuddy 实验标志
+                 （Boot 2.7 BOM 的 byte-buddy 1.12 未登记 Java 21——输入全是 v52 字节码故可用） -->
+            <argLine>-XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true</argLine>
           </configuration>
         </plugin>
         <plugin>

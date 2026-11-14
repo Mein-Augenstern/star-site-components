@@ -105,7 +105,7 @@ class MyBatisMysqlWorkerIdAllocatorTest {
         assertThat(allocator.allocate()).isEqualTo(2);
 
         try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement();
-             var rs = st.executeQuery(
+             java.sql.ResultSet rs = st.executeQuery(
                      "SELECT worker_id, instance FROM sys_seq_m1 WHERE service_name='svc-a'")) {
             assertThat(rs.next()).isTrue();
             assertThat(rs.getLong(1)).isEqualTo(2);       // 审计行跟随最新占用
@@ -132,7 +132,7 @@ class MyBatisMysqlWorkerIdAllocatorTest {
         allocator.allocate();
 
         try (Connection conn = dataSource.getConnection(); Statement st = conn.createStatement();
-             var rs = st.executeQuery(
+             java.sql.ResultSet rs = st.executeQuery(
                      "SELECT COUNT(*) FROM sys_seq_m3 WHERE service_name='svc-a'")) {
             rs.next();
             assertThat(rs.getLong(1)).isEqualTo(1); // __global__ 1 行 + svc-a 恒 1 行

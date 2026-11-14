@@ -140,12 +140,12 @@ class MemoryIdempotentStoreTest {
         ClaimOutcome done = store.tryClaim("", "e1", clock.now().plusSeconds(10), "h1");
         store.complete("", "e1", done.record().getExpireAt(), "old");
         clock.now = clock.now.plusSeconds(30); // expire_at 已过
-        var reclaimed = store.tryReclaim("", "e1", clock.now().plusHours(24), clock.now(),
+        java.util.Optional<com.xp.starsite.idempotent.api.IdempotentRecord> reclaimed = store.tryReclaim("", "e1", clock.now().plusHours(24), clock.now(),
                 clock.now().minusSeconds(120), "h2");
         assertThat(reclaimed).isPresent();
-        assertThat(reclaimed.orElseThrow().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
-        assertThat(reclaimed.orElseThrow().getResult()).isNull();
-        assertThat(reclaimed.orElseThrow().getHost()).isEqualTo("h2");
+        assertThat(reclaimed.get().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
+        assertThat(reclaimed.get().getResult()).isNull();
+        assertThat(reclaimed.get().getHost()).isEqualTo("h2");
 
         // 停滞 PROCESSING（gmt_modified 早于阈值）
         ClaimOutcome stale = store.tryClaim("", "s1", clock.now().plusHours(24), "h1");
@@ -161,8 +161,8 @@ class MemoryIdempotentStoreTest {
         ClaimOutcome gen1 = store.tryClaim("", "g1", clock.now().plusHours(1), "h1");
         clock.now = clock.now.plusSeconds(200); // 停滞判死
         LocalDateTime gen2Expire = clock.now.plusHours(1);
-        var gen2 = store.tryReclaim("", "g1", gen2Expire, clock.now(),
-                clock.now().minusSeconds(120), "h2").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord gen2 = store.tryReclaim("", "g1", gen2Expire, clock.now(),
+                clock.now().minusSeconds(120), "h2").get();
         // 旧代守卫失败
         assertThat(store.complete("", "g1", gen1.record().getExpireAt(), "ghost"))
                 .isFalse();
@@ -170,7 +170,7 @@ class MemoryIdempotentStoreTest {
                 .isFalse();
         // 新代写入成功
         assertThat(store.complete("", "g1", gen2Expire, "fresh")).isTrue();
-        var row = store.find("", "g1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("", "g1").get();
         assertThat(row.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(row.getResult()).isEqualTo("fresh");
     }

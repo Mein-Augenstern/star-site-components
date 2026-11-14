@@ -17,8 +17,6 @@ package com.xp.starsite.idempotent.store;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -93,7 +91,8 @@ class CrossStoreConditionAlignmentTest {
      */
     private static String resource(String rel) {
         try {
-            return Files.readString(Path.of(rel));
+            return new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(rel)),
+                    java.nio.charset.StandardCharsets.UTF_8);
         } catch (Exception e) {
             throw new IllegalStateException("对齐测试读资源失败: " + rel, e);
         }

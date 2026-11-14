@@ -109,7 +109,7 @@ class MyBatisIdempotentStoreTest {
 
         // 终态（本代令牌）+ 详情回读
         assertThat(store.complete("order", "o-1", expire, "{\"amount\":100}")).isTrue();
-        var done = store.find("order", "o-1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord done = store.find("order", "o-1").get();
         assertThat(done.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(done.getResult()).contains("100");
         assertThat(done.getGmtCreate()).isNotNull();
@@ -120,9 +120,9 @@ class MyBatisIdempotentStoreTest {
         // FAILED 释放键 → 回收重置 PROCESSING
         ClaimOutcome f2 = store.tryClaim("order", "o-2", expire, "h:1");
         assertThat(store.fail("order", "o-2", expire, "boom")).isTrue();
-        var reclaimed = store.tryReclaim("order", "o-2", expire, NOW, NOW.minusSeconds(120), "h:3");
+        java.util.Optional<com.xp.starsite.idempotent.api.IdempotentRecord> reclaimed = store.tryReclaim("order", "o-2", expire, NOW, NOW.minusSeconds(120), "h:3");
         assertThat(reclaimed).isPresent();
-        assertThat(reclaimed.orElseThrow().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
+        assertThat(reclaimed.get().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
 
         // 状态计数
         assertThat(store.countByStatus(IdempotentStatus.DONE)).isEqualTo(1);

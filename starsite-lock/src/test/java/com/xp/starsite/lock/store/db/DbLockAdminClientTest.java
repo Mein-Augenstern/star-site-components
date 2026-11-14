@@ -107,7 +107,7 @@ class DbLockAdminClientTest {
                 java.time.LocalDateTime.now().plusSeconds(30), java.time.LocalDateTime.now());
         // list-b 播种但未争锁——不应出现在持锁列表
 
-        var held = admin.listHeldLocks();
+        java.util.List<com.xp.starsite.lock.client.LockAdminClient.LockInfo> held = admin.listHeldLocks();
         assertThat(held).anySatisfy(info -> {
             assertThat(info.lockName()).isEqualTo("list-a");
             assertThat(info.ownerId()).isEqualTo("holder-1");

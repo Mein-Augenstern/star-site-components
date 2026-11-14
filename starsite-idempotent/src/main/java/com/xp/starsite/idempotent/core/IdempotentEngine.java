@@ -111,7 +111,7 @@ public class IdempotentEngine implements IdempotentClient {
     @Override
     public IdempotentResult guard(String scope, String key, IdempotentAction action) {
         String normalizedScope = scope == null ? "" : scope.trim();
-        if (key == null || key.isBlank()) {
+        if (key == null || key.trim().isEmpty()) {
             throw new IllegalArgumentException("幂等键不可为空（scope=" + normalizedScope + "）");
         }
         String normalizedKey = key.trim();
@@ -132,7 +132,7 @@ public class IdempotentEngine implements IdempotentClient {
                 return runAction(claim.record(), action);
             }
             Optional<IdempotentRecord> row = store.find(normalizedScope, normalizedKey);
-            if (row.isEmpty()) {
+            if (row.isPresent() == false) {
                 // 与 retention 清理的竞态（判定前刚被删）——键空闲，回到认领
                 continue;
             }
@@ -230,11 +230,11 @@ public class IdempotentEngine implements IdempotentClient {
                 log.warn("[starsite-idempotent] {}#{} 失败标记未落（{}）", record.getScope(),
                         prefix(record.getIdemKey()), markFail.getMessage());
             }
-            if (t instanceof RuntimeException re) {
-                throw re;
+            if (t instanceof RuntimeException) {
+                throw (RuntimeException) t;
             }
-            if (t instanceof Error err) {
-                throw err;
+            if (t instanceof Error) {
+                throw (Error) t;
             }
             throw new IllegalStateException("幂等动作执行失败（受检异常包装）", t);
         }

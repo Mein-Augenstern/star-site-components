@@ -15,7 +15,6 @@
  */
 package com.xp.starsite.asynccmd.admin;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import org.springframework.http.HttpStatus;
@@ -50,7 +49,7 @@ public class StaticTokenAdminGuard implements AsyncCommandAdminGuard {
      * @throws IllegalArgumentException token 为 null 或空白（配置错误应启动期暴露）
      */
     public StaticTokenAdminGuard(String expectedToken) {
-        if (expectedToken == null || expectedToken.isBlank()) {
+        if (expectedToken == null || expectedToken.trim().isEmpty()) {
             throw new IllegalArgumentException("admin-token 必须为非空字符串");
         }
         this.expectedToken = expectedToken;
@@ -59,12 +58,12 @@ public class StaticTokenAdminGuard implements AsyncCommandAdminGuard {
     /**
      * 校验请求头 token：缺失或不符抛 401（常量时间比对防时序侧信道）。
      *
-     * @param request 当前 HTTP 请求
+     * @param headers 请求头快照
      * @throws ResponseStatusException 401（UNAUTHORIZED）——token 缺失或不匹配
      */
     @Override
-    public void check(HttpServletRequest request) {
-        String provided = request.getHeader(HEADER_NAME);
+    public void check(java.util.Map<String, String> headers) {
+        String provided = headers.get(HEADER_NAME);
         if (provided == null || !constantTimeEquals(expectedToken, provided)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
                     "管控端点鉴权失败：缺少或错误的请求头 " + HEADER_NAME);

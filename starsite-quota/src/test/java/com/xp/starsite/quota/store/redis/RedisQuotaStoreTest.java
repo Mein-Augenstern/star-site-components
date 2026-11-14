@@ -75,8 +75,11 @@ class RedisQuotaStoreTest {
 
         // 0=已存在 → find 通道返回现量
         when(redis.execute(any(DefaultRedisScript.class), anyList(), any())).thenReturn(0L);
-        when(hashOps.entries("starsite:quota:credit:A")).thenReturn(Map.of(
-                "total", "1000", "occupied", "200", "frozen", "0"));
+        when(hashOps.entries("starsite:quota:credit:A")).thenReturn(new java.util.HashMap<String, String>() {{
+            put("total", "1000");
+            put("occupied", "200");
+            put("frozen", "0");
+        }});
         assertThat(store.init("credit:A", 9999).getOccupied()).isEqualTo(200);
     }
 
@@ -84,9 +87,12 @@ class RedisQuotaStoreTest {
     @Test
     void occupyTranslatesScriptStates() {
         when(redis.execute(any(DefaultRedisScript.class), anyList(), any())).thenReturn(1L);
-        when(hashOps.entries("starsite:quota:credit:A")).thenReturn(Map.of(
-                "total", "1000", "occupied", "300", "frozen", "0"));
-        assertThat(store.occupy("credit:A", 300).orElseThrow().getOccupied()).isEqualTo(300);
+        when(hashOps.entries("starsite:quota:credit:A")).thenReturn(new java.util.HashMap<String, String>() {{
+            put("total", "1000");
+            put("occupied", "300");
+            put("frozen", "0");
+        }});
+        assertThat(store.occupy("credit:A", 300).get().getOccupied()).isEqualTo(300);
 
         when(redis.execute(any(DefaultRedisScript.class), anyList(), any())).thenReturn(0L);
         assertThat(store.occupy("credit:A", 999)).isEmpty();
@@ -120,11 +126,11 @@ class RedisQuotaStoreTest {
         Map<String, String> entries = new HashMap<>();
         entries.put("total", "500");
         when(hashOps.entries("starsite:quota:credit:A")).thenReturn(entries);
-        assertThat(store.find("credit:A").orElseThrow())
+        assertThat(store.find("credit:A").get())
                 .extracting("total", "occupied", "frozen")
                 .containsExactly(500L, 0L, 0L); // occupied/frozen 缺省 0
 
-        when(hashOps.entries("starsite:quota:absent")).thenReturn(Map.of());
+        when(hashOps.entries("starsite:quota:absent")).thenReturn(new java.util.HashMap<String, String>() {{  }});
         assertThat(store.find("absent")).isEmpty();
     }
 
@@ -144,5 +150,18 @@ class RedisQuotaStoreTest {
         ArgumentCaptor<java.util.List<String>> keys = ArgumentCaptor.forClass(java.util.List.class);
         verify(redis).execute(any(DefaultRedisScript.class), keys.capture(), any());
         assertThat(keys.getValue()).containsExactly("starsite:quota:k");
+    }
+    /**
+     * JDK8 版 Map.of 替身（测试用——null 安全）。
+     *
+     * @param kv 键值对序列
+     * @return 可变映射
+     */
+    private static java.util.Map<String, Object> mapOf(Object... kv) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            map.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return map;
     }
 }

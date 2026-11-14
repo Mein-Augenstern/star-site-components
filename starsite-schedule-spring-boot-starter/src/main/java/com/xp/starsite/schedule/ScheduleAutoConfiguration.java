@@ -28,11 +28,11 @@ import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -45,7 +45,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * @author muyi
  * @date 2026/11/02
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ScheduleProperties.class)
 @ConditionalOnProperty(prefix = "starsite.schedule", name = "enabled", havingValue = "true",
         matchIfMissing = true)

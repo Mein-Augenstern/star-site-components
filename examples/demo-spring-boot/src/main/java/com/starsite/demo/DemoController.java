@@ -52,7 +52,7 @@ public class DemoController {
     /** Try to acquire a distributed lock (name defaults to "demo-lock") */
     @GetMapping("/lock")
     public Map<String, Object> tryLock(String name) {
-        String lockName = (name == null || name.isBlank()) ? "demo-lock" : name;
+        String lockName = (name == null || name.trim().isEmpty()) ? "demo-lock" : name;
         boolean acquired = lockClient.tryLock(lockName);
         if (acquired) {
             lockClient.unlock(lockName);

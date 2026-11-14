@@ -17,11 +17,11 @@ package com.xp.starsite.lock;
 
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.annotation.MapperScan;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Configuration;
 
 /**
  * 锁组件 MyBatis 装配：容器中存在 MyBatis 会话工厂（消费方引了 mybatis-spring-boot-starter）时，
@@ -33,7 +33,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
  * @author muyi
  * @date 2026/10/25
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @AutoConfigureAfter(name = "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration")
 @ConditionalOnClass(SqlSessionFactory.class)
 @ConditionalOnBean(SqlSessionFactory.class)

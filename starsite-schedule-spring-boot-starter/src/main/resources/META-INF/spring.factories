@@ -1,0 +1,4 @@
+# Boot 2.1~2.6 兼容注册（2.7 读双通道去重；3.x 仅读 imports）
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.xp.starsite.schedule.ScheduleMyBatisAutoConfiguration,\
+  com.xp.starsite.schedule.ScheduleAutoConfiguration

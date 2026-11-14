@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.idempotent.store.redis;
-
 import com.xp.starsite.idempotent.api.IdempotentRecord;
 import com.xp.starsite.idempotent.api.IdempotentStatus;
 import com.xp.starsite.idempotent.clock.TimeSource;
@@ -23,7 +22,7 @@ import com.xp.starsite.idempotent.store.IdempotentStore;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -128,7 +127,7 @@ public class RedisIdempotentStore implements IdempotentStore {
      */
     public RedisIdempotentStore(StringRedisTemplate redis, String keyPrefix, TimeSource time) {
         this.redis = redis;
-        this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "starsite:idem:" : keyPrefix;
+        this.keyPrefix = keyPrefix == null || keyPrefix.trim().isEmpty() ? "starsite:idem:" : keyPrefix;
         this.time = time;
     }
 
@@ -136,7 +135,7 @@ public class RedisIdempotentStore implements IdempotentStore {
     @Override
     public ClaimOutcome tryClaim(String scope, String idemKey, LocalDateTime expireAt, String host) {
         String key = key(scope, idemKey);
-        Long r = redis.execute(new DefaultRedisScript<>(CLAIM_LUA, Long.class), List.of(key),
+        Long r = redis.execute(new DefaultRedisScript<>(CLAIM_LUA, Long.class), Arrays.asList(key),
                 ttlMillis(expireAt), iso(expireAt), host, iso(time.now()));
         if (r != null && r == 1) {
             // id=0：redis 形态无 DB 主键（引擎终态操作走 scope+key 自然键，id 不参与）
@@ -167,7 +166,7 @@ public class RedisIdempotentStore implements IdempotentStore {
                                                  LocalDateTime expireAt, LocalDateTime now,
                                                  LocalDateTime staleBefore, String host) {
         Long r = redis.execute(new DefaultRedisScript<>(RECLAIM_LUA, Long.class),
-                List.of(key(scope, idemKey)), ttlMillis(expireAt), iso(expireAt), host,
+                java.util.Arrays.asList(key(scope, idemKey)), ttlMillis(expireAt), iso(expireAt), host,
                 iso(now), iso(staleBefore));
         return r != null && r == 1 ? find(scope, idemKey) : Optional.empty();
     }
@@ -176,7 +175,7 @@ public class RedisIdempotentStore implements IdempotentStore {
     @Override
     public boolean complete(String scope, String idemKey, LocalDateTime claimExpireAt, String result) {
         Long r = redis.execute(new DefaultRedisScript<>(COMPLETE_LUA, Long.class),
-                List.of(key(scope, idemKey)), iso(claimExpireAt), result == null ? "" : result,
+                java.util.Arrays.asList(key(scope, idemKey)), iso(claimExpireAt), result == null ? "" : result,
                 result == null ? "0" : "1", iso(time.now()));
         return r != null && r == 1;
     }
@@ -185,7 +184,7 @@ public class RedisIdempotentStore implements IdempotentStore {
     @Override
     public boolean fail(String scope, String idemKey, LocalDateTime claimExpireAt, String error) {
         Long r = redis.execute(new DefaultRedisScript<>(FAIL_LUA, Long.class),
-                List.of(key(scope, idemKey)), iso(claimExpireAt), error == null ? "" : error,
+                java.util.Arrays.asList(key(scope, idemKey)), iso(claimExpireAt), error == null ? "" : error,
                 error == null ? "0" : "1", iso(time.now()));
         return r != null && r == 1;
     }
@@ -231,7 +230,13 @@ public class RedisIdempotentStore implements IdempotentStore {
             if (in == null) {
                 throw new IllegalStateException("Redis 幂等脚本缺失: " + path);
             }
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[4096];
+                int n;
+                while ((n = in.read(chunk)) != -1) {
+                    buf.write(chunk, 0, n);
+                }
+                return new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim();
         } catch (java.io.IOException e) {
             throw new IllegalStateException("Redis 幂等脚本加载失败: " + path, e);
         }
@@ -244,7 +249,7 @@ public class RedisIdempotentStore implements IdempotentStore {
 
     /** 定长 ISO 串 → LocalDateTime（空串回 null——健壮性防御） */
     private static LocalDateTime parse(String s) {
-        return s == null || s.isBlank() ? null : LocalDateTime.parse(s, ISO);
+        return s == null || s.trim().isEmpty() ? null : LocalDateTime.parse(s, ISO);
     }
 
     /** hash 条目取字段值（缺失为 null） */

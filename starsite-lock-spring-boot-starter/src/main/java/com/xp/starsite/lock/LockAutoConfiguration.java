@@ -25,11 +25,11 @@ import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
@@ -44,7 +44,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
  * @author muyi
  * @date 2026/10/25
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "starsite.lock", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(LockProperties.class)
 public class LockAutoConfiguration {
@@ -72,9 +72,9 @@ public class LockAutoConfiguration {
                                  ObjectProvider<ScheduleLockMapper> mapperProvider,
                                  ObjectProvider<StarsiteIdGenerator> idGenProvider,
                                  Environment env) {
-        if (props.getOwnerId() == null || props.getOwnerId().isBlank()) {
+        if (props.getOwnerId() == null || props.getOwnerId().trim().isEmpty()) {
             String appName = env.getProperty("spring.application.name", "unknown");
-            props.setOwnerId(appName + "@" + ProcessHandle.current().pid());
+            props.setOwnerId(appName + "@" + Long.parseLong(java.lang.management.ManagementFactory.getRuntimeMXBean().getName().split("@")[0]));
         }
         // mode=redis 时本 Bean 不装配（ConditionalOnProperty 不命中）——由嵌套 RedisModeConfig 接管。
         // 主配置类不引用 Redis 类型，无 Redis classpath 时 Spring 不解析 Redis 签名（压测实战修复 P1）。
@@ -146,9 +146,9 @@ public class LockAutoConfiguration {
         public LockClient redisLockClient(LockProperties props,
                                           StringRedisTemplate redisTemplate,
                                           Environment env) {
-            if (props.getOwnerId() == null || props.getOwnerId().isBlank()) {
+            if (props.getOwnerId() == null || props.getOwnerId().trim().isEmpty()) {
                 String appName = env.getProperty("spring.application.name", "unknown");
-                props.setOwnerId(appName + "@" + ProcessHandle.current().pid());
+                props.setOwnerId(appName + "@" + Long.parseLong(java.lang.management.ManagementFactory.getRuntimeMXBean().getName().split("@")[0]));
             }
             log.info("[starsite-lock] 存储形态：redis（prefix={}，owner={}）",
                     props.getRedisKeyPrefix(), props.getOwnerId());

@@ -139,7 +139,7 @@ public interface IdempotentSql {
                 for (int i = 0; i < nodes.getLength(); i++) {
                     Element el = (Element) nodes.item(i);
                     String sql = el.getTextContent().trim();
-                    if (sql.isBlank()) {
+                    if (sql.trim().isEmpty()) {
                         throw new IllegalStateException("方言语句为空: " + PATH + "#" + el.getAttribute("id"));
                     }
                     stmts.put(el.getAttribute("id"), sql);
@@ -160,7 +160,7 @@ public interface IdempotentSql {
          */
         private static String stmt(String key) {
             String v = STATEMENTS.get(key);
-            if (v == null || v.isBlank()) {
+            if (v == null || v.trim().isEmpty()) {
                 throw new IllegalStateException("方言缺语句: " + PATH + "#" + key);
             }
             return v;

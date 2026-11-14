@@ -15,6 +15,7 @@
  */
 package com.xp.starsite.schedule.core;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -65,7 +66,7 @@ public class ScheduleTaskRegistry {
      * @return 不可变列表
      */
     public synchronized List<ScheduledTaskDef> all() {
-        return Collections.unmodifiableList(List.copyOf(tasks.values()));
+        return Collections.unmodifiableList(new ArrayList<>(tasks.values()));
     }
 
     /**

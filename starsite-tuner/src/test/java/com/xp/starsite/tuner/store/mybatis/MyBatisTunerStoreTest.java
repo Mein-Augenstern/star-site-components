@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import javax.sql.DataSource;
 import org.apache.ibatis.mapping.Environment;
@@ -106,10 +107,10 @@ class MyBatisTunerStoreTest {
                 IDS::incrementAndGet, LocalDateTime::now);
 
         // 窗口新增（id 发号）+ 更新 + 清单
-        var saved = store.upsertWindow(new com.xp.starsite.tuner.api.TunerWindow(
+        com.xp.starsite.tuner.api.TunerWindow saved = store.upsertWindow(new com.xp.starsite.tuner.api.TunerWindow(
                 "pool-a", "daily", "0 0 0 10 * ?", "0 0 0 16 * ?"));
         assertThat(saved.getId()).isPositive();
-        var updated = store.upsertWindow(new com.xp.starsite.tuner.api.TunerWindow(
+        com.xp.starsite.tuner.api.TunerWindow updated = store.upsertWindow(new com.xp.starsite.tuner.api.TunerWindow(
                 saved.getId(), "pool-a", "repayday", "0 0 0 10 * ?", "0 0 0 16 * ?"));
         assertThat(store.windows("pool-a")).hasSize(1);
         assertThat(store.windows("pool-a").get(0).getPresetName()).isEqualTo("repayday");
@@ -123,7 +124,7 @@ class MyBatisTunerStoreTest {
                 LocalDateTime.of(2026, 11, 14, 10, 0), "h:1", "pool-a", "repayday",
                 com.xp.starsite.tuner.api.TunerAuditEntry.Source.MANUAL,
                 2, 4, 60, 8, 16, 60));
-        var audits = store.recentAudits(10);
+        List<com.xp.starsite.tuner.api.TunerAuditEntry> audits = store.recentAudits(10);
         assertThat(audits).hasSize(1);
         assertThat(audits.get(0).getNewCore()).isEqualTo(8);
         assertThat(audits.get(0).getSource())

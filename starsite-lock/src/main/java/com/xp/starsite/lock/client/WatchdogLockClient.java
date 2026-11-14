@@ -117,7 +117,7 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
         this.renewIntervalMs = Math.max(ttlMs / 3, 1000); // 最小 1s 防过于频繁
         this.lockLostListener = lockLostListener;
         // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护语义等价
-        var factory = new java.util.concurrent.ThreadFactory() {
+        java.util.concurrent.ThreadFactory factory = new java.util.concurrent.ThreadFactory() {
             private final java.util.concurrent.atomic.AtomicInteger seq =
                     new java.util.concurrent.atomic.AtomicInteger();
 

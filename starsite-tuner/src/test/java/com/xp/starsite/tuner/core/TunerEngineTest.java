@@ -24,6 +24,7 @@ import com.xp.starsite.tuner.api.TunerWindow;
 import com.xp.starsite.tuner.store.memory.MemoryTunerStore;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -99,7 +100,7 @@ class TunerEngineTest {
         assertThat(pool.getMaximumPoolSize()).isEqualTo(8);
         assertThat(pool.getKeepAliveTime(TimeUnit.SECONDS)).isEqualTo(120);
         // 审计一行：old 2/4/60 → new 6/8/120
-        var audits = engine.recentAudits(5);
+        List<com.xp.starsite.tuner.api.TunerAuditEntry> audits = engine.recentAudits(5);
         assertThat(audits).hasSize(1);
         assertThat(audits.get(0).getOldCore()).isEqualTo(2);
         assertThat(audits.get(0).getNewCore()).isEqualTo(6);
@@ -247,7 +248,7 @@ class TunerEngineTest {
                 Thread.currentThread().interrupt();
             }
         });
-        var snapshot = engine.pools().get(0);
+        com.xp.starsite.tuner.api.PoolSnapshot snapshot = engine.pools().get(0);
         assertThat(snapshot.getPoolName()).isEqualTo("pool-a");
         assertThat(snapshot.getActiveCount()).isGreaterThanOrEqualTo(1);
         assertThat(snapshot.getTargetPreset()).isEqualTo("baseline");

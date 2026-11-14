@@ -152,5 +152,83 @@ public class AsyncCommandAdminService {
      * @param dead       DEAD 死信条数
      * @param backlogDue 已到期未执行的 PENDING 条数（积压，消费能力是否跟上的核心指标）
      */
-    public record Stats(long pending, long running, long success, long dead, long backlogDue) {}
+    public static final class Stats {
+
+        /** 待执行数 */
+        private final long pending;
+
+        /** 执行中数 */
+        private final long running;
+
+        /** 成功数 */
+        private final long success;
+
+        /** 死信数 */
+        private final long dead;
+
+        /** 到期积压数 */
+        private final long backlogDue;
+
+        /**
+         * 构造。
+         *
+         * @param pending    待执行数
+         * @param running    执行中数
+         * @param success    成功数
+         * @param dead       死信数
+         * @param backlogDue 到期积压数
+         */
+        public Stats(long pending, long running, long success, long dead, long backlogDue) {
+            this.pending = pending;
+            this.running = running;
+            this.success = success;
+            this.dead = dead;
+            this.backlogDue = backlogDue;
+        }
+
+        /**
+         * 获取待执行数。
+         *
+         * @return 待执行数
+         */
+        public long getPending() {
+            return pending;
+        }
+
+        /**
+         * 获取执行中数。
+         *
+         * @return 执行中数
+         */
+        public long getRunning() {
+            return running;
+        }
+
+        /**
+         * 获取成功数。
+         *
+         * @return 成功数
+         */
+        public long getSuccess() {
+            return success;
+        }
+
+        /**
+         * 获取死信数。
+         *
+         * @return 死信数
+         */
+        public long getDead() {
+            return dead;
+        }
+
+        /**
+         * 获取到期积压数。
+         *
+         * @return 到期积压数
+         */
+        public long getBacklogDue() {
+            return backlogDue;
+        }
+    }
 }

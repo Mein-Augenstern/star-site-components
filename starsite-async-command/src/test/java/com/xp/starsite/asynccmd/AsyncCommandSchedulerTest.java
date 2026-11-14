@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
@@ -25,6 +24,7 @@ import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.memory.InMemoryAsyncCommandStore;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
@@ -113,7 +113,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("sync", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("sync", "k1", "{}");
         scheduler.tick();
@@ -133,7 +133,7 @@ class AsyncCommandSchedulerTest {
         // 前 2 次执行失败，第 3 次成功
         FakeExecutor exec = new FakeExecutor("flaky", 2);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("flaky", "k1", "{}");
         // 第 1 次失败 → retry#1
@@ -161,7 +161,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("always-fail", Integer.MAX_VALUE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("always-fail", "k1", "{}");
         // 失败 → retry#1
@@ -188,7 +188,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("err", Integer.MAX_VALUE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submit("err", "k1", "{}");
         for (int i = 0; i < 3; i++) scheduler.tick();
@@ -205,7 +205,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("idem", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submitIdempotent("idem", "order-1", "{}");
         AsyncCommand second = client.submitIdempotent("idem", "order-1", "{}");
@@ -226,7 +226,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("delayed", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         client.submitAt("delayed", "k1", "{}", LocalDateTime.now().plusHours(1));
         scheduler.tick();
@@ -254,9 +254,9 @@ class AsyncCommandSchedulerTest {
         FakeExecutor execA = new FakeExecutor("race", 0);
         FakeExecutor execB = new FakeExecutor("race", 0);
         AsyncCommandScheduler schA = new AsyncCommandScheduler(store, clientA, c,
-                new ExecutorRegistry(() -> List.of(execA)));
+                new ExecutorRegistry(() -> Arrays.asList(execA)));
         AsyncCommandScheduler schB = new AsyncCommandScheduler(store, clientB, c,
-                new ExecutorRegistry(() -> List.of(execB)));
+                new ExecutorRegistry(() -> Arrays.asList(execB)));
 
         // B 先到：2 条不满批（单轮即停），A 后到只能拿新提交的剩余 2 条
         clientA.submit("race", "k0", "{}");
@@ -284,7 +284,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("burst", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         for (int i = 0; i < 5; i++) {
             client.submit("burst", "k" + i, "{}");
@@ -306,7 +306,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("flood", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         for (int i = 0; i < 50; i++) {
             client.submit("flood", "k" + i, "{}");
@@ -340,7 +340,7 @@ class AsyncCommandSchedulerTest {
         // 恢复实例：下一轮先回收悬挂（回 PENDING）再正常执行
         FakeExecutor recovered = new FakeExecutor("hang", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(recovered)));
+                new ExecutorRegistry(() -> Arrays.asList(recovered)));
         scheduler.tick();
         assertThat(store.countByStatus(AsyncCommand.SUCCESS)).isEqualTo(1);
         assertThat(recovered.executed).hasSize(1);
@@ -356,7 +356,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         // 注册表为空：任何类型都无执行器
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of()));
+                new ExecutorRegistry(() -> Arrays.asList()));
 
         client.submit("no-executor", "k1", "{}");
         scheduler.tick();
@@ -375,7 +375,7 @@ class AsyncCommandSchedulerTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         FakeExecutor exec = new FakeExecutor("lifecycle", 0);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         scheduler.start();
         assertThat(scheduler.isStarted()).isTrue();

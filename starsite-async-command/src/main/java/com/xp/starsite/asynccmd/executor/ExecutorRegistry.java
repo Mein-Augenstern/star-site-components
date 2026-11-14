@@ -84,16 +84,18 @@ public class ExecutorRegistry {
             synchronized (this) {
                 if (routes == null) {
                     List<AsyncCommandExecutor> list = supplier.get();
-                    Map<String, AsyncCommandExecutor> map = (list == null
-                            ? List.<AsyncCommandExecutor>of() : list).stream()
+                    // JDK8：三元两侧类型无法 poly 推断——先归一非空局部（emptyList 显式泛型）
+                    List<AsyncCommandExecutor> safeList = list == null
+                            ? new java.util.ArrayList<AsyncCommandExecutor>() : list;
+                    Map<String, AsyncCommandExecutor> map = safeList.stream()
                             .collect(Collectors.toMap(AsyncCommandExecutor::type, e -> e));
-                    if (map.size() != (list == null ? 0 : list.size())) {
-                        List<String> dup = (list == null ? List.<AsyncCommandExecutor>of() : list).stream()
+                    if (map.size() != safeList.size()) {
+                        List<String> dup = safeList.stream()
                                 .collect(Collectors.groupingBy(AsyncCommandExecutor::type, Collectors.counting()))
                                 .entrySet().stream()
                                 .filter(e -> e.getValue() > 1)
                                 .map(e -> e.getKey() + "×" + e.getValue())
-                                .toList();
+                                .collect(java.util.stream.Collectors.toList());
                         throw new IllegalStateException(
                                 MessageFormat.format("AsyncCommandExecutor type 路由冲突（启动期拒绝）: {0}", dup));
                     }

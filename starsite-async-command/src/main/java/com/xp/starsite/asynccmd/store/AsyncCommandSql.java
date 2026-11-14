@@ -159,7 +159,7 @@ public interface AsyncCommandSql {
                 for (int i = 0; i < nodes.getLength(); i++) {
                     org.w3c.dom.Element el = (org.w3c.dom.Element) nodes.item(i);
                     String sql = el.getTextContent().trim();
-                    if (sql.isBlank()) {
+                    if (sql.trim().isEmpty()) {
                         throw new IllegalStateException("方言语句为空: " + PATH + "#" + el.getAttribute("id"));
                     }
                     stmts.put(el.getAttribute("id"), sql);
@@ -178,7 +178,7 @@ public interface AsyncCommandSql {
          */
         private static String stmt(String key) {
             String v = STATEMENTS.get(key);
-            if (v == null || v.isBlank()) {
+            if (v == null || v.trim().isEmpty()) {
                 throw new IllegalStateException("MySQL 方言语句缺失: " + PATH + "#" + key);
             }
             return v;

@@ -97,7 +97,7 @@ class JdbcIdempotentStoreIT {
         assertThat(first.claimed()).isTrue();
         assertThat(store.tryClaim("it", "uk-1", expire, "it:2").claimed()).isFalse();
         // 行落库可见
-        var row = store.find("it", "uk-1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("it", "uk-1").get();
         assertThat(row.getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
         assertThat(row.getHost()).isEqualTo("it:1");
         assertThat(row.getGmtCreate()).isNotNull();
@@ -113,10 +113,10 @@ class JdbcIdempotentStoreIT {
         // FAILED 路径
         ClaimOutcome f = store.tryClaim("it", "f-2", expire, "it:1");
         assertThat(store.fail("it", "f-2", expire, "boom")).isTrue();
-        var reclaimed = store.tryReclaim("it", "f-2", NOW.plusHours(24), NOW, NOW.minusSeconds(120), "it:3");
+        java.util.Optional<com.xp.starsite.idempotent.api.IdempotentRecord> reclaimed = store.tryReclaim("it", "f-2", NOW.plusHours(24), NOW, NOW.minusSeconds(120), "it:3");
         assertThat(reclaimed).isPresent();
-        assertThat(reclaimed.orElseThrow().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
-        assertThat(reclaimed.orElseThrow().getError()).isNull(); // 重置清空
+        assertThat(reclaimed.get().getStatus()).isEqualTo(IdempotentStatus.PROCESSING);
+        assertThat(reclaimed.get().getError()).isNull(); // 重置清空
     }
 
     /** 过期 DONE（键遗忘）回收 + 两步清理 */
@@ -149,15 +149,15 @@ class JdbcIdempotentStoreIT {
     @Test
     void staleSchemaFailsFast() throws Exception {
         // 手工建陈旧表（缺 9 列）
-        try (var conn = java.sql.DriverManager.getConnection(
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
                 EXT_URL != null ? EXT_URL : container.getJdbcUrl(),
                 EXT_URL != null ? "root" : "test",
                 EXT_URL != null ? "root" : "test");
-                var st = conn.createStatement()) {
+                java.sql.Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE IF NOT EXISTS idempotent_stale_it (id BIGINT NOT NULL PRIMARY KEY, "
                     + "idem_key VARCHAR(128) NOT NULL)");
         }
-        var ds = new SimpleDriverDataSource();
+        SimpleDriverDataSource ds = new SimpleDriverDataSource();
         ds.setDriverClass(com.mysql.cj.jdbc.Driver.class);
         ds.setUrl(EXT_URL != null ? EXT_URL : container.getJdbcUrl());
         ds.setUsername(EXT_URL != null ? "root" : "test");

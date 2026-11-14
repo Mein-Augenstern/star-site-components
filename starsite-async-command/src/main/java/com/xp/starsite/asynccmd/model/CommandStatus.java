@@ -99,12 +99,14 @@ public enum CommandStatus {
      * @return true 表示调度链路允许该迁移
      */
     public boolean canAutoTransitionTo(CommandStatus target) {
-        return switch (this) {
-            case PENDING -> target == RUNNING;
-            case RUNNING -> target == SUCCESS || target == PENDING || target == DEAD;
-            // 终态无自动出口（DEAD→PENDING 仅管控 retry 人工触发）
-            case SUCCESS, DEAD -> false;
-        };
+        if (this == PENDING) {
+            return target == RUNNING;
+        }
+        if (this == RUNNING) {
+            return target == SUCCESS || target == PENDING || target == DEAD;
+        }
+        // 终态无自动出口（DEAD→PENDING 仅管控 retry 人工触发）
+        return false;
     }
 
     /**

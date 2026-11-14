@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd.store.mybatis;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
@@ -25,6 +24,7 @@ import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.model.CommandStatus;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
@@ -95,7 +95,7 @@ class MyBatisAsyncCommandStoreTest {
      * @param table 本用例专属表名
      */
     private static void createH2Table(String table) throws Exception {
-        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+        try (java.sql.Connection conn = dataSource.getConnection(); java.sql.Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE IF NOT EXISTS " + table + " ("
                     + "id BIGINT NOT NULL PRIMARY KEY, "
                     + "cmd_type VARCHAR(64) NOT NULL, "
@@ -125,7 +125,7 @@ class MyBatisAsyncCommandStoreTest {
         AsyncCommandClient client = new AsyncCommandClient(store, config);
         RecordingExecutor exec = new RecordingExecutor("sync");
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, config,
-                new ExecutorRegistry(() -> List.of(exec)));
+                new ExecutorRegistry(() -> Arrays.asList(exec)));
 
         AsyncCommand cmd = client.submit("sync", "k1", "{}");
         assertThat(cmd.getId()).isNotNull();
@@ -150,8 +150,8 @@ class MyBatisAsyncCommandStoreTest {
         }
         assertThat(store.claim("inst-a", 2, LocalDateTime.now())).isEqualTo(2);
         assertThat(store.claim("inst-b", 2, LocalDateTime.now())).isEqualTo(2);
-        List<Long> idsA = store.findByToken("inst-a").stream().map(AsyncCommand::getId).toList();
-        List<Long> idsB = store.findByToken("inst-b").stream().map(AsyncCommand::getId).toList();
+        List<Long> idsA = store.findByToken("inst-a").stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
+        List<Long> idsB = store.findByToken("inst-b").stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
         assertThat(idsA).doesNotContainAnyElementsOf(idsB);
     }
 

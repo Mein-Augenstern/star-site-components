@@ -82,7 +82,12 @@ class IdempotentSqlMySqlTest {
 
     /** 占位符计数（? 计数——参数绑定完备性） */
     private static long countPlaceholders(String stmt) {
-        return Pattern.compile("\\?").matcher(stmt).results().count();
+        java.util.regex.Matcher m = Pattern.compile("\\?").matcher(stmt);
+        long count = 0;
+        while (m.find()) {
+            count++;
+        }
+        return count;
     }
 
     /** 状态枚举与方言字面量对齐（fromCode 可解析 DDL 注释口径的三态） */

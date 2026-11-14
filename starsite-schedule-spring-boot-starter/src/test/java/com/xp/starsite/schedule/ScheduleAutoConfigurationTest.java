@@ -99,7 +99,7 @@ class ScheduleAutoConfigurationTest {
                     assertThat(ctx).hasNotFailed();
                     ScheduleTaskRegistry registry = ctx.getBean(ScheduleTaskRegistry.class);
                     assertThat(registry.find("ph-scan")).isPresent();
-                    assertThat(registry.find("ph-scan").orElseThrow().getTrigger().describe())
+                    assertThat(registry.find("ph-scan").get().getTrigger().describe())
                             .contains("0 30 9 * * ?");
                 });
     }
@@ -125,7 +125,7 @@ class ScheduleAutoConfigurationTest {
             ScheduleTaskRegistry registry = ctx.getBean(ScheduleTaskRegistry.class);
             assertThat(registry.size()).isEqualTo(1);
             assertThat(registry.find("scan")).isPresent();
-            assertThat(registry.find("scan").orElseThrow().getLockName()).isEqualTo("sch:scan");
+            assertThat(registry.find("scan").get().getLockName()).isEqualTo("sch:scan");
             assertThat(ctx.getBean(ScheduleClient.class).status("scan")).isPresent();
         });
     }

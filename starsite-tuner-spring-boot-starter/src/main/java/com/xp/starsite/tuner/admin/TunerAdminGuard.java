@@ -15,7 +15,6 @@
  */
 package com.xp.starsite.tuner.admin;
 
-import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * 治理端点守卫 SPI（三级鉴权第一优先级——接公司内部鉴权体系）：
@@ -32,5 +31,5 @@ public interface TunerAdminGuard {
      * @param request 治理请求
      * @return true 放行
      */
-    boolean allow(HttpServletRequest request);
+    boolean allow(java.util.Map<String, String> headers);
 }

@@ -25,7 +25,42 @@ import com.xp.starsite.idempotent.api.IdempotentRecord;
  * @author muyi
  * @date 2026/11/12
  */
-public record ClaimOutcome(boolean claimed, IdempotentRecord record) {
+public final class ClaimOutcome {
+
+    /** true 认领成功（本调用方成为执行者） */
+    private final boolean claimed;
+
+    /** 认领成功时的新 PROCESSING 行；duplicate 时为 null */
+    private final IdempotentRecord record;
+
+    /**
+     * 构造。
+     *
+     * @param claimed 认领标志
+     * @param record  行（可 null）
+     */
+    private ClaimOutcome(boolean claimed, IdempotentRecord record) {
+        this.claimed = claimed;
+        this.record = record;
+    }
+
+    /**
+     * 获取认领标志。
+     *
+     * @return true 认领成功
+     */
+    public boolean claimed() {
+        return claimed;
+    }
+
+    /**
+     * 获取行快照。
+     *
+     * @return 认领行；duplicate 为 null
+     */
+    public IdempotentRecord record() {
+        return record;
+    }
 
     /**
      * 构造认领成功结局。

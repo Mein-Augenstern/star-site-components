@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
@@ -27,6 +26,7 @@ import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
 import com.xp.starsite.asynccmd.store.memory.InMemoryAsyncCommandStore;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
@@ -65,7 +65,7 @@ class AsyncCommandBatchExecutorTest {
         }
 
         private static List<Long> idsOf(List<AsyncCommand> cmds) {
-            return cmds.stream().map(AsyncCommand::getId).toList();
+            return cmds.stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
         }
     }
 
@@ -101,7 +101,7 @@ class AsyncCommandBatchExecutorTest {
             @Override public void execute(AsyncCommand cmd) { }
         };
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(batchExec, singleExec)),
+                new ExecutorRegistry(() -> Arrays.asList(batchExec, singleExec)),
                 com.xp.starsite.asynccmd.clock.TimeSource.system(), metrics);
 
         for (int i = 0; i < 3; i++) {
@@ -127,7 +127,7 @@ class AsyncCommandBatchExecutorTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingBatchExecutor batchExec = new RecordingBatchExecutor("push", 1); // 首次调用失败
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(batchExec)));
+                new ExecutorRegistry(() -> Arrays.asList(batchExec)));
 
         client.submit("push", "k1", "{}");
         client.submit("push", "k2", "{}");
@@ -147,7 +147,7 @@ class AsyncCommandBatchExecutorTest {
         AsyncCommandClient client = new AsyncCommandClient(store, c);
         RecordingBatchExecutor batchExec = new RecordingBatchExecutor("bad", Integer.MAX_VALUE);
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(batchExec)));
+                new ExecutorRegistry(() -> Arrays.asList(batchExec)));
 
         client.submit("bad", "k1", "{}");
         client.submit("bad", "k2", "{}");
@@ -166,12 +166,12 @@ class AsyncCommandBatchExecutorTest {
         List<List<Long>> seen = new ArrayList<>();
         RecordingBatchExecutor batchExec = new RecordingBatchExecutor("order", 0) {
             @Override public void executeBatch(List<AsyncCommand> cmds) {
-                seen.add(cmds.stream().map(AsyncCommand::getId).toList());
+                seen.add(cmds.stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList()));
                 super.executeBatch(cmds);
             }
         };
         AsyncCommandScheduler scheduler = new AsyncCommandScheduler(store, client, c,
-                new ExecutorRegistry(() -> List.of(batchExec)));
+                new ExecutorRegistry(() -> Arrays.asList(batchExec)));
 
         for (int i = 0; i < 3; i++) {
             client.submit("order", "k" + i, "{}");

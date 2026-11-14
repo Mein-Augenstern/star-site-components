@@ -69,8 +69,8 @@ class JdbcQuotaStoreIT {
         ds.setUrl(url);
         ds.setUsername(user);
         ds.setPassword(pass);
-        try (var conn = java.sql.DriverManager.getConnection(url, user, pass);
-                var st = conn.createStatement()) {
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(url, user, pass);
+                java.sql.Statement st = conn.createStatement()) {
             st.execute("DROP TABLE IF EXISTS quota_account");
             st.execute("DROP TABLE IF EXISTS quota_stale_it");
         }
@@ -92,7 +92,7 @@ class JdbcQuotaStoreIT {
         assertThat(store.init("it:credit:A", 1000).getAvailable()).isEqualTo(1000);
         store.occupy("it:credit:A", 200);
         // 重复建户：保留现量（不重置账面）
-        var again = store.init("it:credit:A", 9999);
+        com.xp.starsite.quota.api.QuotaBalance again = store.init("it:credit:A", 9999);
         assertThat(again.getTotal()).isEqualTo(1000);
         assertThat(again.getOccupied()).isEqualTo(200);
     }
@@ -102,21 +102,21 @@ class JdbcQuotaStoreIT {
     void atomicOperationsUnderRealMySQL() {
         assertThat(store.init("it:credit:B", 1000).getAvailable()).isEqualTo(1000);
         // 不变式边界：恰好可占用
-        assertThat(store.occupy("it:credit:B", 1000).orElseThrow().getAvailable()).isZero();
+        assertThat(store.occupy("it:credit:B", 1000).get().getAvailable()).isZero();
         assertThat(store.occupy("it:credit:B", 1)).isEmpty(); // 超量拒绝
         // 释放回补 + 充足性拒绝
-        assertThat(store.release("it:credit:B", 400).orElseThrow().getAvailable()).isEqualTo(400);
+        assertThat(store.release("it:credit:B", 400).get().getAvailable()).isEqualTo(400);
         assertThat(store.release("it:credit:B", 700)).isEmpty(); // 只剩 600
         // 冻结/解冻/转销换位
-        assertThat(store.freeze("it:credit:B", 400).orElseThrow().getFrozen()).isEqualTo(400);
-        assertThat(store.unfreeze("it:credit:B", 400).orElseThrow().getFrozen()).isZero();
-        assertThat(store.freeze("it:credit:B", 300).orElseThrow().getFrozen()).isEqualTo(300);
-        var confirmed = store.confirm("it:credit:B", 300).orElseThrow();
+        assertThat(store.freeze("it:credit:B", 400).get().getFrozen()).isEqualTo(400);
+        assertThat(store.unfreeze("it:credit:B", 400).get().getFrozen()).isZero();
+        assertThat(store.freeze("it:credit:B", 300).get().getFrozen()).isEqualTo(300);
+        com.xp.starsite.quota.api.QuotaBalance confirmed = store.confirm("it:credit:B", 300).get();
         assertThat(confirmed.getFrozen()).isZero();
         assertThat(confirmed.getOccupied()).isEqualTo(900); // 600 占用 + 300 换入
         assertThat(confirmed.getAvailable()).isEqualTo(100); // 换位不改可用量
         // 降额保护：恰好覆盖通过，越界拒绝（900 占用/总量 1000，可用 100）
-        assertThat(store.adjustTotal("it:credit:B", -100).orElseThrow().getTotal()).isEqualTo(900);
+        assertThat(store.adjustTotal("it:credit:B", -100).get().getTotal()).isEqualTo(900);
         assertThat(store.adjustTotal("it:credit:B", -1)).isEmpty(); // 900-1 < 900 占用
         store.adjustTotal("it:credit:B", 100); // 回补总量，后续用例账面干净
     }
@@ -141,14 +141,14 @@ class JdbcQuotaStoreIT {
     /** 陈旧结构 fail-fast（BUG-009 语义） */
     @Test
     void staleSchemaFailsFast() throws Exception {
-        try (var conn = java.sql.DriverManager.getConnection(
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
                 EXT_URL != null ? EXT_URL : container.getJdbcUrl(),
                 EXT_URL != null ? "root" : "test",
                 EXT_URL != null ? "root" : "test");
-                var st = conn.createStatement()) {
+                java.sql.Statement st = conn.createStatement()) {
             st.execute("CREATE TABLE IF NOT EXISTS quota_stale_it (id BIGINT NOT NULL PRIMARY KEY)");
         }
-        var ds = new SimpleDriverDataSource();
+        SimpleDriverDataSource ds = new SimpleDriverDataSource();
         ds.setDriverClass(com.mysql.cj.jdbc.Driver.class);
         ds.setUrl(EXT_URL != null ? EXT_URL : container.getJdbcUrl());
         ds.setUsername(EXT_URL != null ? "root" : "test");

@@ -97,7 +97,7 @@ class IdempotentAutoConfigurationTest {
             assertThat(ctx).hasSingleBean(IdempotentHealthIndicator.class);
             assertThat(ctx).hasSingleBean(IdempotentBeanPostProcessor.class);
             // 健康端点三态计数可用
-            var health = ctx.getBean(IdempotentHealthIndicator.class).health();
+            org.springframework.boot.actuate.health.Health health = ctx.getBean(IdempotentHealthIndicator.class).health();
             assertThat(health.getStatus().toString()).isEqualTo("UP");
             assertThat(health.getDetails()).containsKeys("processing", "done", "failed");
         });
@@ -117,7 +117,7 @@ class IdempotentAutoConfigurationTest {
             assertThat(second).as("回放与首次一致").isEqualTo("created-o-100");
             assertThat(original.runs.get()).as("动作恰执行一次").isEqualTo(1);
             // 记录落 DONE（scope 缺省 类#方法）
-            var store = ctx.getBean(IdempotentStore.class);
+            com.xp.starsite.idempotent.store.IdempotentStore store = ctx.getBean(IdempotentStore.class);
             assertThat(store.countByStatus(IdempotentStatus.DONE)).isEqualTo(1);
         });
     }
@@ -127,7 +127,7 @@ class IdempotentAutoConfigurationTest {
     void conflictMapsToExceptionThroughProxy() {
         runner.withPropertyValues("starsite.idempotent.wait-millis=150")
                 .withUserConfiguration(OrderConfig.class).run(ctx -> {
-                    var store = ctx.getBean(IdempotentStore.class);
+                    com.xp.starsite.idempotent.store.IdempotentStore store = ctx.getBean(IdempotentStore.class);
                     // 预置他方在飞（新鲜 PROCESSING——无法在窗口内完成）
                     store.tryClaim("OrderService#create", "o-200",
                             LocalDateTime.now().plusHours(24), "other:1");

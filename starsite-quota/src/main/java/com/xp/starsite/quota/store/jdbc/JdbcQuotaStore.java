@@ -51,8 +51,8 @@ public class JdbcQuotaStore implements QuotaStore {
     /**
      * 表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 陈旧结构 → 启动期 fail-fast。
      */
-    private static final Set<String> REQUIRED_COLUMNS = Set.of(
-            "ID", "QUOTA_KEY", "TOTAL_AMOUNT", "OCCUPIED", "FROZEN", "GMT_CREATE", "GMT_MODIFIED");
+    private static final Set<String> REQUIRED_COLUMNS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ID", "QUOTA_KEY", "TOTAL_AMOUNT", "OCCUPIED", "FROZEN", "GMT_CREATE", "GMT_MODIFIED"));
 
     /** 表名白名单（仅字母数字下划线）：表名须拼接进 SQL 无法参数化，白名单校验是防注入的唯一手段 */
     private static final java.util.regex.Pattern SAFE_IDENTIFIER =
@@ -146,7 +146,7 @@ public class JdbcQuotaStore implements QuotaStore {
             });
             return new QuotaBalance(quotaKey, total, 0, 0);
         } catch (DuplicateKeyException e) {
-            return find(quotaKey).orElseThrow(); // uk 冲突则行必在
+            return find(quotaKey).get(); // uk 冲突则行必在
         }
     }
 
@@ -287,11 +287,10 @@ public class JdbcQuotaStore implements QuotaStore {
             log.warn("[starsite-quota] 表 {} 不存在或不可见——视为 DBA/迁移脚本管理，跳过结构校验", table);
             return;
         }
-        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).collect(java.util.stream.Collectors.toList());
         if (!missing.isEmpty()) {
-            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧。"
-                    + "请按 resources/sql/mysql/quota_account_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
-                    .formatted(table, missing));
+            throw new IllegalStateException(String.format("表 %s 已存在但缺少列 %s——结构陈旧。"
+                    + "请按 resources/sql/mysql/quota_account_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER", table, missing));
         }
         log.debug("[starsite-quota] 表 {} 结构校验通过（{} 列契约）", table, REQUIRED_COLUMNS.size());
     }

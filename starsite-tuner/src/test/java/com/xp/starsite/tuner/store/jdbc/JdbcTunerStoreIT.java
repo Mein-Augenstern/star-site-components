@@ -22,6 +22,7 @@ import com.xp.starsite.tuner.api.TunerPreset;
 import com.xp.starsite.tuner.api.TunerWindow;
 import com.xp.starsite.tuner.store.TunerSql;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -68,8 +69,8 @@ class JdbcTunerStoreIT {
         ds.setUrl(url);
         ds.setUsername(user);
         ds.setPassword(pass);
-        try (var conn = java.sql.DriverManager.getConnection(url, user, pass);
-                var st = conn.createStatement()) {
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(url, user, pass);
+                java.sql.Statement st = conn.createStatement()) {
             st.execute("DROP TABLE IF EXISTS tuner_preset");
             st.execute("DROP TABLE IF EXISTS tuner_window");
             st.execute("DROP TABLE IF EXISTS tuner_binding");
@@ -92,7 +93,7 @@ class JdbcTunerStoreIT {
     void presetUpsertIdempotent() {
         store.upsertPreset(new TunerPreset("daily", 2, 4, 60));
         store.upsertPreset(new TunerPreset("daily", 6, 8, 120)); // 同名更新
-        var preset = store.preset("daily").orElseThrow();
+        TunerPreset preset = store.preset("daily").get();
         assertThat(preset.getCoreSize()).isEqualTo(6); // 更新生效（非重复行）
         assertThat(store.presets()).hasSize(1);
     }
@@ -100,7 +101,7 @@ class JdbcTunerStoreIT {
     /** 窗口 CRUD + 清单过滤 */
     @Test
     void windowCrud() {
-        var w1 = store.upsertWindow(new TunerWindow("it:daikou", "repayday",
+        TunerWindow w1 = store.upsertWindow(new TunerWindow("it:daikou", "repayday",
                 "0 0 0 10 * ?", "0 0 0 16 * ?"));
         assertThat(w1.getId()).isPositive();
         store.upsertWindow(new TunerWindow("it:other", "daily", "0 0 23 * * ?", "0 0 0 * * ?"));
@@ -131,7 +132,7 @@ class JdbcTunerStoreIT {
         store.appendAudit(new TunerAuditEntry(null, LocalDateTime.of(2026, 11, 14, 10, 0),
                 "it-host:1", "it:pool", "repayday", TunerAuditEntry.Source.SCHEDULE,
                 2, 4, 60, 8, 16, 60));
-        var audits = store.recentAudits(10);
+        List<com.xp.starsite.tuner.api.TunerAuditEntry> audits = store.recentAudits(10);
         assertThat(audits).hasSize(1);
         assertThat(audits.get(0).getHost()).isEqualTo("it-host:1");
         assertThat(audits.get(0).getOldCore()).isEqualTo(2);
@@ -153,7 +154,7 @@ class JdbcTunerStoreIT {
         long purged = store.purgeExpiredAudits(500,
                 LocalDateTime.now().minusDays(7)); // 2020 行到期，明天行保留
         assertThat(purged).isEqualTo(1);
-        var remaining = store.recentAudits(10);
+        List<TunerAuditEntry> remaining = store.recentAudits(10);
         assertThat(remaining).extracting(TunerAuditEntry::getHost)
                 .containsExactly("new-host");
         assertThat(store.versionStamp()).isGreaterThanOrEqualTo(before);

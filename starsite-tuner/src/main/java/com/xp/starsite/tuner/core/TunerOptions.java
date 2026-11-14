@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 package com.xp.starsite.tuner.core;
-
 import com.xp.starsite.tuner.api.TunerAdaptiveRule;
 import com.xp.starsite.tuner.api.TunerAlarmHook;
 import com.xp.starsite.tuner.api.TunerApprovalHook;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -195,7 +195,7 @@ public final class TunerOptions {
         private TunerAlarmHook alarmHook;
 
         /** 自适应规则 */
-        private List<TunerAdaptiveRule> adaptiveRules = List.of();
+        private List<TunerAdaptiveRule> adaptiveRules = Arrays.asList();
 
         /** 活跃度阈值 */
         private double alarmActiveRatio = 0.9;
@@ -244,7 +244,7 @@ public final class TunerOptions {
          * @return 建造器
          */
         public Builder adaptiveRules(List<TunerAdaptiveRule> rules) {
-            this.adaptiveRules = rules == null ? List.of() : List.copyOf(rules);
+            this.adaptiveRules = rules == null ? Arrays.asList() : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(rules));
             return this;
         }
 

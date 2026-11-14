@@ -16,6 +16,7 @@
 package com.xp.starsite.sequence.allocator.mybatis;
 
 import com.xp.starsite.sequence.allocator.WorkerIdAllocator;
+import java.util.List;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -43,8 +44,8 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
      * 表结构契约列（BUG-009 结构校验）：表存在但缺任一列 = 陈旧结构，
      * 取号期 fail-fast（与 JDBC 版 MysqlWorkerIdAllocator 保持同一契约集）。
      */
-    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
-            "ID", "SERVICE_NAME", "WORKER_ID", "INSTANCE", "GMT_CREATE", "GMT_MODIFIED");
+    private static final java.util.Set<String> REQUIRED_COLUMNS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ID", "SERVICE_NAME", "WORKER_ID", "INSTANCE", "GMT_CREATE", "GMT_MODIFIED"));
 
     /** 结构校验只做一次（幂等标志） */
     private volatile boolean schemaVerified = false;
@@ -164,7 +165,7 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
      */
     @Override
     public String describe() {
-        return "mybatis-lease(table=%s, service=%s, tag=%s)".formatted(tableName, serviceName, instanceTag);
+        return String.format("mybatis-lease(table=%s, service=%s, tag=%s)", tableName, serviceName, instanceTag);
     }
 
     /**
@@ -193,11 +194,10 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
         java.util.Set<String> actual = columns.stream()
                 .map(c -> c.toUpperCase())
                 .collect(java.util.stream.Collectors.toSet());
-        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).collect(java.util.stream.Collectors.toList());
         if (!missing.isEmpty()) {
-            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
-                    + "请按 resources/sql/mysql/sys_sequence_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
-                    .formatted(tableName, missing));
+            throw new IllegalStateException(String.format("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/sys_sequence_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER", tableName, missing));
         }
         log.debug("[starsite-sequence] 表 {} 结构校验通过（{} 列契约）", tableName, REQUIRED_COLUMNS.size());
     }

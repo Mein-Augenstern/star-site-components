@@ -106,8 +106,8 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
         String dailyAt = environment.resolvePlaceholders(anno.dailyAt());
         String zoneText = environment.resolvePlaceholders(anno.zone());
         String nameText = environment.resolvePlaceholders(anno.name());
-        boolean hasCron = !cron.isBlank();
-        boolean hasDaily = !dailyAt.isBlank();
+        boolean hasCron = !cron.trim().isEmpty();
+        boolean hasDaily = !dailyAt.trim().isEmpty();
         boolean hasDelay = anno.fixedDelaySeconds() > 0;
         int picked = (hasCron ? 1 : 0) + (hasDaily ? 1 : 0) + (hasDelay ? 1 : 0);
         if (picked != 1) {
@@ -135,15 +135,15 @@ public class StarsiteScheduledBeanPostProcessor implements BeanPostProcessor {
                 throw new IllegalArgumentException("@StarsiteScheduled guard=true 需要 LockClient: " + where);
             }
         }
-        String name = nameText.isBlank() ? where : nameText.trim();
+        String name = nameText.trim().isEmpty() ? where : nameText.trim();
         MisfirePolicy misfire = anno.misfire();
         Runnable body = () -> {
             try {
                 method.invoke(bean);
             } catch (Exception e) {
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
-                if (cause instanceof RuntimeException re) {
-                    throw re;
+                if (cause instanceof RuntimeException) {
+                    throw (RuntimeException) cause;
                 }
                 throw new IllegalStateException("任务体执行失败: " + where, cause);
             }

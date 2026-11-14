@@ -94,11 +94,11 @@ class MyBatisRunLogStoreTest {
         createH2Table("schedule_run_log_h2");
         MyBatisRunLogStore store = new MyBatisRunLogStore(mapper, "schedule_run_log_h2", false, IDS::incrementAndGet);
 
-        var log = store.start("mb1", "sch:mb1", t(8), t(8), "h:1");
+        com.xp.starsite.schedule.api.RunLog log = store.start("mb1", "sch:mb1", t(8), t(8), "h:1");
         assertThat(log.getStatus()).isEqualTo(RunStatus.RUNNING);
 
         store.finish(log.getId(), RunStatus.DONE, 7L, null);
-        var done = store.findById(log.getId()).orElseThrow();
+        com.xp.starsite.schedule.api.RunLog done = store.findById(log.getId()).get();
         assertThat(done.getStatus()).isEqualTo(RunStatus.DONE);
         assertThat(done.getDurationMs()).isEqualTo(7L);
 

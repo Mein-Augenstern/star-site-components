@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd.executor;
-
 import com.xp.starsite.asynccmd.model.AsyncCommand;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -51,6 +51,6 @@ public interface AsyncCommandBatchExecutor extends AsyncCommandExecutor {
     /** 默认转调单元素批：保持父接口契约成立，单条路径与批量路径行为一致 */
     @Override
     default void execute(AsyncCommand cmd) throws Exception {
-        executeBatch(List.of(cmd));
+        executeBatch(Arrays.asList(cmd));
     }
 }

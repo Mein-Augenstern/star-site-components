@@ -15,7 +15,6 @@
  */
 package com.xp.starsite.asynccmd.admin;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
@@ -76,9 +75,9 @@ public class AsyncCommandAdminController {
      *
      * @param request 当前 HTTP 请求
      */
-    private void guard(HttpServletRequest request) throws Exception {
+    private void guard(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers) throws Exception {
         AsyncCommandAdminGuard g = guardProvider.getIfAvailable();
-        (g == null ? AsyncCommandAdminGuard.ALLOW_ALL : g).check(request);
+        (g == null ? AsyncCommandAdminGuard.ALLOW_ALL : g).check(headers);
     }
 
     /**
@@ -89,8 +88,8 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝时上抛（401/403）
      */
     @GetMapping("/stats")
-    public AsyncCommandAdminService.Stats stats(HttpServletRequest request) throws Exception {
-        guard(request);
+    public AsyncCommandAdminService.Stats stats(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers) throws Exception {
+        guard(headers);
         return admin.stats();
     }
 
@@ -105,9 +104,9 @@ public class AsyncCommandAdminController {
      */
     @GetMapping("/recent")
     public List<com.xp.starsite.asynccmd.model.AsyncCommand> recent(
-            HttpServletRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
             @RequestParam(defaultValue = "20") int limit) throws Exception {
-        guard(request);
+        guard(headers);
         return admin.recent(limit);
     }
 
@@ -123,13 +122,13 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝时上抛（401/403）
      */
     @GetMapping("/list")
-    public Map<String, Object> list(HttpServletRequest request,
+    public Map<String, Object> list(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
                                     @RequestParam(required = false) String status,
                                     @RequestParam(required = false) String cmdType,
                                     @RequestParam(defaultValue = "1") long page,
                                     @RequestParam(defaultValue = "20") int size) throws Exception {
-        guard(request);
-        return Map.of(
+        guard(headers);
+        return mapOf(
                 "total", admin.countPage(status, cmdType),
                 "rows", admin.page(status, cmdType, page, size));
     }
@@ -144,11 +143,11 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝时上抛（401/403）
      */
     @PostMapping("/{id}/retry")
-    public Map<String, Object> retry(HttpServletRequest request,
+    public Map<String, Object> retry(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers,
                                      @PathVariable long id,
                                      @RequestParam(defaultValue = "false") boolean resetRetryCount) throws Exception {
-        guard(request);
-        return Map.of("ok", admin.retry(id, resetRetryCount));
+        guard(headers);
+        return mapOf("ok", admin.retry(id, resetRetryCount));
     }
 
     /**
@@ -160,9 +159,9 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝时上抛（401/403）
      */
     @PostMapping("/{id}/requeue")
-    public Map<String, Object> requeue(HttpServletRequest request, @PathVariable long id) throws Exception {
-        guard(request);
-        return Map.of("ok", admin.requeue(id));
+    public Map<String, Object> requeue(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers, @PathVariable long id) throws Exception {
+        guard(headers);
+        return mapOf("ok", admin.requeue(id));
     }
 
     /**
@@ -174,9 +173,9 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝时上抛（401/403）
      */
     @PostMapping("/{id}/kill")
-    public Map<String, Object> kill(HttpServletRequest request, @PathVariable long id) throws Exception {
-        guard(request);
-        return Map.of("ok", admin.kill(id));
+    public Map<String, Object> kill(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers, @PathVariable long id) throws Exception {
+        guard(headers);
+        return mapOf("ok", admin.kill(id));
     }
 
     /**
@@ -189,9 +188,22 @@ public class AsyncCommandAdminController {
      * @throws Exception 守卫拒绝或 tick 执行异常
      */
     @PostMapping("/tick")
-    public Map<String, Object> triggerTick(HttpServletRequest request) throws Exception {
-        guard(request);
+    public Map<String, Object> triggerTick(@org.springframework.web.bind.annotation.RequestHeader java.util.Map<String, String> headers) throws Exception {
+        guard(headers);
         scheduler.triggerTick();
-        return Map.of("ok", true);
+        return mapOf("ok", true);
+    }
+    /**
+     * JDK8 版 Map.of 替身（null 值安全——巡检第 3 尺：Map.of 不接受 null）。
+     *
+     * @param kv 键值对序列（偶数长度）
+     * @return 不可变映射
+     */
+    private static java.util.Map<String, Object> mapOf(Object... kv) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            map.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return java.util.Collections.unmodifiableMap(map);
     }
 }

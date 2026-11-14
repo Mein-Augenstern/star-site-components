@@ -35,7 +35,7 @@ class AsyncCommandSqlMySqlTest {
     /** 全部语句方法可用且含 {table} 占位（selectLastInsertId 类无表语句除外——本方言全部含表） */
     @Test
     void 全部语句可用且含表占位() {
-        java.util.List<String> stmts = java.util.List.of(
+        java.util.List<String> stmts = java.util.Arrays.asList(
                 sql.createTable(), sql.insert(), sql.findById(), sql.countUnfinished(),
                 sql.claim(), sql.findByToken(), sql.claimById(), sql.reclaimStale(),
                 sql.updateState(), sql.countByStatus(), sql.countBacklogDue(),

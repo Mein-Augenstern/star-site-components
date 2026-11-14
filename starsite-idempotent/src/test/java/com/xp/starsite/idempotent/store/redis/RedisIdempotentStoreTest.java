@@ -112,14 +112,14 @@ class RedisIdempotentStoreTest {
         entries.put("gmt_modified", "2026-11-13T10:00:01.000");
         when(hashOps.entries("starsite:idem:order\u0001o-1")).thenReturn(entries);
 
-        var record = store.find("order", "o-1").orElseThrow();
+        com.xp.starsite.idempotent.api.IdempotentRecord record = store.find("order", "o-1").get();
         assertThat(record.getStatus()).isEqualTo(IdempotentStatus.DONE);
         assertThat(record.getResult()).isEqualTo("{\"ok\":true}");
         assertThat(record.getExpireAt()).isEqualTo(LocalDateTime.of(2026, 11, 14, 10, 0, 0));
         assertThat(record.getHost()).isEqualTo("h:9");
         assertThat(record.getGmtModified()).isEqualTo(LocalDateTime.of(2026, 11, 13, 10, 0, 1));
 
-        when(hashOps.entries("starsite:idem:order\u0001absent")).thenReturn(Map.of());
+        when(hashOps.entries("starsite:idem:order\u0001absent")).thenReturn(new java.util.HashMap<String, String>() {{  }});
         assertThat(store.find("order", "absent")).isEmpty();
     }
 
@@ -128,11 +128,7 @@ class RedisIdempotentStoreTest {
     void reclaimTranslatesScriptResults() {
         when(redis.execute(any(DefaultRedisScript.class), anyList(),
                 any(), any(), any(), any(), any())).thenReturn(1L);
-        when(hashOps.entries("starsite:idem:order\u0001o-1")).thenReturn(Map.of(
-                "status", "PROCESSING",
-                "expire_at", "2026-11-14T10:00:00.000",
-                "host", "h:2",
-                "gmt_modified", "2026-11-13T10:00:00.000"));
+        when(hashOps.entries("starsite:idem:order\u0001o-1")).thenReturn(new java.util.HashMap<String, String>() {{ put("status", "PROCESSING"); put("expire_at", "2026-11-14T10:00:00.000"); put("host", "h:2"); put("gmt_modified", "2026-11-13T10:00:00.000"); }});
         assertThat(store.tryReclaim("order", "o-1", EXPIRE, NOW, NOW.minusSeconds(120), "h:2"))
                 .isPresent();
 
@@ -204,5 +200,18 @@ class RedisIdempotentStoreTest {
         ArgumentCaptor<List<String>> keys = ArgumentCaptor.forClass(List.class);
         verify(redis).execute(any(DefaultRedisScript.class), keys.capture(), any(), any(), any(), any());
         assertThat(keys.getValue()).containsExactly("starsite:idem:\u0001k");
+    }
+    /**
+     * JDK8 版 Map.of 替身（测试用——null 安全）。
+     *
+     * @param kv 键值对序列
+     * @return 可变映射
+     */
+    private static java.util.Map<String, Object> mapOf(Object... kv) {
+        java.util.Map<String, Object> map = new java.util.LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) {
+            map.put(String.valueOf(kv[i]), kv[i + 1]);
+        }
+        return map;
     }
 }

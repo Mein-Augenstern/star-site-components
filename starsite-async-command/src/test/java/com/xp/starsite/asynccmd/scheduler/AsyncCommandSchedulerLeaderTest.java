@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd.scheduler;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
@@ -25,6 +24,7 @@ import com.xp.starsite.asynccmd.executor.ScheduleMode;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
 import com.xp.starsite.asynccmd.store.memory.InMemoryAsyncCommandStore;
 import com.xp.starsite.lock.client.LockClient;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,7 +121,7 @@ class AsyncCommandSchedulerLeaderTest {
         executor = new RecordingExecutor();
         AsyncCommandClient client = new AsyncCommandClient(store, config);
         scheduler = new AsyncCommandScheduler(store, client, config,
-                new ExecutorRegistry(() -> List.of(executor)));
+                new ExecutorRegistry(() -> Arrays.asList(executor)));
         scheduler.setScheduleMode(ScheduleMode.LEADER);
         scheduler.setScheduleLock(lock);
         scheduler.start();

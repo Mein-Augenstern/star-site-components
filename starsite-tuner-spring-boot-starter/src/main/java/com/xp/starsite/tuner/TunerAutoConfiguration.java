@@ -30,12 +30,12 @@ import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -46,7 +46,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * @author muyi
  * @date 2026/11/14
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(TunerProperties.class)
 @ConditionalOnProperty(prefix = "starsite.tuner", name = "enabled", havingValue = "true",
         matchIfMissing = true)
@@ -116,7 +116,7 @@ public class TunerAutoConfiguration {
         return TunerOptions.builder()
                 .approvalHook(approvalHook.getIfAvailable())
                 .alarmHook(alarmHook.getIfAvailable())
-                .adaptiveRules(adaptiveRules.stream().toList())
+                .adaptiveRules(adaptiveRules.stream().collect(java.util.stream.Collectors.toList()))
                 .alarmActiveRatio(props.getAlarmActiveRatio())
                 .alarmQueueRatio(props.getAlarmQueueRatio())
                 .alarmCooldown(props.getAlarmCooldown())
@@ -166,7 +166,7 @@ public class TunerAutoConfiguration {
     @ConditionalOnProperty(prefix = "starsite.tuner", name = "admin-enabled",
             havingValue = "true", matchIfMissing = false)
     public com.xp.starsite.tuner.admin.TunerAdminGuard tunerAdminGuard(TunerProperties props) {
-        if (props.getAdminToken() != null && !props.getAdminToken().isBlank()) {
+        if (props.getAdminToken() != null && !props.getAdminToken().trim().isEmpty()) {
             return new com.xp.starsite.tuner.admin.StaticTokenAdminGuard(props.getAdminToken());
         }
         log.warn("[starsite-tuner] admin 已启用但未配置守卫（自定义 TunerAdminGuard Bean 或 "

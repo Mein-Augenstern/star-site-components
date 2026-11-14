@@ -125,7 +125,7 @@ public class TunerEngine implements TunerClient {
     /** {@inheritDoc} */
     @Override
     public void register(String poolName, ThreadPoolExecutor executor) {
-        if (poolName == null || poolName.isBlank()) {
+        if (poolName == null || poolName.trim().isEmpty()) {
             throw new IllegalArgumentException("受管池名不可为空");
         }
         if (executor == null) {
@@ -171,10 +171,10 @@ public class TunerEngine implements TunerClient {
     /** {@inheritDoc} */
     @Override
     public void bindDefault(String poolName, String presetName) {
-        if (poolName == null || poolName.isBlank() || presetName == null || presetName.isBlank()) {
+        if (poolName == null || poolName.trim().isEmpty() || presetName == null || presetName.trim().isEmpty()) {
             throw new IllegalArgumentException("池名与预案名不可为空");
         }
-        if (store.preset(presetName.trim()).isEmpty()) {
+        if (!store.preset(presetName.trim()).isPresent()) {
             throw new IllegalArgumentException("预案不存在，先 upsertPreset: " + presetName);
         }
         store.bindDefault(poolName.trim(), presetName.trim());
@@ -247,7 +247,42 @@ public class TunerEngine implements TunerClient {
     }
 
     /** 目标解析结果（预案 + 实际触发源——自适应命中改写审计来源） */
-    private record TargetResolution(TunerPreset preset, TunerAuditEntry.Source source) {
+    private static final class TargetResolution {
+
+        /** 目标预案 */
+        final TunerPreset preset;
+
+        /** 实际触发源 */
+        final TunerAuditEntry.Source source;
+
+        /**
+         * 构造。
+         *
+         * @param preset 目标预案
+         * @param source 实际触发源
+         */
+        TargetResolution(TunerPreset preset, TunerAuditEntry.Source source) {
+            this.preset = preset;
+            this.source = source;
+        }
+
+        /**
+         * 获取目标预案。
+         *
+         * @return 预案
+         */
+        TunerPreset preset() {
+            return preset;
+        }
+
+        /**
+         * 获取实际触发源。
+         *
+         * @return 触发源
+         */
+        TunerAuditEntry.Source source() {
+            return source;
+        }
     }
 
     /**
@@ -277,7 +312,7 @@ public class TunerEngine implements TunerClient {
         }
         // 审批门（V2）：所有变更的最后一道门——DENY 即跳过（WARN 留痕，审计不记假变更）
         if (options.getApprovalHook() != null) {
-            var request = new TunerChangeRequest(poolName, preset.getPresetName(), source,
+            TunerChangeRequest request = new TunerChangeRequest(poolName, preset.getPresetName(), source,
                     current[0], current[1], current[2],
                     wantQueue == null ? null : currentQueue,
                     wanted[0], wanted[1], wanted[2],
@@ -303,7 +338,9 @@ public class TunerEngine implements TunerClient {
         Integer oldQueue = null;
         Integer newQueue = null;
         if (wantQueue != null) {
-            if (pool.getQueue() instanceof ResizableCapacityLinkedBlockingQueue<?> resizable) {
+            if (pool.getQueue() instanceof ResizableCapacityLinkedBlockingQueue) {
+                ResizableCapacityLinkedBlockingQueue<?> resizable =
+                        (ResizableCapacityLinkedBlockingQueue<?>) pool.getQueue();
                 oldQueue = resizable.getCapacity();
                 newQueue = wantQueue;
                 if (oldQueue != wantQueue) {
@@ -402,7 +439,7 @@ public class TunerEngine implements TunerClient {
             return Optional.empty();
         }
         Optional<TunerPreset> preset = store.preset(presetName);
-        if (preset.isEmpty()) {
+        if (!preset.isPresent()) {
             log.warn("[starsite-tuner] 预案缺失（绑定/窗口引用了不存在的预案——治理配置被外部改动？）: {}",
                     presetName);
         }
@@ -427,7 +464,9 @@ public class TunerEngine implements TunerClient {
         fireIfDue(hook, poolName, now, TunerAlarm.Type.ACTIVE_RATIO, activeRatio,
                 options.getAlarmActiveRatio());
         // 队列水位 = 积压 / 容量（仅可变容量队列可评估；无界不评估）
-        if (pool.getQueue() instanceof ResizableCapacityLinkedBlockingQueue<?> resizable) {
+        if (pool.getQueue() instanceof ResizableCapacityLinkedBlockingQueue) {
+            ResizableCapacityLinkedBlockingQueue<?> resizable =
+                    (ResizableCapacityLinkedBlockingQueue<?>) pool.getQueue();
             double queueRatio = resizable.getCapacity() == 0 ? 0
                     : (double) pool.getQueue().size() / resizable.getCapacity();
             fireIfDue(hook, poolName, now, TunerAlarm.Type.QUEUE_RATIO, queueRatio,
@@ -506,8 +545,10 @@ public class TunerEngine implements TunerClient {
      * @return 当前队列容量；不可变队列为 -1
      */
     private int currentQueueCapacity(ThreadPoolExecutor pool) {
-        return pool.getQueue() instanceof ResizableCapacityLinkedBlockingQueue<?> resizable
-                ? resizable.getCapacity() : -1;
+        if (!(pool.getQueue() instanceof ResizableCapacityLinkedBlockingQueue)) {
+            return -1;
+        }
+        return ((ResizableCapacityLinkedBlockingQueue<?>) pool.getQueue()).getCapacity();
     }
 
     /**
@@ -561,8 +602,8 @@ public class TunerEngine implements TunerClient {
      * @param window 窗口
      */
     private void validateWindow(TunerWindow window) {
-        if (window.getPoolName() == null || window.getPoolName().isBlank()
-                || window.getPresetName() == null || window.getPresetName().isBlank()) {
+        if (window.getPoolName() == null || window.getPoolName().trim().isEmpty()
+                || window.getPresetName() == null || window.getPresetName().trim().isEmpty()) {
             throw new IllegalArgumentException("窗口的池名与预案名不可为空");
         }
         try {
@@ -572,7 +613,7 @@ public class TunerEngine implements TunerClient {
             throw new IllegalArgumentException(
                     "窗口 cron 非法: " + window.getStartCron() + " / " + window.getEndCron(), e);
         }
-        if (store.preset(window.getPresetName()).isEmpty()) {
+        if (!store.preset(window.getPresetName()).isPresent()) {
             throw new IllegalArgumentException("预案不存在，先 upsertPreset: " + window.getPresetName());
         }
     }

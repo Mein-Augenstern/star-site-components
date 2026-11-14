@@ -49,9 +49,9 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
      * 防调度器每轮 tick 以 bad SQL grammar 失败且命令永久积压（与 DDL 文件列集一致，
      * 与 JdbcAsyncCommandStore 保持同一契约集）。
      */
-    private static final java.util.Set<String> REQUIRED_COLUMNS = java.util.Set.of(
+    private static final java.util.Set<String> REQUIRED_COLUMNS = new java.util.HashSet<>(java.util.Arrays.asList(
             "ID", "CMD_TYPE", "BIZ_KEY", "PAYLOAD", "STATUS", "MAX_RETRY", "RETRY_COUNT",
-            "NEXT_RUN_AT", "LAST_ERROR", "OWNER", "CLAIM_TOKEN", "GMT_CREATE", "GMT_MODIFIED");
+            "NEXT_RUN_AT", "LAST_ERROR", "OWNER", "CLAIM_TOKEN", "GMT_CREATE", "GMT_MODIFIED"));
 
     /** 结构校验只做一次（幂等标志） */
     private volatile boolean schemaVerified = false;
@@ -157,11 +157,10 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
         java.util.Set<String> actual = columns.stream()
                 .map(String::toUpperCase)
                 .collect(java.util.stream.Collectors.toSet());
-        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).collect(java.util.stream.Collectors.toList());
         if (!missing.isEmpty()) {
-            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
-                    + "请按 resources/sql/mysql/async_command_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
-                    .formatted(table, missing));
+            throw new IllegalStateException(String.format("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/async_command_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER", table, missing));
         }
         log.debug("[starsite-async-command] 表 {} 结构校验通过（{} 列契约）", table, REQUIRED_COLUMNS.size());
     }
@@ -197,7 +196,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} */
     @Override
     public List<AsyncCommand> findByToken(String token) {
-        return mapper.findByToken(table, token).stream().map(this::toDomain).toList();
+        return mapper.findByToken(table, token).stream().map(this::toDomain).collect(java.util.stream.Collectors.toList());
     }
 
     /** {@inheritDoc} */
@@ -245,7 +244,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     /** {@inheritDoc} */
     @Override
     public List<AsyncCommand> selectRecent(int limit) {
-        return mapper.selectRecent(table, limit).stream().map(this::toDomain).toList();
+        return mapper.selectRecent(table, limit).stream().map(this::toDomain).collect(java.util.stream.Collectors.toList());
     }
 
     /** {@inheritDoc} */
@@ -258,7 +257,7 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
     @Override
     public List<AsyncCommand> selectPage(String status, String cmdType, long offset, int size) {
         return mapper.selectPage(table, blankToNull(status), blankToNull(cmdType), offset, size)
-                .stream().map(this::toDomain).toList();
+                .stream().map(this::toDomain).collect(java.util.stream.Collectors.toList());
     }
 
     /**
@@ -281,6 +280,6 @@ public class MyBatisAsyncCommandStore implements AsyncCommandStore {
      * @return 非空白原值；否则 null
      */
     private static String blankToNull(String s) {
-        return (s == null || s.isBlank()) ? null : s;
+        return (s == null || s.trim().isEmpty()) ? null : s;
     }
 }

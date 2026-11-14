@@ -313,10 +313,10 @@ public class InMemoryAsyncCommandStore implements AsyncCommandStore {
      */
     private List<AsyncCommand> filter(String status, String cmdType) {
         List<AsyncCommand> out = new ArrayList<>(rows.values());
-        if (status != null && !status.isBlank()) {
+        if (status != null && !status.trim().isEmpty()) {
             out = out.stream().filter(c -> status.equals(c.getStatus())).collect(Collectors.toList());
         }
-        if (cmdType != null && !cmdType.isBlank()) {
+        if (cmdType != null && !cmdType.trim().isEmpty()) {
             out = out.stream().filter(c -> cmdType.equals(c.getCmdType())).collect(Collectors.toList());
         }
         return out;

@@ -117,7 +117,7 @@ class ScheduleEngineTest {
                 MisfirePolicy.SKIP, true, executions::incrementAndGet));
         startEngine();
 
-        assertThat(engine.status("daily").orElseThrow().getNextRun())
+        assertThat(engine.status("daily").get().getNextRun())
                 .contains(LocalDateTime.of(2026, 11, 2, 20, 0, 0));
 
         clock.advanceTo(LocalDateTime.of(2026, 11, 2, 20, 0, 0));
@@ -133,7 +133,7 @@ class ScheduleEngineTest {
         assertThat(executions.get()).isEqualTo(1);
 
         // 下次触发推进到明天 20:00
-        assertThat(engine.status("daily").orElseThrow().getNextRun())
+        assertThat(engine.status("daily").get().getNextRun())
                 .contains(LocalDateTime.of(2026, 11, 3, 20, 0, 0));
         clock.advanceTo(LocalDateTime.of(2026, 11, 3, 20, 0, 0));
         await(executions, 2);
@@ -185,7 +185,7 @@ class ScheduleEngineTest {
 
         // 补跑的流水记缺口时刻（12:00）而非启动时刻（14:00）——留痕诚实
         // （await 到执行完成后状态已落终态 DONE）
-        var log = store.recentByTask("catchup", 5).get(0);
+        com.xp.starsite.schedule.api.RunLog log = store.recentByTask("catchup", 5).get(0);
         assertThat(log.getStatus()).isEqualTo(RunStatus.DONE);
         assertThat(log.getTriggerTime()).isEqualTo(LocalDateTime.of(2026, 11, 2, 12, 0, 0));
 
@@ -235,7 +235,7 @@ class ScheduleEngineTest {
             Thread.currentThread().interrupt();
         }
         assertThat(executions.get()).isZero();
-        assertThat(engine.status("fresh").orElseThrow().getNextRun())
+        assertThat(engine.status("fresh").get().getNextRun())
                 .contains(LocalDateTime.of(2026, 11, 3, 12, 0, 0));
     }
 
@@ -289,7 +289,7 @@ class ScheduleEngineTest {
         startEngine();
         engine.start();  // 重复启动忽略
 
-        TaskStatus status = engine.status("snap").orElseThrow();
+        TaskStatus status = engine.status("snap").get();
         assertThat(status.getName()).isEqualTo("snap");
         assertThat(status.getLockName()).isEqualTo("sch:snap");
         assertThat(status.getTrigger()).contains("dailyAt 20:00");

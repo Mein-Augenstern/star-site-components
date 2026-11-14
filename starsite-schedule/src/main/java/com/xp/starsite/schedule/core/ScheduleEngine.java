@@ -344,7 +344,7 @@ public class ScheduleEngine implements ScheduleClient {
             return null;
         }
         Optional<LocalDateTime> lastDone = store.lastDoneTriggerTime(def.getName());
-        if (lastDone.isEmpty()) {
+        if (lastDone.isPresent() == false) {
             return null;
         }
         LocalDateTime candidate = trigger.nextAfter(lastDone.get());

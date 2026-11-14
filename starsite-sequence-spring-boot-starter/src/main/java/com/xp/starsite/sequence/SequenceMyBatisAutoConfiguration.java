@@ -27,7 +27,6 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -35,6 +34,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,7 +53,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * @author muyi
  * @date 2026/10/25
  */
-@AutoConfiguration
+@Configuration(proxyBeanMethods = false)
 @AutoConfigureAfter(name = "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration")
 @AutoConfigureBefore(StarsiteSequenceAutoConfiguration.class)
 @ConditionalOnClass(SqlSessionFactory.class)
@@ -89,9 +89,9 @@ public class SequenceMyBatisAutoConfiguration {
             ObjectProvider<StarsiteIdGenerator> idGenProvider) {
         log.info("[starsite-sequence] mysql 租约分配器：mybatis（消费方 MyBatis 生态原生生效）");
         String appName = env.getProperty("spring.application.name", "unknown");
-        String instanceTag = props.getInstanceTag() != null && !props.getInstanceTag().isBlank()
+        String instanceTag = props.getInstanceTag() != null && !props.getInstanceTag().trim().isEmpty()
                 ? props.getInstanceTag()
-                : appName + "@" + ProcessHandle.current().pid();
+                : appName + "@" + Long.parseLong(java.lang.management.ManagementFactory.getRuntimeMXBean().getName().split("@")[0]);
         SqlSessionTemplate sessionTemplate = new SqlSessionTemplate(sqlSessionFactory);
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager.getObject());
         // 审计行主键 id 生成器：惰性解析（分配时才取发号器）——工厂期急切解析会与

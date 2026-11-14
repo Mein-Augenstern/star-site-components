@@ -90,6 +90,6 @@ public class StarsiteIdGenerator {
      * @return 形如 "starsite-sequence: workerId=1, allocator=standalone/fixed(1)" 的描述串
      */
     public String describe() {
-        return "starsite-sequence: workerId=%d, allocator=%s".formatted(workerId, allocatorDescription);
+        return String.format("starsite-sequence: workerId=%d, allocator=%s", workerId, allocatorDescription);
     }
 }

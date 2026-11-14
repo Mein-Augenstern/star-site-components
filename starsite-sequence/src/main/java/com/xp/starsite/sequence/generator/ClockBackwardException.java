@@ -37,7 +37,7 @@ public class ClockBackwardException extends RuntimeException {
      * @param maxBackwardMillis 配置的容忍上限毫秒数
      */
     public ClockBackwardException(long backwardMillis, long maxBackwardMillis) {
-        super("时钟回拨 %d ms 超过容忍上限 %d ms，按策略拒绝发号".formatted(backwardMillis, maxBackwardMillis));
+        super(String.format("时钟回拨 %d ms 超过容忍上限 %d ms，按策略拒绝发号", backwardMillis, maxBackwardMillis));
         this.backwardMillis = backwardMillis;
         this.maxBackwardMillis = maxBackwardMillis;
     }

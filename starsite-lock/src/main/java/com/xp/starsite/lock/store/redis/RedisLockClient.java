@@ -14,10 +14,9 @@
  * limitations under the License.
  */
 package com.xp.starsite.lock.store.redis;
-
 import com.xp.starsite.lock.client.LockClient;
 import com.xp.starsite.lock.model.LockCoreConfig;
-import java.util.List;
+import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -71,7 +70,13 @@ public class RedisLockClient implements LockClient {
             if (in == null) {
                 throw new IllegalStateException("Redis 锁脚本缺失: " + path);
             }
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[4096];
+                int n;
+                while ((n = in.read(chunk)) != -1) {
+                    buf.write(chunk, 0, n);
+                }
+                return new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim();
         } catch (java.io.IOException e) {
             throw new IllegalStateException("Redis 锁脚本加载失败: " + path, e);
         }
@@ -115,7 +120,7 @@ public class RedisLockClient implements LockClient {
         String key = keyPrefix + lockName;
         Long result = redisTemplate.execute(
                 new DefaultRedisScript<>(ACQUIRE_LUA, Long.class),
-                List.of(key), ownerId, String.valueOf(ttl.toMillis()));
+                Arrays.asList(key), ownerId, String.valueOf(ttl.toMillis()));
         boolean acquired = result != null && result == 1;
         if (acquired) {
             log.trace("[starsite-lock] Redis 获得锁/重入: key={}, owner={}", key, ownerId);
@@ -135,7 +140,7 @@ public class RedisLockClient implements LockClient {
         try {
             Long result = redisTemplate.execute(
                     new DefaultRedisScript<>(RELEASE_LUA, Long.class),
-                    List.of(key), ownerId, String.valueOf(ttl.toMillis()));
+                    Arrays.asList(key), ownerId, String.valueOf(ttl.toMillis()));
             if (result != null && result == 1) {
                 log.info("[starsite-lock] Redis 锁已释放: key={}", key);
             }

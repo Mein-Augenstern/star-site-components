@@ -56,9 +56,9 @@ public class JdbcIdempotentStore implements IdempotentStore {
      * 防每次幂等请求以 bad SQL grammar 失败（与 DDL 文件列集一致，
      * 与 MyBatisIdempotentStore 保持同一契约集）。
      */
-    private static final Set<String> REQUIRED_COLUMNS = Set.of(
+    private static final Set<String> REQUIRED_COLUMNS = new java.util.HashSet<>(java.util.Arrays.asList(
             "ID", "SCOPE", "IDEM_KEY", "STATUS", "RESULT", "ERROR", "EXPIRE_AT",
-            "FINISHED_AT", "HOST", "GMT_CREATE", "GMT_MODIFIED");
+            "FINISHED_AT", "HOST", "GMT_CREATE", "GMT_MODIFIED"));
 
     /** 表名白名单（仅字母数字下划线）：表名须拼接进 SQL 无法参数化，白名单校验是防注入的唯一手段 */
     private static final java.util.regex.Pattern SAFE_IDENTIFIER =
@@ -266,11 +266,10 @@ public class JdbcIdempotentStore implements IdempotentStore {
             log.warn("[starsite-idempotent] 表 {} 不存在或不可见——视为 DBA/迁移脚本管理，跳过结构校验", table);
             return;
         }
-        var missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).toList();
+        List<String> missing = REQUIRED_COLUMNS.stream().filter(c -> !actual.contains(c)).collect(java.util.stream.Collectors.toList());
         if (!missing.isEmpty()) {
-            throw new IllegalStateException(("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
-                    + "请按 resources/sql/mysql/idempotent_record_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER")
-                    .formatted(table, missing));
+            throw new IllegalStateException(String.format("表 %s 已存在但缺少列 %s——结构陈旧（旧版 DDL 初始化或组件升级遗留）。"
+                    + "请按 resources/sql/mysql/idempotent_record_ddl.sql 迁移（ALTER 补列或 DROP 重建），组件不自动 ALTER", table, missing));
         }
         log.debug("[starsite-idempotent] 表 {} 结构校验通过（{} 列契约）", table, REQUIRED_COLUMNS.size());
     }

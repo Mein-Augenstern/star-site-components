@@ -93,25 +93,25 @@ class MyBatisQuotaStoreTest {
         assertThat(store.init("credit:A", 9999).getTotal()).isEqualTo(1000);
 
         // 占用/冻结共享池 + 恰好边界（200+800=1000 恰好命中不变式）
-        assertThat(store.occupy("credit:A", 800).orElseThrow().getOccupied()).isEqualTo(1000);
+        assertThat(store.occupy("credit:A", 800).get().getOccupied()).isEqualTo(1000);
         assertThat(store.freeze("credit:A", 1)).isEmpty(); // 已满——1 也冻结不动
 
         // 冻结预占（先释放腾出池）+ 转销换位
-        assertThat(store.release("credit:A", 400).orElseThrow().getOccupied()).isEqualTo(600);
-        assertThat(store.freeze("credit:A", 400).orElseThrow().getFrozen()).isEqualTo(400);
+        assertThat(store.release("credit:A", 400).get().getOccupied()).isEqualTo(600);
+        assertThat(store.freeze("credit:A", 400).get().getFrozen()).isEqualTo(400);
         assertThat(store.freeze("credit:A", 1)).isEmpty(); // 池满
-        assertThat(store.confirm("credit:A", 400).orElseThrow().getOccupied()).isEqualTo(1000);
+        assertThat(store.confirm("credit:A", 400).get().getOccupied()).isEqualTo(1000);
         assertThat(store.confirm("credit:A", 1)).isEmpty(); // 冻结已空
 
         // 解冻充足性拒绝（无冻结可解）
         assertThat(store.unfreeze("credit:A", 1)).isEmpty();
 
         // 释放 + 充足性拒绝
-        assertThat(store.release("credit:A", 1000).orElseThrow().getOccupied()).isZero();
+        assertThat(store.release("credit:A", 1000).get().getOccupied()).isZero();
         assertThat(store.release("credit:A", 1)).isEmpty();
 
         // 降额保护（当前 0 占用）
-        assertThat(store.adjustTotal("credit:A", -500).orElseThrow().getTotal()).isEqualTo(500);
+        assertThat(store.adjustTotal("credit:A", -500).get().getTotal()).isEqualTo(500);
         store.occupy("credit:A", 500);
         assertThat(store.adjustTotal("credit:A", -1)).isEmpty(); // 500-1 < 500 占用
 

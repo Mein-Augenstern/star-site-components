@@ -152,12 +152,29 @@ public class IdempotentBeanPostProcessor implements BeanPostProcessor {
      */
     static String resolveScope(Method method, StarsiteIdempotent anno) {
         String raw = anno.scope();
-        return raw.isBlank() ? method.getDeclaringClass().getSimpleName() + "#" + method.getName()
+        return raw.trim().isEmpty() ? method.getDeclaringClass().getSimpleName() + "#" + method.getName()
                 : raw.trim();
     }
 
     /** 键解析结果（SpEL 表达式或字面量——求值策略随形态） */
-    record ResolvedKey(Expression expression, String literal) {
+    static final class ResolvedKey {
+
+        /** SpEL 表达式（字面量形态为 null） */
+        final Expression expression;
+
+        /** 字面量（SpEL 形态为 null） */
+        final String literal;
+
+        /**
+         * 私有构造（经静态工厂）。
+         *
+         * @param expression 已解析表达式
+         * @param literal    字面量
+         */
+        private ResolvedKey(Expression expression, String literal) {
+            this.expression = expression;
+            this.literal = literal;
+        }
 
         /**
          * 构造 SpEL 形态。
@@ -177,6 +194,24 @@ public class IdempotentBeanPostProcessor implements BeanPostProcessor {
          */
         static ResolvedKey literal(String literal) {
             return new ResolvedKey(null, literal);
+        }
+
+        /**
+         * 获取 SpEL 表达式。
+         *
+         * @return 表达式；字面量形态为 null
+         */
+        Expression expression() {
+            return expression;
+        }
+
+        /**
+         * 获取字面量。
+         *
+         * @return 字面量；SpEL 形态为 null
+         */
+        String literal() {
+            return literal;
         }
     }
 
@@ -216,7 +251,7 @@ public class IdempotentBeanPostProcessor implements BeanPostProcessor {
                 return inv.proceed();
             }
             String key = evaluateKey(method, anno, inv.getArguments());
-            if (key == null || key.isBlank()) {
+            if (key == null || key.trim().isEmpty()) {
                 throw new IllegalStateException("@StarsiteIdempotent 键求值为空（表达式: "
                         + anno.key() + "）——检查参数值是否为 null；参数名引用（#orderId）需"
                         + " -parameters 编译（Boot 3.2+ 默认开），或改位置引用 #p0");
@@ -233,13 +268,17 @@ public class IdempotentBeanPostProcessor implements BeanPostProcessor {
                 }
                 return serialize(original[0], method);
             });
-            return switch (result.getKind()) {
-                case EXECUTED -> original[0]; // 本请求执行过——返回真实对象（零序列化损耗）
-                case REPLAYED -> deserialize(result.getPayload(), method);
-                case CONFLICT -> throw new IdempotentConflictException(
+            if (result.getKind() == IdempotentResult.Kind.EXECUTED) {
+                return original[0]; // 本请求执行过——返回真实对象（零序列化损耗）
+            }
+            if (result.getKind() == IdempotentResult.Kind.REPLAYED) {
+                return deserialize(result.getPayload(), method);
+            }
+            if (result.getKind() == IdempotentResult.Kind.CONFLICT) {
+                throw new IdempotentConflictException(
                         "幂等键在飞（他方执行中，等待窗口耗尽）: " + scope + "#" + key);
-                case FAILED -> throw new IdempotentFailedException(String.valueOf(result.getError()));
-            };
+            }
+            throw new IdempotentFailedException(String.valueOf(result.getError()));
         }
 
         /**

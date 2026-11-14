@@ -17,7 +17,6 @@ package com.xp.starsite.quota.store.redis;
 
 import com.xp.starsite.quota.api.QuotaBalance;
 import com.xp.starsite.quota.store.QuotaStore;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -89,18 +88,18 @@ public class RedisQuotaStore implements QuotaStore {
      */
     public RedisQuotaStore(StringRedisTemplate redis, String keyPrefix) {
         this.redis = redis;
-        this.keyPrefix = keyPrefix == null || keyPrefix.isBlank() ? "starsite:quota:" : keyPrefix;
+        this.keyPrefix = keyPrefix == null || keyPrefix.trim().isEmpty() ? "starsite:quota:" : keyPrefix;
     }
 
     /** {@inheritDoc} 脚本三态：1=建户 / 0=已存在（保留现量）——均返回账面 */
     @Override
     public QuotaBalance init(String quotaKey, long total) {
         Long r = redis.execute(new DefaultRedisScript<>(INIT_LUA, Long.class),
-                List.of(key(quotaKey)), String.valueOf(total));
+                java.util.Arrays.asList(key(quotaKey)), String.valueOf(total));
         if (r != null && r == 1) {
             return new QuotaBalance(quotaKey, total, 0, 0);
         }
-        return find(quotaKey).orElseThrow(); // 0=已存在 → 现量；理论无其他态
+        return find(quotaKey).get(); // 0=已存在 → 现量；理论无其他态
     }
 
     /** {@inheritDoc} */
@@ -168,7 +167,7 @@ public class RedisQuotaStore implements QuotaStore {
      */
     private Optional<QuotaBalance> mutate(String script, String quotaKey, long operand) {
         Long r = redis.execute(new DefaultRedisScript<>(script, Long.class),
-                List.of(key(quotaKey)), String.valueOf(operand));
+                java.util.Arrays.asList(key(quotaKey)), String.valueOf(operand));
         return r != null && r == 1 ? find(quotaKey) : Optional.empty();
     }
 
@@ -194,7 +193,13 @@ public class RedisQuotaStore implements QuotaStore {
             if (in == null) {
                 throw new IllegalStateException("Redis 配额脚本缺失: " + path);
             }
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[4096];
+                int n;
+                while ((n = in.read(chunk)) != -1) {
+                    buf.write(chunk, 0, n);
+                }
+                return new String(buf.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim();
         } catch (java.io.IOException e) {
             throw new IllegalStateException("Redis 配额脚本加载失败: " + path, e);
         }

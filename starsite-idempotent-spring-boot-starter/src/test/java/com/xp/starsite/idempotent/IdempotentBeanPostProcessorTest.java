@@ -109,9 +109,10 @@ class IdempotentBeanPostProcessorTest {
             if (this == o) {
                 return true;
             }
-            if (!(o instanceof Receipt receipt)) {
+            if (!(o instanceof Receipt)) {
                 return false;
             }
+            Receipt receipt = (Receipt) o;
             return amount == receipt.amount && Objects.equals(orderId, receipt.orderId);
         }
 
@@ -243,7 +244,7 @@ class IdempotentBeanPostProcessorTest {
                     assertThat(s.placeholder()).isEqualTo("ph");
                     assertThat(cfg.keyForms.placeholderRuns.get()).isEqualTo(1);
                     // 记录键与 scope 形态
-                    var store = ctx.getBean(IdempotentStore.class);
+                    store = ctx.getBean(IdempotentStore.class);
                     assertThat(store.find("report", "export-2026-11-12")).isPresent();
                     assertThat(store.find("settle", "daily-settle")).isPresent();
                     assertThat(store.find("IdempotentBeanPostProcessorTest$KeyFormsService#placeholder",
@@ -271,7 +272,7 @@ class IdempotentBeanPostProcessorTest {
                         "starsite.idempotent.poll-millis=50")
                 .withUserConfiguration(ServiceConfig.class).run(ctx -> {
                     FlakyService s = ctx.getBean(FlakyService.class);
-                    var store = ctx.getBean(IdempotentStore.class);
+                    store = ctx.getBean(IdempotentStore.class);
                     int runsBefore = ctx.getBean(ServiceConfig.class).flaky.runs.get();
                     // 第一代失败落 FAILED
                     try {
@@ -285,7 +286,7 @@ class IdempotentBeanPostProcessorTest {
                     Thread failureSetter = new Thread(() -> {
                         try {
                             Thread.sleep(300); // 让等待者先进入在飞轮询（等待窗口 2000ms 内）
-                            var row = store.find("flaky", "k-2").orElseThrow();
+                            com.xp.starsite.idempotent.api.IdempotentRecord row = store.find("flaky", "k-2").get();
                             store.fail("flaky", "k-2", row.getExpireAt(), "IllegalStateException: 下游 500");
                         } catch (Exception ignored) {
                             // 时序兜底

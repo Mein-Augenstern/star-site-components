@@ -225,8 +225,8 @@ class JdbcAsyncCommandStoreIT {
         }
         assertThat(store.claim("instance-a", 2, LocalDateTime.now())).isEqualTo(2);
         assertThat(store.claim("instance-b", 2, LocalDateTime.now())).isEqualTo(2);
-        List<Long> idsA = store.findByToken("instance-a").stream().map(AsyncCommand::getId).toList();
-        List<Long> idsB = store.findByToken("instance-b").stream().map(AsyncCommand::getId).toList();
+        List<Long> idsA = store.findByToken("instance-a").stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
+        List<Long> idsB = store.findByToken("instance-b").stream().map(AsyncCommand::getId).collect(java.util.stream.Collectors.toList());
         assertThat(idsA).doesNotContainAnyElementsOf(idsB);
     }
 

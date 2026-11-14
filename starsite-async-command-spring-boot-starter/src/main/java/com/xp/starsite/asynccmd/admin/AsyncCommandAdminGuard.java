@@ -15,7 +15,6 @@
  */
 package com.xp.starsite.asynccmd.admin;
 
-import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * 管控端点鉴权守卫（钩子）：每个管控请求（stats/recent/list/retry/requeue/kill）
@@ -35,16 +34,19 @@ import jakarta.servlet.http.HttpServletRequest;
 public interface AsyncCommandAdminGuard {
 
     /** 放行所有请求的空实现（本地开发兜底；生产未配守卫时启动日志会 WARN 提醒） */
-    AsyncCommandAdminGuard ALLOW_ALL = request -> { /* 放行 */ };
+    AsyncCommandAdminGuard ALLOW_ALL = headers -> { /* 放行 */ };
 
     /**
      * 请求鉴权检查（管控端点每个方法执行前调用）。
      * 实现约定：检查通过正常返回；不通过抛异常（建议
      * {@link org.springframework.web.server.ResponseStatusException} 携带 401/403），
      * 异常消息会作为错误响应体返回调用方。
+     * <p>servlet 无关设计：入参为请求头快照（Boot 2/3 双兼容——javax/jakarta 差异
+     * 被隔离在 starter 的控制器层）；需要 principal/remoteAddr 时自定义进 headers 之外的
+     * 通道（自定义 Bean 里自行接入）。
      *
-     * @param request 当前 HTTP 请求（可取 header/principal/remoteAddr 等）
+     * @param headers 请求头快照（header 名 → 值）
      * @throws Exception 鉴权不通过时抛出，端点立即终止
      */
-    void check(HttpServletRequest request) throws Exception;
+    void check(java.util.Map<String, String> headers) throws Exception;
 }

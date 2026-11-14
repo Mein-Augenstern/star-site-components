@@ -84,12 +84,12 @@ class JdbcRunLogStoreIT {
 
     @Test
     void startFinishRoundTrip() {
-        var log = store.start("it1", "sch:it1", t(8), t(8), "host:1");
+        com.xp.starsite.schedule.api.RunLog log = store.start("it1", "sch:it1", t(8), t(8), "host:1");
         assertThat(log.getId()).isPositive();
         assertThat(log.getStatus()).isEqualTo(RunStatus.RUNNING);
 
         store.finish(log.getId(), RunStatus.DONE, 99L, null);
-        var done = store.findById(log.getId()).orElseThrow();
+        com.xp.starsite.schedule.api.RunLog done = store.findById(log.getId()).get();
         assertThat(done.getStatus()).isEqualTo(RunStatus.DONE);
         assertThat(done.getDurationMs()).isEqualTo(99L);
         assertThat(done.getFinishedAt()).isNotNull();
@@ -97,7 +97,7 @@ class JdbcRunLogStoreIT {
 
     @Test
     void skipRowAndListColumns() {
-        var skipped = store.skip("it2", "sch:it2", t(9), t(9), "host:2");
+        com.xp.starsite.schedule.api.RunLog skipped = store.skip("it2", "sch:it2", t(9), t(9), "host:2");
         assertThat(skipped.getStatus()).isEqualTo(RunStatus.SKIPPED_LOCKED);
 
         List<com.xp.starsite.schedule.api.RunLog> list = store.recentByTask("it2", 10);
@@ -107,23 +107,23 @@ class JdbcRunLogStoreIT {
 
     @Test
     void failureDetailCarriesError() {
-        var log = store.start("it3", "sch:it3", t(10), t(10), "host:3");
+        com.xp.starsite.schedule.api.RunLog log = store.start("it3", "sch:it3", t(10), t(10), "host:3");
         store.finish(log.getId(), RunStatus.FAILED, 5L, "IllegalStateException: boom");
-        assertThat(store.findById(log.getId()).orElseThrow().getError()).contains("boom");
+        assertThat(store.findById(log.getId()).get().getError()).contains("boom");
     }
 
     @Test
     void lastDoneAndStaleReclaim() {
-        var a = store.start("it4", "sch:it4", t(1), t(1), "h:1");
+        com.xp.starsite.schedule.api.RunLog a = store.start("it4", "sch:it4", t(1), t(1), "h:1");
         store.finish(a.getId(), RunStatus.DONE, 1L, null);
         assertThat(store.lastDoneTriggerTime("it4")).contains(t(1));
 
-        var stale = store.start("it4", "sch:it4", t(2), t(2), "h:1");  // 遗留 RUNNING
+        com.xp.starsite.schedule.api.RunLog stale = store.start("it4", "sch:it4", t(2), t(2), "h:1");  // 遗留 RUNNING
         int marked = store.markStaleRunning(t(9));
         assertThat(marked).isGreaterThanOrEqualTo(1);
-        assertThat(store.findById(stale.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.STALE);
+        assertThat(store.findById(stale.getId()).get().getStatus()).isEqualTo(RunStatus.STALE);
         // DONE 不被误标
-        assertThat(store.findById(a.getId()).orElseThrow().getStatus()).isEqualTo(RunStatus.DONE);
+        assertThat(store.findById(a.getId()).get().getStatus()).isEqualTo(RunStatus.DONE);
     }
 
     @Test

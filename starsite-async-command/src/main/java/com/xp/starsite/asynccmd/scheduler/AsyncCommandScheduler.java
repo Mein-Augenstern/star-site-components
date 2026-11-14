@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 package com.xp.starsite.asynccmd.scheduler;
-
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
 import com.xp.starsite.asynccmd.clock.TimeSource;
 import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
@@ -30,6 +29,7 @@ import com.xp.starsite.asynccmd.store.AsyncCommandStore;
 import com.xp.starsite.lock.client.LockClient;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -167,7 +167,7 @@ public class AsyncCommandScheduler {
         this.time = time;
         this.metrics = metrics;
         // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护语义等价
-        var tickFactory = new java.util.concurrent.ThreadFactory() {
+        java.util.concurrent.ThreadFactory tickFactory = new java.util.concurrent.ThreadFactory() {
             private final java.util.concurrent.atomic.AtomicInteger seq =
                     new java.util.concurrent.atomic.AtomicInteger();
 
@@ -279,7 +279,7 @@ public class AsyncCommandScheduler {
         if (claimed == null) {
             return;
         }
-        dispatchToPool(handler, List.of(claimed));
+        dispatchToPool(handler, Arrays.asList(claimed));
     }
 
     /**
@@ -430,7 +430,8 @@ public class AsyncCommandScheduler {
      */
     private void dispatchToPool(AsyncCommandExecutor handler, List<AsyncCommand> group) {
         Runnable task = () -> runGroup(handler, group);
-        if (handler instanceof PoolIsolatedExecutor isolated && isolated.pool() != null) {
+        if (handler instanceof PoolIsolatedExecutor && ((PoolIsolatedExecutor) handler).pool() != null) {
+            PoolIsolatedExecutor isolated = (PoolIsolatedExecutor) handler;
             try {
                 asyncInFlight.incrementAndGet();
                 isolated.pool().execute(() -> {
@@ -473,7 +474,8 @@ public class AsyncCommandScheduler {
      * @param group   同类型命令组（至少 1 条）
      */
     private void runGroup(AsyncCommandExecutor handler, List<AsyncCommand> group) {
-        if (handler instanceof AsyncCommandBatchExecutor batchExecutor) {
+        if (handler instanceof AsyncCommandBatchExecutor) {
+            AsyncCommandBatchExecutor batchExecutor = (AsyncCommandBatchExecutor) handler;
             long begin = System.nanoTime();
             try {
                 batchExecutor.executeBatch(group);
@@ -510,7 +512,7 @@ public class AsyncCommandScheduler {
      * @return 原列表；null 时返回不可变空列表
      */
     static <T> List<T> emptyIfNull(List<T> list) {
-        return list == null ? List.of() : list;
+        return list == null ? Arrays.asList() : list;
     }
 
     /**
