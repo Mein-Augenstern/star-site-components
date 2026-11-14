@@ -43,7 +43,18 @@ public class AsyncBench {
 
     static final int SUBMIT_OPS = 50_000;
     static final int E2E_OPS = 1_000;
-    static final int CHAIN_OPS = 50_000;
+
+    /**
+     * 全链路 op 数。内存 store 的 claim/findByToken 是全表流式扫描（O(n)），
+     * 行数随历史单调增长——op 数须克制，否则总代价 O(n²) 失真（实测 5 万 op ≈ 2 分钟）。
+     */
+    static final int CHAIN_OPS = 5_000;
+
+    /**
+     * 命令表主键发号（模块级共享递增）：A2/A3 共用同一 H2 表（DB_CLOSE_DELAY=-1 跨场景存活），
+     * 各场景重置 AtomicLong 会主键冲突——INSERT 失败即场景全灭（与 LockBench.SEED_ID 同类坑）。
+     */
+    static final AtomicLong CMD_ID_SEQ = new AtomicLong(0);
 
     /** 记录执行的假执行器（含时间戳供端到端时延计算） */
     static class TimingExecutor implements AsyncCommandExecutor {
@@ -93,8 +104,8 @@ public class AsyncBench {
     public static BenchResult endToEnd(javax.sql.DataSource ds, SqlSessionFactory factory) throws Exception {
         H2Infra.createAsyncTable(ds);
         AsyncCommandMapper mapper = H2Infra.asyncMapper(factory);
-        AtomicLong idSeq = new AtomicLong(0);
-        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_command", false, idSeq::incrementAndGet);
+        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_command",
+                false, CMD_ID_SEQ::incrementAndGet);
 
         var config = new AsyncCommandConfig();
         config.setOwner("bench-e2e");
@@ -216,8 +227,8 @@ public class AsyncBench {
     public static BenchResult claimFairness(javax.sql.DataSource ds, SqlSessionFactory factory) throws Exception {
         H2Infra.createAsyncTable(ds);
         AsyncCommandMapper mapper = H2Infra.asyncMapper(factory);
-        AtomicLong idSeq = new AtomicLong(0);
-        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_command", false, idSeq::incrementAndGet);
+        MyBatisAsyncCommandStore store = new MyBatisAsyncCommandStore(mapper, "async_command",
+                false, CMD_ID_SEQ::incrementAndGet);
 
         var config = new AsyncCommandConfig();
         config.setOwner("fairness");
