@@ -21,7 +21,7 @@ jobs:
       - name: Build, check style, unit & integration tests
         run: mvn -B verify -Pit
 
-  # JDK 8 兼容验证：JDK 21 编译（release 8 字节码）→ JDK 8 JVM 加载运行
+  # JDK 8 字节码验证：JDK 21 编译（release 8）→ JDK 8 javac 编译消费方 + JDK 8 java 运行
   # （Spotless 插件自身是 Java 11+ 字节码，无法在 JDK 8 Maven 上运行——构建工具限制非组件问题）
   jdk8:
     runs-on: ubuntu-24.04
@@ -38,18 +38,56 @@ jobs:
         with:
           distribution: temurin
           java-version: '8'
-      - name: Verify class file version + JDK 8 runtime smoke
+      - name: JDK 8 consumer smoke test
         run: |
-          # ① 验证全部主 JAR 的 class 文件版本 = 52.0（Java 8）
-          for jar in ~/.m2/repository/com/xp/starsite/*/0.2.3/*-0.2.3.jar; do
-            jar_name=$(basename "$jar")
-            # javap 首个 class 验证 major version
-            version=$(/usr/lib/jvm/temurin-8-jdk-amd64/bin/javap -verbose -cp "$jar" \
-              $(unzip -l "$jar" | grep '\.class' | head -1 | awk '{print $4}' | sed 's/\.class//; s/\//./g; s/^\.\.//') 2>/dev/null | grep "major version" | awk '{print $4}')
-            echo "$jar_name: major=$version"
-            if [ "$version" != "52" ]; then
-              echo "FAIL: $jar_name has class file version $version, expected 52 (Java 8)"
-              exit 1
-            fi
-          done
-          echo "=== All JARs are Java 8 bytecode (class file version 52) ==="
+          cat > /tmp/VerifyJdk8.java << 'JAVA'
+          import com.xp.starsite.sequence.facade.StarsiteIdGenerator;
+          import com.xp.starsite.sequence.generator.SnowflakeIdGenerator;
+          import java.util.concurrent.atomic.AtomicLong;
+
+          public class VerifyJdk8 {
+              public static void main(String[] args) throws Exception {
+                  SnowflakeIdGenerator gen = new SnowflakeIdGenerator(1, 1767225600000L, 10, 12,
+                          2000, SnowflakeIdGenerator.BackwardPolicy.CLAMP);
+                  StarsiteIdGenerator idGen = new StarsiteIdGenerator(gen, 1, "jdk8-ci");
+                  long id = idGen.next();
+                  if (id <= 0) { System.err.println("FAIL: sequence"); System.exit(1); }
+
+                  com.xp.starsite.idempotent.store.memory.MemoryIdempotentStore store =
+                          new com.xp.starsite.idempotent.store.memory.MemoryIdempotentStore(
+                                  new AtomicLong()::incrementAndGet);
+                  com.xp.starsite.idempotent.core.IdempotentEngine engine =
+                          new com.xp.starsite.idempotent.core.IdempotentEngine(
+                                  store, java.time.LocalDateTime::now,
+                                  java.time.Duration.ofHours(24), java.time.Duration.ofMillis(5000),
+                                  100, java.time.Duration.ofSeconds(120));
+                  com.xp.starsite.idempotent.api.IdempotentResult r1 =
+                          engine.guard("", "ci", new com.xp.starsite.idempotent.api.IdempotentAction() {
+                              public String run() { return "ok"; }
+                          });
+                  if (!r1.isExecuted()) { System.err.println("FAIL: idempotent"); System.exit(1); }
+
+                  com.xp.starsite.quota.store.memory.MemoryQuotaStore qs =
+                          new com.xp.starsite.quota.store.memory.MemoryQuotaStore();
+                  com.xp.starsite.quota.core.QuotaEngine qe = new com.xp.starsite.quota.core.QuotaEngine(qs);
+                  qe.init("ci", 100);
+                  qe.occupy("ci", 50);
+                  try { qe.occupy("ci", 60); System.err.println("FAIL: quota"); System.exit(1); }
+                  catch (com.xp.starsite.quota.api.QuotaExceededException ok) {}
+
+                  System.out.println("=== JDK 8 SMOKE PASSED ===");
+              }
+          }
+          JAVA
+
+          # 构建 classpath（只取 0.2.3）
+          M2=~/.m2/repository
+          CP=$(find $M2/com/xp/starsite -path "*/0.2.3/*.jar" ! -name "*sources*" ! -name "*javadoc*" | sort | tr '\n' ':')
+          CP="$CP$(find $M2/org/slf4j/slf4j-api -name "*.jar" | head -1)"
+          CP="$CP:$(find $M2/org/slf4j/slf4j-simple -name "*.jar" 2>/dev/null | head -1)"
+
+          # JDK 8 编译 + 运行
+          javac -version
+          javac -source 8 -target 8 -nowarn -cp "$CP" -d /tmp /tmp/VerifyJdk8.java
+          java -version 2>&1 | head -1
+          java -cp "/tmp:$CP" VerifyJdk8
