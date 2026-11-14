@@ -182,6 +182,37 @@ class WatchdogLockClientTest {
         }
     }
 
+    /**
+     * 三代竞态修复回归：锁丢失拆卸后同包装器重抢——新代看门狗正常接管
+     * （独立深度计数、续期恢复、随释放停止）。修复前旧续期任务的拆卸会误杀
+     * 新代注册，重抢的持有者在 TTL 后裸奔。
+     */
+    @Test
+    void 锁丢失后重抢_新代看门狗接管() throws Exception {
+        RecordingLockClient delegate = new RecordingLockClient();
+        AtomicReference<String> lost = new AtomicReference<>();
+        try (WatchdogLockClient watchdog = new WatchdogLockClient(delegate, 3_000, lost::set)) {
+            assertThat(watchdog.tryLock("job")).isTrue();
+            delegate.failAfterFirstAcquire = true; // 续期失败 → 旧代拆卸
+            Thread.sleep(RENEW_FLOOR_MS + 500);
+            assertThat(watchdog.activeWatchCount()).as("丢失后旧代必须拆卸").isZero();
+
+            // 断锁瞬间重抢（修复的竞态窗口主角）：新代注册 + 深度独立 + 续期恢复
+            delegate.failAfterFirstAcquire = false;
+            assertThat(watchdog.tryLock("job")).isTrue();
+            assertThat(watchdog.activeWatchCount()).as("重抢后新代看门狗必须接管").isEqualTo(1);
+            int afterReacquire = delegate.tryLocks.get();
+            Thread.sleep(RENEW_FLOOR_MS + 500);
+            assertThat(delegate.tryLocks.get()).as("新代续期必须在发生").isGreaterThan(afterReacquire);
+
+            watchdog.unlock("job");
+            Thread.sleep(200); // 在途续期结算余波
+            int baseline = delegate.tryLocks.get();
+            Thread.sleep(RENEW_FLOOR_MS + 500);
+            assertThat(delegate.tryLocks.get()).as("新代随全释放停止").isEqualTo(baseline);
+        }
+    }
+
     /** 简易等待（不抛 InterruptedException——用例性等待，打断即返回） */
     private static void awaitQuiet(long millis) {
         try {
