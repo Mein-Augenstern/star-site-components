@@ -77,7 +77,8 @@ public class IdempotentEngine implements IdempotentClient {
     /** 本实例标识（hostname:pid，认领留痕） */
     private final String host;
 
-    /** 循环安全上限（认领与清理的删除竞态重试——正常 1~2 轮即决出，超限属异常态） */
+    /** 循环安全上限（仅约束认领/回收与清理删除的<b>竞态</b>轮次——正常 1~2 轮即决出，
+     * 超限属异常态；在飞等待轮不计数，由等待窗口单调钟约束） */
     private static final int MAX_ATTEMPTS = 16;
 
     /** key 列宽上限（表 idem_key VARCHAR(128)，超长 fail-fast 防静默截断撞键） */
@@ -169,6 +170,10 @@ public class IdempotentEngine implements IdempotentClient {
                         // 中断：恢复标记 + 按窗口耗尽处理（lock 限时等待同语义）
                         return IdempotentResult.conflict();
                     }
+                    // 等待轮不占竞态轮次（P1 修复）：循环上限只约束认领/回收/清理删除的
+                    // 竞态重试；在飞等待由 deadlineNanos 单调窗口约束——此前等待轮也计数，
+                    // 慢动作（>1.6s）的并发请求等不到 CONFLICT 先撞 IllegalStateException
+                    attempt--;
                     continue;
             }
             // 回收路径（FAILED 新请求 / 过期 DONE / 停滞 PROCESSING）——原子决出认领者

@@ -81,4 +81,26 @@ class AsyncCommandHealthIndicatorTest {
             assertThat(indicator.health().getDetails()).containsEntry("dead", 1L);
         });
     }
+
+    /**
+     * P2 回归：存储异常降级 DOWN（附 reason 与异常明细），不再向上抛让 health
+     * 端点变裸 500——探针与告警拿到的是"不健康"信号（可路由），不是"端点炸了"。
+     */
+    @Test
+    void 存储异常_降级DOWN_不裸抛() {
+        com.xp.starsite.asynccmd.store.AsyncCommandStore throwing =
+                org.mockito.Mockito.mock(com.xp.starsite.asynccmd.store.AsyncCommandStore.class);
+        org.mockito.Mockito.when(throwing.countByStatus(org.mockito.ArgumentMatchers.anyString()))
+                .thenThrow(new IllegalStateException("db down"));
+
+        com.xp.starsite.asynccmd.health.AsyncCommandHealthIndicator indicator =
+                new com.xp.starsite.asynccmd.health.AsyncCommandHealthIndicator(throwing);
+        org.springframework.boot.actuate.health.Health health = indicator.health();
+
+        assertThat(health.getStatus())
+                .as("存储不可达 = 无法判定健康 → DOWN").isEqualTo(
+                        org.springframework.boot.actuate.health.Status.DOWN);
+        assertThat(health.getDetails()).containsKey("reason");
+        assertThat(health.getDetails()).containsKey("error");
+    }
 }

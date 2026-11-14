@@ -282,6 +282,57 @@ class ScheduleEngineTest {
         assertThat(started.get()).isEqualTo(1);
     }
 
+    /**
+     * P1 回归：inFlight CAS 化——"未在飞"状态下并发手动触发风暴恰一中标。
+     * 任务体挂住整场风暴（防释放后合法二次跑）：修复前 check-then-act 两步竞态
+     * 可能让多线程同过检查窗 → 同任务双提交双执行；CAS 后恰一提交是构造性保证。
+     */
+    @Test
+    void 并发手动触发风暴_恰一提交() throws Exception {
+        AtomicInteger started = new AtomicInteger();
+        java.util.concurrent.CountDownLatch bodyStarted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseBody = new java.util.concurrent.CountDownLatch(1);
+        registry.register(new ScheduledTaskDef("race",
+                new DailyAtTrigger(3, 0, ZoneId.of("Asia/Shanghai")),
+                MisfirePolicy.SKIP, true, () -> {
+                    started.incrementAndGet();
+                    bodyStarted.countDown();
+                    try {
+                        releaseBody.await(); // 挂住任务体，整场风暴期间 inFlight 不落
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+        startEngine();
+
+        int threads = 16;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        try {
+            java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+            java.util.List<java.util.concurrent.Future<Boolean>> storm = new java.util.ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                storm.add(pool.submit(() -> {
+                    gate.await(); // 同门起跑：全体在 inFlight=false 时进入提交路径
+                    return engine.triggerNow("race");
+                }));
+            }
+            gate.countDown();
+            int trueCount = 0;
+            for (java.util.concurrent.Future<Boolean> f : storm) {
+                if (f.get(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    trueCount++;
+                }
+            }
+            assertThat(trueCount).as("并发风暴恰一中标").isEqualTo(1);
+            assertThat(bodyStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            releaseBody.countDown();
+            pool.shutdownNow();
+        }
+        await(started, 1);
+        assertThat(started.get()).as("同任务本实例恰一执行").isEqualTo(1);
+    }
+
     @Test
     void tasksSnapshotAndDoubleStart() {
         registry.register(new ScheduledTaskDef("snap",

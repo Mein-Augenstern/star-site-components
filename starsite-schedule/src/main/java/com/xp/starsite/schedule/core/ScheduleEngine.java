@@ -42,8 +42,9 @@ import org.slf4j.LoggerFactory;
  * {@link ExactlyOnceRunner}（形态沿用 async-command 调度器：core 手工 start/stop，
  * starter 的 SmartLifecycle 托管）。
  *
- * <p>每任务运行态（TaskState）：下次触发时刻 + 本实例 inFlight 标记——
- * 同任务在本实例永不并发（防锁组件可重入语义下的同实例双跑）；跨实例互斥由锁保证。
+ * <p>每任务运行态（TaskState）：下次触发时刻 + 本实例 inFlight 标记（CAS 原子置位——
+ * tick 与 triggerNow 双入口并发提交时恰一）——同任务在本实例永不并发
+ * （防锁组件可重入语义下的同实例双跑）；跨实例互斥由锁保证。
  *
  * <p>启动期两件巡检：
  * <ul>
@@ -109,8 +110,9 @@ public class ScheduleEngine implements ScheduleClient {
         /** 下次触发时刻（LocalDateTime——任务时区本地时间；null=尚未初始化） */
         volatile LocalDateTime nextRun;
 
-        /** 本实例执行中标记（inFlight 防同实例并发） */
-        volatile boolean inFlight;
+        /** 本实例执行中标记（CAS 原子置位防同实例并发——tick 与 triggerNow 双入口竞态） */
+        final java.util.concurrent.atomic.AtomicBoolean inFlight =
+                new java.util.concurrent.atomic.AtomicBoolean();
 
         /** 触发时刻语义：true=间隔型（完成后再排），false=时刻表型（按计划时刻推进） */
         final boolean fromCompletion;
@@ -243,11 +245,8 @@ public class ScheduleEngine implements ScheduleClient {
             return false;
         }
         TaskState state = stateOf(def);
-        if (state.inFlight) {
-            return false;
-        }
-        submit(def, time.now(), state);
-        return true;
+        // CAS 语义在 submit 内（P1 修复）：快照检查与他方提交的双窗口竞态由原子置位关闭
+        return submit(def, time.now(), state);
     }
 
     /** {@inheritDoc} */
@@ -273,7 +272,7 @@ public class ScheduleEngine implements ScheduleClient {
         return new TaskStatus(def.getName(), def.getLockName(), def.getTrigger().describe(),
                 def.getMisfire(), def.isGuard(),
                 state == null ? null : state.nextRun,
-                state != null && state.inFlight, last);
+                state != null && state.inFlight.get(), last);
     }
 
     /** tick：扫全部任务，到点且空闲则提交执行（调度线程内，只做轻计算） */
@@ -282,7 +281,7 @@ public class ScheduleEngine implements ScheduleClient {
             LocalDateTime now = time.now();
             for (ScheduledTaskDef def : registry.all()) {
                 TaskState state = stateOf(def);
-                if (state.inFlight || state.nextRun == null || now.isBefore(state.nextRun)) {
+                if (state.inFlight.get() || state.nextRun == null || now.isBefore(state.nextRun)) {
                     continue;
                 }
                 LocalDateTime planned = state.nextRun;
@@ -298,9 +297,19 @@ public class ScheduleEngine implements ScheduleClient {
         }
     }
 
-    /** 提交执行（inFlight 置位；完成回调里间隔型任务再排下一轮） */
-    private void submit(ScheduledTaskDef def, LocalDateTime triggerTime, TaskState state) {
-        state.inFlight = true;
+    /**
+     * 提交执行（inFlight CAS 原子置位——tick 与 triggerNow 双入口并发时恰一提交；
+     * 完成回调里间隔型任务再排下一轮）。
+     *
+     * @return true 提交成功；false 已在飞（他方入口先一步置位——本入口跳过，同任务
+     *         本实例永不双跑）
+     */
+    private boolean submit(ScheduledTaskDef def, LocalDateTime triggerTime, TaskState state) {
+        // P1 修复：此前 check-then-act 两步（读 inFlight → 置位）非原子，triggerNow 与
+        // tick 并发可通过同一检查窗 → 同任务双提交双执行；CAS 单指令窗口关闭竞态
+        if (!state.inFlight.compareAndSet(false, true)) {
+            return false;
+        }
         try {
             workerPool.execute(() -> {
                 try {
@@ -309,14 +318,16 @@ public class ScheduleEngine implements ScheduleClient {
                     if (state.fromCompletion) {
                         state.nextRun = def.getTrigger().nextAfter(time.now());
                     }
-                    state.inFlight = false;
+                    state.inFlight.set(false);
                 }
             });
         } catch (RejectedExecutionException e) {
             // 池已关（停机中）：复位标记，流水不撒谎
-            state.inFlight = false;
+            state.inFlight.set(false);
             log.warn("[starsite-schedule] {} 提交被拒（引擎停机中）", def.getName());
+            return false;
         }
+        return true;
     }
 
     /** 任务运行态（懒建） */

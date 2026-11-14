@@ -46,11 +46,10 @@
       <artifactId>spring-boot-actuator</artifactId>
       <optional>true</optional>
     </dependency>
-    <!-- Redis 模式（optional：无 Redis 消费方零感知） -->
+    <!-- Redis 模式（optional：无 Redis 消费方零感知）；版本随 Boot 2.7 BOM（2.7.x，Java 8 字节码） -->
     <dependency>
       <groupId>org.springframework.data</groupId>
       <artifactId>spring-data-redis</artifactId>
-      <version>3.2.4</version>
       <optional>true</optional>
     </dependency>
     <dependency>

@@ -91,7 +91,11 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
-      <!-- MyBatis 生态版本统一管理（lock/sequence/async 三组件共用；消费方 classpath 自带亦可） -->
+      <!-- MyBatis 生态版本统一管理（lock/sequence/async 等组件共用；provided——消费方 classpath 自带亦可）。
+           mybatis-spring 钉 2.x（Java 8 字节码）：3.x 是 Java 17 字节码且面向 Spring 6，
+           会击穿组件的 JDK 8 承诺（JDK 21 编译不查 classpath 类版本，JDK 8 消费方运行期才炸）；
+           Boot 3.x 消费方自带 mybatis-spring-boot-starter 3.x，所用 API 面（SqlSessionTemplate/
+           SqlSessionFactory）跨 2.x/3.x 兼容 -->
       <dependency>
         <groupId>org.mybatis</groupId>
         <artifactId>mybatis</artifactId>
@@ -100,7 +104,7 @@
       <dependency>
         <groupId>org.mybatis</groupId>
         <artifactId>mybatis-spring</artifactId>
-        <version>3.0.3</version>
+        <version>2.1.2</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

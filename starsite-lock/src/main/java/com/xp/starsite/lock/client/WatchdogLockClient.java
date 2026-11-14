@@ -17,68 +17,89 @@ package com.xp.starsite.lock.client;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 看门狗锁装饰器：包装任意 {@link LockClient}，为每个成功获取的锁启动后台续期线程——
- * 在 TTL 到期前自动调用 tryLock 续期（重入计数 +1 后由随后的 unlock -1 抵消），
- * 长任务持锁跨 TTL 场景不再需要手工多次 tryLock。
- * <p>
- * 工作机制：
- * <ul>
- *   <li>tryLock 成功 → 注册该锁到看门狗，每 {@code ttlMs / 3} 毫秒自动续期一次</li>
- *   <li>续期成功 → 继续下一轮；重入计数 +1 与 -1 在同一轮内配对完成</li>
- *   <li>续期失败（网络分区/锁被他方抢占）→ 停止看门狗 + 调用 {@link LockLostListener}（可选）</li>
- *   <li>unlock → 停止看门狗 + 委托底层释放</li>
- * </ul>
- * <p>
- * 使用方式（starter 装配或手工包装）：
- * <pre>{@code
- * LockClient dbLock = new DbLockClient(mapper, provisioner, table, owner, ttl);
- * WatchdogLockClient watchdog = new WatchdogLockClient(dbLock, ttlMs);
- * if (watchdog.tryLock("long-task")) {
- *     try {
- *         // 长时间执行（超过 TTL 也不会丢锁——看门狗在续期）
- *     } finally {
- *         watchdog.unlock("long-task");  // 停止看门狗并释放
- *     }
- * }
- * }</pre>
- * <p>
- * 线程安全：看门狗线程池为单线程 daemon（不阻断 JVM 退出）；注册表线程安全。
- * <p>
- * 已知限制：看门狗线程自身不可用（JVM 关闭/线程池满）时锁会正常走 TTL 过期——
- * 语义退化为无看门狗的普通锁，不会更差。
+ * 看门狗锁包装器：自动为获锁者续期（每 TTL/3 一次），长任务不再需要手工多次 tryLock。
+ * 续期失败（锁被他方抢占）自动停止并回调 {@link LockLostListener}。
+ *
+ * <p><b>重入语义（P0 修复）</b>：本地维护重入深度计数器——内层 unlock 仅递减，
+ * 深度归零（外层 unlock）才停止看门狗。此前内层 unlock 无条件停狗，外层仍在
+ * 临界区但续期已停 → 长任务超 TTL 后锁被抢占，互斥失效（接口 javadoc 的
+ * 嵌套示例即触发）。深度计数是本地性能提示：外部直接操作底层客户端绕过本包装
+ * 时计数可能漂移，看门狗最多多续或少续一轮，正确性由底层 TTL 最终兜底。
  *
  * @author muyi
- * @date 2026/10/31
+ * @date 2026/10/25
  */
 public class WatchdogLockClient implements LockClient, AutoCloseable {
 
-    /** 日志 */
     private static final Logger log = LoggerFactory.getLogger(WatchdogLockClient.class);
 
-    /** 被包装的底层锁客户端 */
+    /** 底层锁客户端（被包装） */
     private final LockClient delegate;
 
-    /** 锁 TTL 毫秒（看门狗以 TTL/3 间隔续期） */
+    /** 持锁 TTL（毫秒） */
     private final long ttlMs;
 
-    /** 续期间隔（TTL/3，保证 TTL 到期前至少两次续期机会） */
+    /** 续期间隔（TTL/3，最小 1s 防过于频繁） */
     private final long renewIntervalMs;
 
-    /** 看门狗调度线程（daemon 单线程——不阻断 JVM 退出） */
-    private final ScheduledExecutorService watchdog;
+    /** 锁丢失回调（可为 null） */
+    private final LockLostListener lockLostListener;
 
-    /** 活跃续期任务表（锁名 → 定时任务句柄） */
+    /** 看门狗调度器（单线程守护——续期任务轻量） */
+    private final ScheduledThreadPoolExecutor watchdog;
+
+    /** 活跃续期任务（lockName → future；putIfAbsent 原子注册防重复） */
     private final Map<String, ScheduledFuture<?>> renewals = new ConcurrentHashMap<>();
 
-    /** 锁丢失监听器（可选——续期失败时回调，业务侧可记录/告警/中断长任务） */
-    private final LockLostListener lockLostListener;
+    /**
+     * 重入深度计数（lockName → 本包装器视角的持锁层数；归零才停狗——P0 修复核心）。
+     * 底层 delegate 有自己的跨实例计数（DB hold_count 列 / Redis hash），本计数仅
+     * 控制看门狗生命周期，不参与互斥判定。
+     */
+    private final Map<String, AtomicInteger> depths = new ConcurrentHashMap<>();
+
+    /**
+     * 构造（无锁丢失监听）。
+     *
+     * @param delegate 底层锁客户端
+     * @param ttlMs    锁 TTL 毫秒（看门狗以 TTL/3 间隔续期）
+     */
+    public WatchdogLockClient(LockClient delegate, long ttlMs) {
+        this(delegate, ttlMs, null);
+    }
+
+    /**
+     * 全参构造（带锁丢失监听）。
+     *
+     * @param delegate         底层锁客户端
+     * @param ttlMs           持锁 TTL
+     * @param lockLostListener 锁丢失回调（可为 null）
+     */
+    public WatchdogLockClient(LockClient delegate, long ttlMs, LockLostListener lockLostListener) {
+        this.delegate = delegate;
+        this.ttlMs = ttlMs;
+        this.renewIntervalMs = Math.max(ttlMs / 3, 1000); // 最小 1s 防过于频繁
+        this.lockLostListener = lockLostListener;
+        java.util.concurrent.ThreadFactory factory = new java.util.concurrent.ThreadFactory() {
+            private final java.util.concurrent.atomic.AtomicInteger seq =
+                    new java.util.concurrent.atomic.AtomicInteger();
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "starsite-lock-watchdog-" + seq.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }
+        };
+        this.watchdog = new ScheduledThreadPoolExecutor(1, factory);
+    }
 
     /**
      * 锁丢失监听器：看门狗续期失败（锁已被他方抢占或存储不可达超过一个 TTL）时回调。
@@ -95,43 +116,6 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     }
 
     /**
-     * 构造（无锁丢失监听）。
-     *
-     * @param delegate 底层锁客户端
-     * @param ttlMs    锁 TTL 毫秒（看门狗以 TTL/3 间隔续期）
-     */
-    public WatchdogLockClient(LockClient delegate, long ttlMs) {
-        this(delegate, ttlMs, null);
-    }
-
-    /**
-     * 全参构造（带锁丢失监听）。
-     *
-     * @param delegate          底层锁客户端
-     * @param ttlMs             锁 TTL 毫秒
-     * @param lockLostListener  锁丢失回调（null = 只记日志）
-     */
-    public WatchdogLockClient(LockClient delegate, long ttlMs, LockLostListener lockLostListener) {
-        this.delegate = delegate;
-        this.ttlMs = ttlMs;
-        this.renewIntervalMs = Math.max(ttlMs / 3, 1000); // 最小 1s 防过于频繁
-        this.lockLostListener = lockLostListener;
-        // 显式 Executor 创建（阿里 P3C【强制】：禁 Executors 快捷方法）——单线程守护语义等价
-        java.util.concurrent.ThreadFactory factory = new java.util.concurrent.ThreadFactory() {
-            private final java.util.concurrent.atomic.AtomicInteger seq =
-                    new java.util.concurrent.atomic.AtomicInteger();
-
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread t = new Thread(r, "starsite-lock-watchdog-" + seq.incrementAndGet());
-                t.setDaemon(true);
-                return t;
-            }
-        };
-        this.watchdog = new java.util.concurrent.ScheduledThreadPoolExecutor(1, factory);
-    }
-
-    /**
      * 非阻塞争锁（带看门狗）：成功获取后自动注册续期线程。
      * 后续每次自动续期 = delegate.tryLock（重入 +1）+ delegate.unlock（-1），
      * 净效果 = TTL 刷新 + 计数不变。
@@ -143,7 +127,7 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     public boolean tryLock(String lockName) {
         boolean acquired = delegate.tryLock(lockName);
         if (acquired) {
-            startWatchdog(lockName);
+            onAcquired(lockName);
         }
         return acquired;
     }
@@ -151,7 +135,7 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     /**
      * 限时等待争锁（带看门狗）：成功获取后自动注册续期线程。
      *
-     * @param lockName  锁名
+     * @param lockName 锁名
      * @param waitMillis 最长等待毫秒
      * @return true 获得锁；false 等待窗口内未获得
      */
@@ -159,20 +143,28 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     public boolean tryLock(String lockName, long waitMillis) {
         boolean acquired = delegate.tryLock(lockName, waitMillis);
         if (acquired) {
-            startWatchdog(lockName);
+            onAcquired(lockName);
         }
         return acquired;
     }
 
     /**
-     * 释放锁：先停止看门狗（防止释放后续期复活锁），再委托底层释放。
+     * 释放一层锁：深度递减，<b>归零才停止看门狗</b>（P0 修复——重入内层 unlock
+     * 不停狗，外层仍在临界区期间续期继续）。非持锁者释放无副作用。
      *
      * @param lockName 锁名
      */
     @Override
     public void unlock(String lockName) {
-        stopWatchdog(lockName);
-        delegate.unlock(lockName);
+        try {
+            delegate.unlock(lockName);
+        } finally {
+            AtomicInteger depth = depths.get(lockName);
+            if (depth != null && depth.decrementAndGet() <= 0) {
+                depths.remove(lockName, depth); // 条件移除防并发误删
+                stopWatchdog(lockName);
+            }
+        }
     }
 
     /**
@@ -182,6 +174,7 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     public void close() {
         watchdog.shutdownNow();
         renewals.clear();
+        depths.clear();
     }
 
     /**
@@ -194,15 +187,22 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     }
 
     /**
-     * 为锁启动看门狗续期线程。
+     * 获锁后处理：深度 +1 + 原子注册看门狗（putIfAbsent 防并发首抢双注册——P1 修复）。
+     *
+     * @param lockName 锁名
+     */
+    private void onAcquired(String lockName) {
+        depths.computeIfAbsent(lockName, k -> new AtomicInteger()).incrementAndGet();
+        startWatchdog(lockName);
+    }
+
+    /**
+     * 为锁启动看门狗续期线程（putIfAbsent 原子注册——并发首抢同键时多余任务当场取消，
+     * 不泄漏续期线程导致锁永不释放——P1 修复）。
      *
      * @param lockName 锁名
      */
     private void startWatchdog(String lockName) {
-        // 已有看门狗（重入）→ 不重复注册（同一锁名只有一个续期线程）
-        if (renewals.containsKey(lockName)) {
-            return;
-        }
         ScheduledFuture<?> future = watchdog.scheduleAtFixedRate(() -> {
             try {
                 // 续期 = 重入加层 + 立即释放层（计数净效果 = 不变，TTL 已刷新）
@@ -213,6 +213,7 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
                     // 续期失败 = 锁已丢失（他方抢占或存储异常超过 fail-open 窗口）
                     log.warn("[starsite-lock-watchdog] 续期失败，锁已丢失: lock={}", lockName);
                     stopWatchdog(lockName);
+                    depths.remove(lockName);
                     if (lockLostListener != null) {
                         lockLostListener.onLockLost(lockName);
                     }
@@ -223,7 +224,14 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
                 // 异常不停止看门狗——下一轮继续尝试（可能瞬时网络问题）
             }
         }, renewIntervalMs, renewIntervalMs, TimeUnit.MILLISECONDS);
-        renewals.put(lockName, future);
+
+        // 原子注册：另一线程先注册则本任务多余 → 当场取消（防续期任务泄漏）
+        ScheduledFuture<?> existing = renewals.putIfAbsent(lockName, future);
+        if (existing != null) {
+            future.cancel(false);
+            log.debug("[starsite-lock-watchdog] 并发首抢：看门狗已由他方注册: lock={}", lockName);
+            return;
+        }
         log.debug("[starsite-lock-watchdog] 看门狗启动: lock={}, renewInterval={}ms", lockName, renewIntervalMs);
     }
 

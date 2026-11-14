@@ -16,6 +16,7 @@
 package com.xp.starsite.sequence.allocator.mybatis;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.Statement;
@@ -149,6 +150,30 @@ class MyBatisMysqlWorkerIdAllocatorTest {
         assertThat(allocator.allocate()).isEqualTo(2);
         assertThat(allocator.allocate()).isEqualTo(3);
         assertThat(allocator.allocate()).isEqualTo(1); // 回绕：池重置后从 1 重取
+    }
+
+    /**
+     * P1 回归：takeFromGlobalPool 零行守卫——UPDATE 影响 0 行（计数行缺失/播种失效）
+     * 时显式拒绝，不静默读回 LAST_INSERT_ID 的 0 或连接池陈旧值（多服务同号撞号）。
+     * 公钥路径 allocate() 恒先播种不可达该分支，故 mock mapper 直打守卫（纵深防御）。
+     */
+    @Test
+    void 全局池行缺失_零行守卫_显式拒绝() {
+        SequenceMapper mapper = org.mockito.Mockito.mock(SequenceMapper.class);
+        org.mockito.Mockito.when(mapper.takeFromGlobalPool(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString())).thenReturn(0);
+        org.mockito.Mockito.when(mapper.selectLastInsertId()).thenReturn(0L);
+        TransactionTemplate txTemplate = new TransactionTemplate(new PassThroughTxManager());
+        MyBatisMysqlWorkerIdAllocator allocator = new MyBatisMysqlWorkerIdAllocator(
+                mapper, new SqlSessionTemplate(sqlSessionFactory), txTemplate,
+                "sys_seq_m5", "svc-missing", "m1", 10, "RESET",
+                TEST_ID_SEQ::incrementAndGet);
+
+        assertThatThrownBy(allocator::allocate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("全局池计数行缺失");
     }
 
     /** 直通事务管理器（H2 autocommit 单语句原子，无需真实边界） */

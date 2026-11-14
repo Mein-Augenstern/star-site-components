@@ -47,22 +47,34 @@ public class AsyncCommandHealthIndicator implements HealthIndicator {
      * 计算异步命令健康状态：明细附 pending/running/dead/backlogDue 四项。
      * <p>判定语义：存在死信即 DOWN——死信代表有命令达到重试上限仍未成功，需要人工处置；
      * 静默吞掉比告警更危险，故宁可让健康检查失败触发上游告警。
+     * <p><b>存储异常降级 DOWN</b>（P2 修复，对齐 Boot 自家指标的异常约定）：存储不可达
+     * 时返回 DOWN + 错误明细，而非把异常抛出 health() 让端点变裸 500——探针与告警
+     * 拿到的是"不健康"信号（可路由可告警），不是"端点炸了"。
      *
-     * @return 死信数大于 0 时返回 DOWN（附 reason 说明需人工处置）；否则返回 UP
-     * @throws org.springframework.dao.DataAccessException jdbc 形态下存储访问失败时向上传播，
-     *                                                      由 actuator 纳入本次健康探测结果
+     * @return 死信数大于 0 时返回 DOWN（附 reason 说明需人工处置）；存储不可达时返回
+     *         DOWN（附错误摘要）；否则返回 UP
      */
     @Override
     public Health health() {
-        long pending = store.countByStatus(AsyncCommand.PENDING);
-        long running = store.countByStatus(AsyncCommand.RUNNING);
-        long dead = store.countByStatus(AsyncCommand.DEAD);
+        long pending;
+        long running;
+        long dead;
+        long backlogDue;
+        try {
+            pending = store.countByStatus(AsyncCommand.PENDING);
+            running = store.countByStatus(AsyncCommand.RUNNING);
+            dead = store.countByStatus(AsyncCommand.DEAD);
+            backlogDue = store.countBacklogDue(LocalDateTime.now());
+        } catch (RuntimeException e) {
+            // 存储不可达 = 无法判定健康：DOWN + 异常明细（withException），不向上抛
+            return Health.down(e).withDetail("reason", "存储不可达，健康无法判定").build();
+        }
         // 存在死信即判 DOWN：死信代表重试耗尽仍未成功，需人工处置，不能静默
         Health.Builder builder = dead > 0 ? Health.down() : Health.up();
         builder.withDetail("pending", pending)
                 .withDetail("running", running)
                 .withDetail("dead", dead)
-                .withDetail("backlogDue", store.countBacklogDue(LocalDateTime.now()));
+                .withDetail("backlogDue", backlogDue);
         if (dead > 0) {
             builder.withDetail("reason", "存在死信命令，需人工处置（管控端点或排障）");
         }

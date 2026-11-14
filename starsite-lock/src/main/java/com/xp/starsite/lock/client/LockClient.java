@@ -25,7 +25,8 @@ package com.xp.starsite.lock.client;
  *   <li>{@link #unlock(String)}——释放锁（仅持锁者有效，他方调用无副作用）</li>
  *   <li><b>可重入（ownerId/实例粒度）</b>：同一实例对同一锁名重复 tryLock = 续期 + 持有层数 +1；
  *       unlock 按层数递减，归零才真正释放——嵌套作用域的内层 finally 不会误放外层的锁</li>
- *   <li>fail-open（DB 形态）：锁存储异常时放行本轮，上层幂等兜底</li>
+ *   <li>fail-open（<b>全形态统一契约</b>，DB/Redis 一致）：锁存储异常时放行本轮（返回 true），
+ *       上层幂等兜底（OBS-107）——锁是可用性增强非正确性闸门</li>
  * </ul>
  * 线程安全：实现类须保证多线程并发调用安全。
  * <p>
@@ -72,7 +73,7 @@ public interface LockClient {
      *       高争抢下回到 100ms 节奏与负载折中；无排队公平性（每次重试都是全新原子争锁，
      *       先到不一定先得）</li>
      *   <li>等待期间线程让出（sleep）；被中断时恢复中断标记并返回 false（不吞中断信号）</li>
-     *   <li>DB 形态的 fail-open 生效于每一次尝试：存储异常的那次尝试直接返回 true 退出</li>
+     *   <li>fail-open 生效于每一次尝试（DB/Redis 同契约）：存储异常的那一次直接返回 true 退出</li>
      *   <li>成功后语义与 {@link #tryLock(String)} 完全一致（TTL 刷新 + 重入计数 +1，
      *       配对一次 unlock）</li>
      * </ul>

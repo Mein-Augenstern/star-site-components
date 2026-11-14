@@ -128,7 +128,14 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
         mapper.seedGlobalPool(tableName, GLOBAL_POOL_KEY, "pool");
 
         Long workerId = txTemplate.execute(status -> {
-            mapper.takeFromGlobalPool(tableName, instanceTag, GLOBAL_POOL_KEY);
+            // 零行守卫（P1 修复，与 JDBC 版对齐）：UPDATE 影响 0 行 = __global__ 计数行
+            // 缺失，LAST_INSERT_ID 读回 0 或连接池陈旧值 → 多服务同号撞号，显式拒绝
+            int affected = mapper.takeFromGlobalPool(tableName, instanceTag, GLOBAL_POOL_KEY);
+            if (affected == 0) {
+                throw new IllegalStateException("全局池计数行缺失（表 " + tableName
+                        + " 不含 __global__ 计数行，UPDATE 影响 0 行）——"
+                        + "请播种种子行（幂等插入）或开启 init-ddl 自动播种后再启动");
+            }
             return mapper.selectLastInsertId();
         });
         if (workerId == null) {
@@ -145,7 +152,12 @@ public class MyBatisMysqlWorkerIdAllocator implements WorkerIdAllocator {
                     workerId, maxWorkerId);
             mapper.resetGlobalPool(tableName, instanceTag + "(reset)", GLOBAL_POOL_KEY);
             Long reTaken = txTemplate.execute(status -> {
-                mapper.takeFromGlobalPool(tableName, instanceTag, GLOBAL_POOL_KEY);
+                // 零行守卫同主取号路径（resetGlobalPool 未命中同样意味计数行缺失）
+                int affected = mapper.takeFromGlobalPool(tableName, instanceTag, GLOBAL_POOL_KEY);
+                if (affected == 0) {
+                    throw new IllegalStateException("回绕重取号失败：全局池计数行缺失（表 "
+                            + tableName + " 不含 __global__ 计数行）——拒绝静默默认 workerId");
+                }
                 return mapper.selectLastInsertId();
             });
             if (reTaken == null) {

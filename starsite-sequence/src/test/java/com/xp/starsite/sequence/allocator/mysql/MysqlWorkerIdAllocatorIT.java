@@ -261,4 +261,30 @@ class MysqlWorkerIdAllocatorIT {
                 MysqlWorkerIdAllocator.WraparoundPolicy.RESET).allocate();
         assertThat(workerId).isEqualTo(1);
     }
+
+    /**
+     * P1 回归：全局池计数行缺失（建表未播种 / 种子行被误删）且 init-ddl=false 时，
+     * 取号显式 SQLException 拒绝——修复前 UPDATE 影响 0 行静默读回 LAST_INSERT_ID
+     * 的 0（或连接池陈旧值），多服务全部同号跨服务撞号。
+     */
+    @Test
+    void 全局池行缺失_显式拒绝_不静默返回0() throws Exception {
+        String table = "sys_seq_t6";
+        dropTable(table);
+        // 预建表结构但故意不播种 __global__ 计数行（DBA 建表漏播种的形态）
+        try (Connection conn = dataSource().getConnection(); Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE TABLE " + table + " ("
+                    + "id BIGINT NOT NULL, service_name VARCHAR(64) NOT NULL,"
+                    + "worker_id INT NOT NULL DEFAULT 0, instance VARCHAR(128) DEFAULT NULL,"
+                    + "gmt_create DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    + "gmt_modified DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+                    + "PRIMARY KEY (id), UNIQUE KEY uk_" + table + "_service_name (service_name)) ENGINE=InnoDB");
+        }
+        MysqlWorkerIdAllocator allocator = new MysqlWorkerIdAllocator(
+                dataSource(), table, "svc-missing", "m1", false, 10,
+                MysqlWorkerIdAllocator.WraparoundPolicy.RESET);
+        assertThatThrownBy(allocator::allocate)
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("全局池计数行缺失");
+    }
 }

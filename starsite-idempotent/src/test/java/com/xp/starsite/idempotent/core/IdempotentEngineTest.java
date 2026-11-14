@@ -215,6 +215,24 @@ class IdempotentEngineTest {
         assertThat(actionRuns.get()).isZero();
     }
 
+    /**
+     * P1 回归：等待轮询不占竞态轮次上限——在飞等待需要的轮询轮数远超
+     * MAX_ATTEMPTS(16) 时，结局是窗口耗尽的 CONFLICT 而非 IllegalStateException。
+     * 修复前：等待轮也计数，~16 轮轮询后慢动作的并发请求先撞异常。
+     */
+    @Test
+    void waitingBeyondAttemptLimitYieldsConflictNotException() {
+        // pollMillis=1 + 窗口 200ms → 等待需 ~200 轮轮询（远超 16 轮竞态上限）
+        IdempotentEngine manyPollWait = new IdempotentEngine(store, clock, Duration.ofHours(24),
+                Duration.ofMillis(200), 1, Duration.ofSeconds(120));
+        store.tryClaim("", "busy-many", clock.now().plusHours(24), "other:1"); // 他方在飞（新鲜不判死）
+        IdempotentResult r = manyPollWait.guard("", "busy-many", act("should-not-run"));
+        assertThat(r.getKind())
+                .as("慢动作等待结局应是 CONFLICT（修复前此处是 IllegalStateException）")
+                .isEqualTo(IdempotentResult.Kind.CONFLICT);
+        assertThat(actionRuns.get()).isZero();
+    }
+
     /** 在飞等待命中完成：重复请求回放他方结果 */
     @Test
     void waitingRequestReplaysAfterFirstCompletes() throws Exception {

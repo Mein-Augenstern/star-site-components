@@ -139,4 +139,19 @@ class RedisLockClientTest {
 
         assertThat(client.tryLock("job", 2_000)).isTrue();
     }
+
+    /**
+     * P1 回归：争锁存储异常 fail-open 放行（与 DB 形态同契约，OBS-107）——
+     * 修复前 Redis 裸抛连接异常而 DB 返回 true，切换 lock.mode 调用方故障语义漂移。
+     */
+    @Test
+    void 争锁存储异常_failOpen放行_不裸抛() {
+        when(redis.execute(any(DefaultRedisScript.class), anyList(), any(), any()))
+                .thenThrow(new org.springframework.data.redis.RedisConnectionFailureException(
+                        "Connection refused"));
+
+        assertThat(client.tryLock("job"))
+                .as("存储异常 fail-open 返回 true（上层幂等兜底），不裸抛")
+                .isTrue();
+    }
 }

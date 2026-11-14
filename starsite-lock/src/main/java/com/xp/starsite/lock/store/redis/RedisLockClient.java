@@ -111,21 +111,32 @@ public class RedisLockClient implements LockClient {
      * 非阻塞争锁（可重入，存储端计数）：单脚本原子完成首抢/重入/续期三态。
      * 重入粒度为 ownerId——同 ownerId 的任意实例（含跨 Pod 嵌套调用）共享
      * Redis hash 里的同一份层数。
+     * <p>
+     * <b>fail-open 与 DB 形态对齐（P1 修复）</b>：存储异常（连接断开/超时等）时
+     * 放行本轮返回 true，上层幂等兜底（OBS-107）——此前 Redis 裸抛连接异常而
+     * DB 返回 true，切换 lock.mode 会让同一处调用方的故障语义漂移。
      *
      * @param lockName 锁名
-     * @return true 获得锁（或重入成功）；false 他方持锁中
+     * @return true 获得锁（或重入成功；或存储异常 fail-open 放行）；false 他方持锁中
      */
     @Override
     public boolean tryLock(String lockName) {
         String key = keyPrefix + lockName;
-        Long result = redisTemplate.execute(
-                new DefaultRedisScript<>(ACQUIRE_LUA, Long.class),
-                Arrays.asList(key), ownerId, String.valueOf(ttl.toMillis()));
-        boolean acquired = result != null && result == 1;
-        if (acquired) {
-            log.trace("[starsite-lock] Redis 获得锁/重入: key={}, owner={}", key, ownerId);
+        try {
+            Long result = redisTemplate.execute(
+                    new DefaultRedisScript<>(ACQUIRE_LUA, Long.class),
+                    Arrays.asList(key), ownerId, String.valueOf(ttl.toMillis()));
+            boolean acquired = result != null && result == 1;
+            if (acquired) {
+                log.trace("[starsite-lock] Redis 获得锁/重入: key={}, owner={}", key, ownerId);
+            }
+            return acquired;
+        } catch (RuntimeException e) {
+            // fail-open（与 DB 形态同契约）：锁是可用性增强非正确性闸门——
+            // 宁可多实例竞争也别全停摆，正确性由业务幂等兜底（OBS-107）
+            log.warn("[starsite-lock] Redis 争锁异常（fail-open 继续）: key={}, err={}", key, e.getMessage());
+            return true;
         }
-        return acquired;
     }
 
     /**

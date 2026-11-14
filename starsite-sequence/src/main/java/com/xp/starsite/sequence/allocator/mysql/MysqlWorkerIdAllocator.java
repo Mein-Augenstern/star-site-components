@@ -344,14 +344,22 @@ public class MysqlWorkerIdAllocator implements WorkerIdAllocator {
      *
      * @param conn 目标库连接（须保持到 SELECT LAST_INSERT_ID() 执行完，不能提前归还）
      * @return 本次取到的机器位（全局池上一值 + 1）
-     * @throws SQLException UPDATE 执行失败，或 SELECT LAST_INSERT_ID() 无返回行（异常态）
+     * @throws SQLException UPDATE 影响 0 行（全局池 __global__ 计数行缺失——此时读回值
+     *                       是 0 或连接池陈旧值，多服务撞号，故显式拒绝）；或读回无返回行（异常态）
      */
     private long takeFromGlobalPool(Connection conn) throws SQLException {
         try (PreparedStatement update = conn.prepareStatement(render(sql.takeFromGlobalPool()));
              PreparedStatement select = conn.prepareStatement(render(sql.selectLastInsertId()))) {
             update.setString(1, instanceTag);
             update.setString(2, GLOBAL_POOL_KEY);
-            update.executeUpdate();
+            int affected = update.executeUpdate();
+            if (affected == 0) {
+                // 零行 = __global__ 计数行缺失（P1 修复）：此时读回的 LAST_INSERT_ID 是 0
+                // 或连接池前一会话的陈旧值，多服务将同号跨服务撞号——显式拒绝并给播种指引
+                throw new SQLException("全局池计数行缺失（表 " + tableName
+                        + " 不含 __global__ 计数行，UPDATE 影响 0 行）——"
+                        + "请播种种子行（幂等插入）或开启 init-ddl 自动播种后再启动");
+            }
             try (ResultSet rs = select.executeQuery()) {
                 if (!rs.next()) {
                     throw new SQLException("LAST_INSERT_ID() 无返回");
