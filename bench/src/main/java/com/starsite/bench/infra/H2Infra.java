@@ -15,14 +15,15 @@
  */
 package com.starsite.bench.infra;
 
-import com.xp.starsite.asynccmd.mybatis.AsyncCommandMapper;
-import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
+import com.xp.starsite.asynccmd.store.mybatis.AsyncCommandMapper;
+import com.xp.starsite.lock.store.mybatis.ScheduleLockMapper;
+import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.Statement;
 import javax.sql.DataSource;
+import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
@@ -48,14 +49,35 @@ public final class H2Infra {
 
     /**
      * 创建 MyBatis SqlSessionFactory（注册 lock + async 两个 Mapper）。
+     * <p>
+     * 0.2.3 起两个 Mapper 的 SQL 与接口分离（同包 XML）——纯 Java Configuration
+     * 的 addMapper 不会加载 XML 语句，须显式解析注册，否则运行期
+     * "Invalid bound statement"。XML 随组件 jar 打包在同包路径下。
      */
-    public static SqlSessionFactory sqlSessionFactory(DataSource ds) {
+    public static SqlSessionFactory sqlSessionFactory(DataSource ds) throws Exception {
         Configuration config = new Configuration();
         config.setEnvironment(new Environment("bench", new JdbcTransactionFactory(), ds));
         config.setMapUnderscoreToCamelCase(true);
         config.addMapper(ScheduleLockMapper.class);
         config.addMapper(AsyncCommandMapper.class);
+        loadMapperXml(config, "com/xp/starsite/lock/store/mybatis/ScheduleLockMapper.xml");
+        loadMapperXml(config, "com/xp/starsite/asynccmd/store/mybatis/AsyncCommandMapper.xml");
         return new SqlSessionFactoryBuilder().build(config);
+    }
+
+    /**
+     * 解析并注册 mapper XML 语句（bindMapperForNamespace 对已注册接口幂等跳过）。
+     *
+     * @param config   MyBatis Configuration
+     * @param resource classpath 资源路径
+     */
+    private static void loadMapperXml(Configuration config, String resource) throws Exception {
+        try (InputStream in = H2Infra.class.getClassLoader().getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IllegalStateException("mapper XML 未在 classpath: " + resource);
+            }
+            new XMLMapperBuilder(in, config, resource, config.getSqlFragments()).parse();
+        }
     }
 
     /**

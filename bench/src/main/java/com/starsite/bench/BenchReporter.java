@@ -34,8 +34,9 @@ public class BenchReporter {
         sb.append("> Date: ").append(java.time.LocalDate.now()).append("\n");
         sb.append("> Duration per scenario: fixed iterations (see notes)\n\n");
 
-        // 按组件分组
-        for (String comp : List.of("sequence", "lock", "async-command")) {
+        // 按组件分组（七组件）
+        for (String comp : List.of("sequence", "lock", "async-command",
+                "schedule", "idempotent", "quota", "tuner")) {
             var compResults = results.stream()
                     .filter(r -> r.component.equals(comp))
                     .toList();

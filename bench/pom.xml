@@ -12,7 +12,7 @@
 
   <artifactId>starsite-bench</artifactId>
   <name>starsite-bench</name>
-  <description>Performance benchmarks for the three starsite components (activate with -Pbench)</description>
+  <description>Performance benchmarks for the seven starsite components (activate with -Pbench)</description>
 
   <properties>
     <java.version>17</java.version>
@@ -34,6 +34,30 @@
     <dependency>
       <groupId>com.xp.starsite</groupId>
       <artifactId>starsite-lock</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- schedule（cron 求值；tuner 窗口复用同款解析器） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-schedule</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- idempotent（guard() 恰一执行 + 回放，memory 形态） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-idempotent</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- quota（occupy/release 往返，memory 形态） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-quota</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!-- tuner（applyAll() 窗口求值 + 条件应用跳过，memory 形态） -->
+    <dependency>
+      <groupId>com.xp.starsite</groupId>
+      <artifactId>starsite-tuner</artifactId>
       <version>${project.version}</version>
     </dependency>
     <!-- H2 内存库（bench 默认存储） -->

@@ -17,9 +17,9 @@ package com.starsite.bench.scenario;
 
 import com.starsite.bench.BenchResult;
 import com.starsite.bench.infra.H2Infra;
-import com.xp.starsite.lock.mybatis.ScheduleLockMapper;
-import com.xp.starsite.lock.store.DbLockClient;
-import com.xp.starsite.lock.store.LockTableProvisioner;
+import com.xp.starsite.lock.store.db.DbLockClient;
+import com.xp.starsite.lock.store.db.LockTableProvisioner;
+import com.xp.starsite.lock.store.mybatis.ScheduleLockMapper;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;

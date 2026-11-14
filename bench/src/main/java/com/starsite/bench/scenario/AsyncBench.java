@@ -15,17 +15,21 @@
  */
 package com.starsite.bench.scenario;
 
+import com.starsite.bench.BenchResult;
+import com.starsite.bench.infra.H2Infra;
 import com.xp.starsite.asynccmd.client.AsyncCommandClient;
 import com.xp.starsite.asynccmd.config.AsyncCommandConfig;
 import com.xp.starsite.asynccmd.executor.AsyncCommandExecutor;
 import com.xp.starsite.asynccmd.executor.ExecutorRegistry;
 import com.xp.starsite.asynccmd.model.AsyncCommand;
-import com.xp.starsite.asynccmd.mybatis.AsyncCommandMapper;
-import com.xp.starsite.asynccmd.mybatis.MyBatisAsyncCommandStore;
 import com.xp.starsite.asynccmd.scheduler.AsyncCommandScheduler;
-import com.starsite.bench.BenchResult;
-import com.starsite.bench.infra.H2Infra;
+import com.xp.starsite.asynccmd.store.memory.InMemoryAsyncCommandStore;
+import com.xp.starsite.asynccmd.store.mybatis.AsyncCommandMapper;
+import com.xp.starsite.asynccmd.store.mybatis.MyBatisAsyncCommandStore;
+import java.time.LocalDateTime;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.HdrHistogram.Histogram;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -39,6 +43,7 @@ public class AsyncBench {
 
     static final int SUBMIT_OPS = 50_000;
     static final int E2E_OPS = 1_000;
+    static final int CHAIN_OPS = 50_000;
 
     /** 记录执行的假执行器（含时间戳供端到端时延计算） */
     static class TimingExecutor implements AsyncCommandExecutor {
@@ -56,7 +61,7 @@ public class AsyncBench {
      * A1: 内存形态提交吞吐（无 DB，纯内存队列）。
      */
     public static BenchResult memorySubmit() {
-        var store = new com.xp.starsite.asynccmd.store.InMemoryAsyncCommandStore();
+        var store = new InMemoryAsyncCommandStore();
         var config = new AsyncCommandConfig();
         config.setOwner("bench");
         var client = new AsyncCommandClient(store, config);
@@ -119,6 +124,90 @@ public class AsyncBench {
                 e2eHist.getValueAtPercentile(99), e2eHist.getValueAtPercentile(99.9),
                 e2eHist.getMaxValue(), "H2 + MyBatis, manual tick")
                 .pass("executed " + executor.timings.size() + "/" + E2E_OPS + " commands");
+    }
+
+    /**
+     * A4: 内存形态全链路（submit → 认领 → 执行 → 终态回写，in-process 无 DB）。
+     * <p>
+     * 单 op = submit + claim（令牌批量）+ findByToken + 逐条执行（计数替身）+ updateState。
+     * 多线程共用同一 store 与全局 FIFO——他方线程可能认领走本方命令（认领互斥），
+     * 总量守恒：executed == submitted。
+     *
+     * @param threads 并发线程数（1 = 单线程基线；16 = in-process 争抢）
+     */
+    public static BenchResult memoryFullChain(int threads) throws Exception {
+        InMemoryAsyncCommandStore store = new InMemoryAsyncCommandStore();
+        AsyncCommandConfig config = new AsyncCommandConfig();
+        config.setOwner("bench-mem");
+        AsyncCommandClient client = new AsyncCommandClient(store, config);
+        Histogram hist = new Histogram(3);
+        AtomicInteger executed = new AtomicInteger(0);
+        // 认领上限须大于并发在飞数：保证任一 claim 能清空当前全部 PENDING（末尾无残留）
+        int claimLimit = threads + 8;
+        int perThread = CHAIN_OPS / threads;
+
+        // 预热（计数进独立计数器，不计入校验）
+        runChain(store, client, new AtomicInteger(), "warmup", 1_000, claimLimit);
+
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch doneGate = new CountDownLatch(threads);
+        for (int t = 0; t < threads; t++) {
+            final String tokenBase = "tok-" + t + "-";
+            new Thread(() -> {
+                try {
+                    startGate.await();
+                    for (int i = 0; i < perThread; i++) {
+                        long t0 = System.nanoTime();
+                        client.submit("mem-chain", tokenBase + "k-" + i, "{}");
+                        String token = tokenBase + i;
+                        store.claim(token, claimLimit, LocalDateTime.now());
+                        for (AsyncCommand cmd : store.findByToken(token)) {
+                            executed.incrementAndGet(); // 业务动作替身
+                            cmd.setStatus(AsyncCommand.SUCCESS);
+                            store.updateState(cmd);
+                        }
+                        long t1 = System.nanoTime();
+                        synchronized (hist) { hist.recordValue(t1 - t0); }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                doneGate.countDown();
+            }).start();
+        }
+
+        long start = System.nanoTime();
+        startGate.countDown();
+        doneGate.await();
+        long elapsed = System.nanoTime() - start;
+        int totalOps = perThread * threads;
+        double opsPerSec = totalOps / (elapsed / 1_000_000_000.0);
+
+        return new BenchResult("A4: memory full chain (submit+claim+execute)", "async-command", threads,
+                totalOps, opsPerSec,
+                hist.getValueAtPercentile(50), hist.getValueAtPercentile(95),
+                hist.getValueAtPercentile(99), hist.getValueAtPercentile(99.9),
+                hist.getMaxValue(), "InMemory store, in-process full chain")
+                .pass("executed " + executed.get() + "/" + totalOps + " commands")
+                .pass(store.countBacklogDue(LocalDateTime.now()) == 0
+                        ? "backlog drained: 0 unfinished" : "BACKLOG REMAINS");
+    }
+
+    /**
+     * 全链路执行一轮指定次数（预热复用）。
+     */
+    private static void runChain(InMemoryAsyncCommandStore store, AsyncCommandClient client,
+                                 AtomicInteger executed, String prefix, int ops, int claimLimit) {
+        for (int i = 0; i < ops; i++) {
+            String token = prefix + "-tok-" + i;
+            client.submit("mem-chain", prefix + "-k-" + i, "{}");
+            store.claim(token, claimLimit, LocalDateTime.now());
+            for (AsyncCommand cmd : store.findByToken(token)) {
+                executed.incrementAndGet();
+                cmd.setStatus(AsyncCommand.SUCCESS);
+                store.updateState(cmd);
+            }
+        }
     }
 
     /**
