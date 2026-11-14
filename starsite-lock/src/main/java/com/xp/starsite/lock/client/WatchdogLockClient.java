@@ -54,10 +54,7 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
     /** 底层锁客户端（被包装） */
     private final LockClient delegate;
 
-    /** 持锁 TTL（毫秒） */
-    private final long ttlMs;
-
-    /** 续期间隔（TTL/3，最小 1s 防过于频繁） */
+    /** 续期间隔（TTL/3，最小 1s 防过于频繁——TTL 本身只经底层客户端生效） */
     private final long renewIntervalMs;
 
     /** 锁丢失回调（可为 null） */
@@ -120,7 +117,6 @@ public class WatchdogLockClient implements LockClient, AutoCloseable {
      */
     public WatchdogLockClient(LockClient delegate, long ttlMs, LockLostListener lockLostListener) {
         this.delegate = delegate;
-        this.ttlMs = ttlMs;
         this.renewIntervalMs = Math.max(ttlMs / 3, 1000); // 最小 1s 防过于频繁
         this.lockLostListener = lockLostListener;
         for (int i = 0; i < stripes.length; i++) {
