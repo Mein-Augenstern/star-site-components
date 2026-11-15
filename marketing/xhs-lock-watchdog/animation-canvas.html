@@ -632,17 +632,19 @@
     return out;
   };
 
-  /* ---------- 实时预览（本地浏览器点 ▶；出片走 __snap） ---------- */
+  /* ---------- 实时预览（本地浏览器点 ▶；出片走 __snap） ----------
+     用 setInterval + 墙钟而不是 rAF：内嵌面板会深度节流 rAF（恒 0 帧），
+     setInterval 节流上限 1s 且时间取自墙钟——面板可见时实时，隐藏时不冻帧 */
   document.getElementById("go").addEventListener("click", function () {
     document.getElementById("start").style.display = "none";
     var stat = document.getElementById("stat");
-    var t0 = performance.now();
-    (function loop(now) {
-      var s = (now - t0) / 1000;
+    var t0 = Date.now();
+    var timer = setInterval(function () {
+      var s = (Date.now() - t0) / 1000;
       render(Math.min(s, TOTAL));
       stat.textContent = s.toFixed(1) + "s";
-      if (s < TOTAL + TAIL) requestAnimationFrame(loop);
-    })(t0);
+      if (s >= TOTAL + TAIL) clearInterval(timer);
+    }, 40);
   });
 })();
 </script>
