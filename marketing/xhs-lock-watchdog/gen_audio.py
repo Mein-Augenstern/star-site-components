@@ -47,32 +47,41 @@ def pluck(start, freq, vol):
         add_sample(i, (math.sin(2 * math.pi * freq * t)
                        + 0.25 * math.sin(2 * math.pi * freq * 2 * t)) * env * vol)
 
-# ---------- BGM：16s 和弦环 × 4 ----------
-# Am9 (A2 C4 E4 B4) → Fmaj7 (F2 A3 C4 E4) → Cmaj7 (C3 E3 G3 B3) → G6 (G2 B3 D4 E4)
+# ---------- BGM：D 小调 tech-documentary（低音脉冲 + 规整琶音 + 空气垫） ----------
+# Dm9 → Bbmaj7 → Fmaj7 → Cadd9，16s 环 × 4
 CHORDS = [
-    (110.00, [261.63, 329.63, 493.88]),          # A2  + C E B
-    (87.31,  [220.00, 261.63, 329.63]),          # F2  + A C E
-    (130.81, [329.63, 392.00, 493.88]),          # C3  + E G B
-    (98.00,  [246.94, 293.66, 329.63]),          # G2  + B D E
+    (73.42,  [174.61, 261.63, 329.63], [293.66, 349.23, 440.00, 587.33]),  # D2 + F3 C4 E4 / D4 F4 A4 D5
+    (116.54, [146.83, 293.66, 349.23], [233.08, 293.66, 440.00, 587.33]),  # Bb2 + D3 D4 F4 / Bb3 D4 A4 D5
+    (87.31,  [220.00, 261.63, 329.63], [349.23, 440.00, 523.25, 698.46]),  # F2 + A3 C4 E4 / F4 A4 C5 F5
+    (65.41,  [164.81, 196.00, 293.66], [261.63, 329.63, 392.00, 587.33]),  # C2 + E3 G3 D4 / C4 E4 G4 D5
 ]
 BAR = 4.0
-loop_len = BAR * 4
 pos = 0.0
 bar_i = 0
 while pos < DUR - 0.5:
-    root, notes = CHORDS[bar_i % 4]
+    root, pad_notes, arp_notes = CHORDS[bar_i % 4]
     fade = 0.4
-    tone(pos, BAR + fade, root, 0.16, attack=0.9, release=fade, harmonics=((1, 1.0), (2, 0.18)))
-    for j, f in enumerate(notes):
-        tone(pos + 0.05 * j, BAR + fade, f, 0.052, attack=1.3, release=fade)
-    # 稀疏拨弦：每小节 2~3 个音，五声选出
-    rnd = random.Random(1000 + bar_i)
-    for _ in range(rnd.randint(2, 3)):
-        at = pos + rnd.uniform(0.4, BAR - 0.6)
-        f = rnd.choice([440.0, 523.25, 659.25, 783.99, 880.0])
-        pluck(at, f, 0.05)
+    tone(pos, BAR + fade, root, 0.15, attack=0.9, release=fade, harmonics=((1, 1.0), (2, 0.18)))
+    for j, f in enumerate(pad_notes):
+        tone(pos + 0.05 * j, BAR + fade, f, 0.045, attack=1.3, release=fade)
+    # 规整琶音：八分音符循环和弦音（tech 感的机械律动）
+    for step in range(8):
+        f = arp_notes[step % len(arp_notes)]
+        pluck(pos + step * 0.5, f, 0.045)
     pos += BAR
     bar_i += 1
+
+# 低音心跳脉冲：每 0.5s 一次 55Hz 短促垫底（每小节首拍加重）
+pulse_i = 0
+while pulse_i * 0.5 < DUR - 0.3:
+    at = pulse_i * 0.5
+    accent = 1.5 if pulse_i % 8 == 0 else 1.0
+    n0, n1 = int(at * SR), min(int((at + 0.22) * SR), N)
+    for k in range(n1 - n0):
+        t = k / SR
+        env = math.exp(-t * 14) * min(1.0, t / 0.003)
+        add_sample(n0 + k, math.sin(2 * math.pi * 55 * t) * env * 0.11 * accent)
+    pulse_i += 1
 
 # 唱片碎响（琥珀氛围的点睛）
 rnd = random.Random(42)
@@ -115,10 +124,10 @@ rnd2 = random.Random(7)
 # 章节转场 whoosh
 for at in (3.5, 12.0, 22.0, 36.0, 48.0, 58.0):
     sfx_whoosh(at)
-# 危险 thud：抢锁 + P0 图章
-sfx_thud(8.9, 0.55)
+# 危险 thud：TTL 过期锁被抢（8.7 屏震起点）+ P0 图章
+sfx_thud(8.7, 0.55)
 sfx_thud(30.0, 0.6)
-# 成功 ding：S3 完成 / S5 修复 / CTA 钉住
+# 成功 ding：S3 集群恰一完成 / S5 修复 / CTA 钉住
 sfx_ding(20.3)
 sfx_ding(42.2)
 sfx_ding(58.2, 0.26)

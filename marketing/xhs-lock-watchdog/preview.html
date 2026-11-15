@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>成片预览（含配乐）</title>
+<style>
+  body { margin:0; background:#050608; display:flex; flex-direction:column;
+         align-items:center; justify-content:center; min-height:100vh;
+         font-family:-apple-system,"PingFang SC",sans-serif; gap:24px; }
+  h1 { color:#d9a94e; font-size:28px; font-weight:700; }
+  video { width:420px; border:1px solid rgba(217,169,78,.35); border-radius:12px;
+          box-shadow:0 0 60px rgba(217,169,78,.12); }
+  p { color:#8b8676; font-size:14px; line-height:1.8; text-align:center; }
+  b { color:#d9a94e; }
+</style>
+</head>
+<body>
+<h1>分布式锁看门狗 · 成片预览</h1>
+<video src="xhs-lock-watchdog.mp4" controls playsinline></video>
+<p>点播放键出声（浏览器手势策略）；开头 1.5s 是配乐淡入。<br>
+<b>音效对照</b>：0s 钩子垫乐进入 · 3.5s 起 6 处章节 whoosh · 8.9s 抢锁 thud · 20.3s 完成 ding · 30s P0 thud · 42.2s 修复 ding · 58.2s 收藏 ding</p>
+</body>
+</html>
