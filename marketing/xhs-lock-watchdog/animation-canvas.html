@@ -220,6 +220,7 @@
     if (glowOn) glow(stroke, 22);
     ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke();
     noGlow();
+    ctx.restore();                          // 必须配对：泄漏 save 栈 ~88 层后渲染冻结
     return true;
   }
   function bar(x, y, w, h, frac, color, glowOn) {
