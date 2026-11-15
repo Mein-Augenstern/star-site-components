@@ -42,9 +42,9 @@
     [3.5,  "集群四台实例抢同一把锁：只允许一台赢"],
     [9.2,  "TTL 一到锁被收回 —— 两个 Pod 同时在跑！"],
     [12,   "看门狗：每 TTL/3 帮你续期，锁永不过期"],
-    [20.5, "但最危险的一刀，来自自己人…"],
-    [25,   "内层 unlock 顺手把看门狗关了"],
-    [31.8, "外层还在裸奔：跨实例撞车，P0！"],
+    [20.5, "嵌套加锁：A 对同一把锁，拿了两层"],
+    [25,   "内层 unlock 之后，看门狗被顺手关掉"],
+    [31.8, "TTL 过期：另一台抢到锁，两个同时在跑！"],
     [36,   "修复只要一步：重入深度计数"],
     [41,   "内层只递减，归零才真正停狗"],
     [48,   "上线前三个动作，一个都不能少"],
@@ -307,12 +307,8 @@
     txt("🔒", x0 + (x1 - x0) * e, y0 + (y1 - y0) * e + 16, 46, 400, PAPER);
     ctx.restore();
   }
-  function stripCard(x, w, y, h, lt, at, opts) {   // S4 跨实例碰撞条
-    if (!cardRect(x, y, w, h, lt, at, opts.stroke, opts.glow)) return;
-    txt(opts.name, x + w / 2, y + 40, 28, 800, WARM);
-    txt(opts.state, x + w / 2, y + 80, 23, 700, opts.stateColor || SUB);
-    if (opts.ttlFrac != null) bar(x + 22, y + h - 26, w - 44, 12, opts.ttlFrac,
-                                 opts.ttlColor || RED, false);
+  function stripCard(x, w, y, h, lt, at, opts) {   // （已弃用：S4 改集群视图）保留占位以免外部引用断裂
+    return cardRect(x, y, w, h, lt, at, opts.stroke, opts.glow);
   }
 
   /* ---------- S1 钩子 0–3.5 ---------- */
@@ -333,15 +329,25 @@
       popText(lines[i][0], W / 2, 690 + i * 138, 94, 900, lines[i][1], lt, 0.2 + i * 0.14, true);
     }
     underline(W / 2, 715, 420, lt, 0.7, INK);
-    var pl = popStr(lt, 0.7);
-    if (pl > 0) {
+    var cp = popStr(lt, 0.6);                // 开场即给集群拓扑：4 台实例 + 锁存储
+    if (cp > 0) {
       ctx.save();
-      ctx.globalAlpha = clamp(pl * 1.6, 0, 1);
-      ctx.translate(W / 2, 1290);
-      var sway = lt > 1.4 ? Math.sin((lt - 1.4) * 10) * 0.2 * Math.max(0, 1 - (lt - 1.4) / 1.5) : 0;
-      ctx.rotate(sway); ctx.scale(pl, pl);
-      glow("rgba(217,169,78,.6)", 30);
-      txt("🔓", 0, 46, 140, 400, PAPER);
+      ctx.globalAlpha = clamp(cp * 1.6, 0, 1) * 0.92;
+      rr(390, 1120, 300, 92, 10); ctx.fillStyle = CARD; ctx.fill();
+      ctx.strokeStyle = "rgba(217,169,78,.6)"; ctx.lineWidth = 2; ctx.stroke();
+      txt("🔒 锁存储 · DB / Redis", 540, 1176, 24, 800, WARM);
+      ctx.strokeStyle = "rgba(217,169,78,.22)"; ctx.lineWidth = 1.5;
+      for (var c1 = 0; c1 < 4; c1++) {
+        ctx.beginPath(); ctx.moveTo(540, 1212); ctx.lineTo(CX[c1], 1272); ctx.stroke();
+      }
+      for (var p1 = 0; p1 < 4; p1++) {
+        var px0 = CX[p1] - 88;
+        rr(px0, 1272, 176, 112, 10); ctx.fillStyle = CARD; ctx.fill();
+        ctx.strokeStyle = "rgba(217,169,78,.45)"; ctx.lineWidth = 2; ctx.stroke();
+        txt("🖥️", CX[p1], 1324, 30, 400, PAPER);
+        txt("Pod " + "ABCD"[p1], CX[p1], 1366, 24, 800, WARM);
+      }
+      txt("集群里的 4 台实例 —— 故事从这里开始", 540, 1444, 26, 600, SUB);
       ctx.restore();
     }
   }
@@ -426,62 +432,77 @@
     sparkBurst(540, 560, lt, 8.2);
   }
 
-  /* ---------- S4 踩坑 22–36 ---------- */
+  /* ---------- S4 踩坑 22–36：嵌套加锁故障（全程集群视图，直白叙事） ---------- */
   function s4(lt) {
-    popText("但是——差点被自己人坑了", W / 2, 300, 58, 900, INK_HI, lt, 0.08, true);
+    popText("但是——A 里嵌套加了一次锁", W / 2, 300, 58, 900, INK_HI, lt, 0.08, true);
     underline(W / 2, 325, 520, lt, 0.3, INK);
-    var bx = 110, by = 370, bw = 860, bh = 520;
-    var pBox = popStr(lt, 0.25);
-    if (pBox > 0) {
+
+    var dead = lt >= 3.0;                    // 内层 unlock → 看门狗被顺手关掉
+    var expired = lt >= 7.0;                 // TTL 过期，锁飞回存储
+    var stolenB = lt >= 7.6;                 // Pod B 抢到
+
+    hubCard(lt, 0.2,
+      stolenB ? "Pod B" : (expired ? "过期" : "Pod A"),
+      (expired || stolenB) ? RED : WARM, !expired);
+    conns(0.5, stolenB ? 1 : 0);
+    flyLock(lt, 7.0, 0.35, CX[0], PY + 110, 540, 435);   // 过期收回
+    flyLock(lt, 7.6, 0.35, 540, 435, CX[1], PY + 110);   // 授予 Pod B
+
+    // 看门狗活着时（0–3s）保持续期脉冲；死后脉冲戛然而止
+    if (!dead) renewPulse(lt, (lt - 0.6) % 1.9, CX[0]);
+
+    clusterPod(0, lt, 0.25, {
+      name: "Pod A", stroke: expired ? "rgba(217,169,78,.25)" : INK, glow: !expired,
+      stateLines: dead ? (expired ? ["还在跑 🔥", "狗已死 ✝"] : ["持锁 · 狗已死 ✝"])
+                       : ["持锁 🔒 🐕", "双层任务"],
+      stateColor: dead ? (expired ? RED : "#9a927e") : WARM,
+      ttlFrac: lt >= 0.8 ? 1 - clamp((lt - 3.5) / 3.5, 0, 1) : 1,
+      ttlColor: expired ? RED : INK, ttlGlow: !expired,
+      taskFrac: clamp((lt - 1.7) / 9.0, 0, 0.6)
+    });
+    if (dead && lt < 4.4) {                  // 看门狗死亡标记（浮起渐隐）
       ctx.save();
-      var cx = bx + bw / 2, cyb = by + bh / 2;
-      ctx.translate(cx, cyb); ctx.scale(pBox, pBox); ctx.translate(-cx, -cyb);
-      ctx.globalAlpha = clamp(pBox * 1.6, 0, 1);
-      rr(bx, by, bw, bh, 14); ctx.fillStyle = CARD; ctx.fill();
-      dashedRect(bx + 22, by + 18, bw - 44, bh - 36, 10, "rgba(217,169,78,.75)", true);
-      var lx = bx + 56, ly = by + 80, lh = 56;
-      txt('if (tryLock("settle")) {', lx, ly, 34, 800, "#e8d9b8", "left", true);
-      txt("// 外层：拿锁+🐕", bx + bw - 52, ly, 27, 600, SUB, "right");
-      dashedRect(bx + 96, ly + 20, bw - 192, 216, 10, "rgba(217,169,78,.5)", false);
-      txt('if (tryLock("settle")) {', lx + 44, ly + 74, 32, 800, "#e8d9b8", "left", true);
-      txt("…子步骤…", lx + 44, ly + 132, 30, 600, SUB, "left");
-      var dead = lt >= 3;
-      txt('unlock("settle");', lx + 44, ly + 190, 32, 800, dead ? "#6f6858" : "#e8d9b8", "left", true);
-      if (dead) {
-        ctx.save();
-        var w1 = ctx.measureText('unlock("settle");').width;
-        ctx.strokeStyle = RED; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(lx + 40, ly + 178); ctx.lineTo(lx + 48 + w1, ly + 178); ctx.stroke();
-        ctx.restore();
-        txt("// ← 看门狗停了", lx + 44 + 300, ly + 190, 27, 700, RED, "left");
-      } else {
-        txt("// 重入 -1", lx + 44 + 300, ly + 190, 27, 600, SUB, "left");
-      }
-      txt("}", lx + 44, ly + 232, 32, 800, "#e8d9b8", "left", true);
-      txt("…外层还要跑 10 分钟…", lx, ly + 292, 30, 600, SUB, "left");
-      txt("}", lx, ly + 350, 34, 800, "#e8d9b8", "left", true);
+      ctx.globalAlpha = 1 - (lt - 3.0) / 1.4;
+      glow("rgba(255,77,77,.7)", 12);
+      txt("🐕 ✝ 已停", CX[0], PY - 26 - (lt - 3.0) * 30, 26, 900, RED);
       ctx.restore();
     }
-    var lost = lt >= 7.0;                    // TTL 过期，锁飞向存储再转 Pod B
-    var stolenB = lt >= 7.6;
-    flyLock(lt, 7.0, 0.3, 260, 1040, 540, 1040);
-    flyLock(lt, 7.6, 0.3, 540, 1040, 820, 1040);
-    stripCard(150, 250, 980, 120, lt, 0.4, {
-      name: "Pod A", stroke: stolenB ? "rgba(217,169,78,.35)" : "rgba(217,169,78,.5)",
-      state: stolenB ? "还在跑 🔥" : (lt >= 3 ? "持锁 · 狗已死" : "持锁 🔒"),
-      stateColor: stolenB ? RED : "#9a927e",
-      ttlFrac: lt >= 3 ? 1 - clamp((lt - 3.5) / 3.5, 0, 1) : 1
-    });
-    stripCard(415, 250, 980, 120, lt, 0.5, {
-      name: "锁存储", stroke: "rgba(217,169,78,.35)",
-      state: stolenB ? "已转 Pod B" : (lost ? "TTL 过期" : (lt >= 3 ? "无人续期…" : "Pod A 持有")),
-      stateColor: lost ? RED : "#9a927e"
-    });
-    stripCard(680, 250, 980, 120, lt, 0.6, {
-      name: "Pod B", stroke: stolenB ? RED : "rgba(217,169,78,.2)", glow: stolenB,
-      state: stolenB ? "抢到锁 🔒" : "排队等待…",
-      stateColor: stolenB ? RED : SUB
-    });
+    for (var i = 1; i < 4; i++) {
+      (function (i) {
+        var isThief = stolenB && i === 1;
+        clusterPod(i, lt, 0.3 + i * 0.08, {
+          name: "Pod " + "ABCD"[i],
+          stroke: isThief ? RED : "rgba(217,169,78,.2)", glow: isThief,
+          stateLines: isThief ? ["抢到锁 🔒", "开跑"]
+                              : (lt >= 1.1 ? ["未获锁", "跳过"] : ["排队等待…"]),
+          stateColor: isThief ? RED : SUB
+        });
+      })(i);
+    }
+
+    // 双层任务徽章：直观展示"同一把锁拿了两层"
+    var chipY = 970, chH = 56;
+    function chip(x, w, text, color, stroke, at) {
+      var p = popStr(lt, at);
+      if (p <= 0) return;
+      ctx.save();
+      var cx = x + w / 2, cy = chipY + chH / 2;
+      ctx.translate(cx, cy); ctx.scale(p, p); ctx.translate(-cx, -cy);
+      ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+      rr(x, chipY, w, chH, 10); ctx.fillStyle = CARD; ctx.fill();
+      ctx.strokeStyle = stroke; ctx.lineWidth = 2.5; ctx.stroke();
+      txt(text, cx, chipY + chH / 2 + 9, 24, 800, color);
+      ctx.restore();
+    }
+    chip(150, 300, "外层任务 · 运行中", WARM, INK, 0.5);
+    chip(630, 300, lt >= 2.6 ? "内层 · 已 unlock ✓" : "内层子任务 · 运行中",
+         lt >= 2.6 ? SUB : WARM, lt >= 2.6 ? "rgba(217,169,78,.3)" : INK, 1.2);
+    ctx.save();
+    ctx.globalAlpha = 0.4; ctx.strokeStyle = DIM; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(450, chipY + chH / 2); ctx.lineTo(630, chipY + chH / 2);
+    ctx.stroke();
+    ctx.restore();
+
     var ps = popStr(lt, 8);
     if (ps > 0) {
       ctx.save();
@@ -494,8 +515,8 @@
       ctx.restore();
     }
     if (lt >= 8.6) {
-      popText("内层 unlock 停了狗", W / 2, 1300, 58, 900, RED, lt, 8.6, true);
-      popText("锁被其他实例抢走 —— 跨实例撞车", W / 2, 1386, 58, 900, RED, lt, 8.75, true);
+      popText("A 还在跑，B 也在跑", W / 2, 1300, 58, 900, RED, lt, 8.6, true);
+      popText("跨实例互斥失效 —— P0！", W / 2, 1386, 58, 900, RED, lt, 8.75, true);
     }
   }
 
