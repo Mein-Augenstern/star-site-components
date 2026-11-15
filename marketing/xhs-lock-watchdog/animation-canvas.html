@@ -2,25 +2,24 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>分布式锁看门狗 · Canvas 自录版</title>
+<title>分布式锁看门狗 · 琥珀影院版（参照傅里叶科普动效）</title>
 <style>
   * { margin:0; padding:0; }
-  html,body { background:#0a0e17; }
+  html,body { background:#050608; }
   canvas { display:block; }
-  /* 启动遮罩不进视频：captureStream 只采画布 */
-  #start { position:fixed; inset:0; z-index:9; background:#0a0e17; display:flex;
+  #start { position:fixed; inset:0; z-index:9; background:#050608; display:flex;
     flex-direction:column; align-items:center; justify-content:center; gap:40px;
     font-family:-apple-system,"PingFang SC",sans-serif; }
-  #start button { width:220px; height:220px; border-radius:50%; border:6px solid #3ddc84;
-    background:rgba(61,220,132,.12); font-size:96px; color:#3ddc84; cursor:pointer; }
-  #start p { font-size:36px; color:#8b9bb4; }
-  #stat { position:fixed; top:12px; right:16px; z-index:9; color:#3ddc84;
+  #start button { width:220px; height:220px; border-radius:50%; border:6px solid #d9a94e;
+    background:rgba(217,169,78,.08); font-size:96px; color:#d9a94e; cursor:pointer; }
+  #start p { font-size:36px; color:#8b8676; }
+  #stat { position:fixed; top:12px; right:16px; z-index:9; color:#d9a94e;
     font-size:24px; font-family:Menlo,monospace; }
 </style>
 </head>
 <body>
 <canvas id="cv" width="1080" height="1920"></canvas>
-<div id="start"><button id="go">▶</button><p>点击开始（画布自录 + 回传）</p></div>
+<div id="start"><button id="go">▶</button><p>点击开始（预览；出片走 __snap）</p></div>
 <div id="stat"></div>
 <script>
 (function () {
@@ -28,294 +27,446 @@
   var W = 1080, H = 1920;
   var cv = document.getElementById("cv");
   var ctx = cv.getContext("2d");
-  var TOTAL = 62.5, TAIL = 1.0;               // 录到 63.5s
-  var C = { bg:"#0a0e17", card:"#141a26", bd:"#2a3548", gr:"#3ddc84", rd:"#ff4757",
-            cy:"#4cc9f0", am:"#ffc048", tx:"#f5f7fa", sub:"#8b9bb4", mono:"#c9d4e3",
-            darker:"#111722", dim:"#5b6b84" };
-  var FONT = '-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif';
-  var MONO = 'Menlo,monospace';
+  var TOTAL = 62.5, TAIL = 1.0;
+  var INK = "#d9a94e", INK_HI = "#ffd27d", PAPER = "#f2e8d5", DIM = "rgba(217,169,78,.38)";
+  var RED = "#ff4d4d", BG = "#050608";
+  var SERIF = '"Songti SC","STSong",serif';
+  var SANS = '-apple-system,"PingFang SC",sans-serif';
+  var MONO = '"SF Mono",Menlo,monospace';
 
   var CAPTIONS = [
     [0,    "你的分布式锁，会在长任务中途被人抢走"],
     [3.5,  "没有看门狗：TTL 一到，锁就被别的 Pod 抢走"],
-    [9.2,  "两个 Pod 同时在跑 —— 互斥失效 💥"],
+    [9.2,  "两个 Pod 同时在跑 —— 互斥失效"],
     [12,   "看门狗：每 TTL/3 帮你自动续期，锁不过期"],
     [20.5, "但嵌套加锁时，差点被自己人坑了…"],
     [25,   "内层 unlock 把看门狗停了 —— 外层还在临界区！"],
     [31.8, "P0：外层裸奔超 TTL，锁被抢走"],
     [36,   "修复：重入深度计数，内层只递减"],
-    [41,   "深度归零才真正停狗 ✅"],
+    [41,   "深度归零才真正停狗"],
     [48,   "上线前三件事，缺一不可"],
-    [58,   "收藏这篇 📌 你的锁，谁在续期？评论区聊"]
+    [58,   "收藏这篇 · 你的锁，谁在续期？评论区聊"]
   ];
+  var HUDS = [
+    ["00 钩子 · THE HOOK",        "FIG. 00 — A TICKING LOCK"],
+    ["01 痛点 · THE LEAK",        "FIG. 01 — TWO PODS, ONE LOCK"],
+    ["02 解法 · THE WATCHDOG",    "FIG. 02 — RENEW EVERY TTL/3"],
+    ["03 踩坑 · THE P0",          "FIG. 03 — A NESTED UNLOCK"],
+    ["04 修复 · THE FIX",         "FIG. 04 — DEPTH COUNTER"],
+    ["05 清单 · THE CHECKLIST",   "FIG. 05 — THREE GUARDS"],
+    ["06 尾声 · YOUR TURN",       "FIG. 06 — STAR-SITE COMPONENTS"]
+  ];
+  var SCENE_BOUNDS = [[0,3.5],[3.5,12],[12,22],[22,36],[36,48],[48,58],[58,TOTAL+1]];
 
-  /* ---------- 小工具 ---------- */
+  /* ---------- 确定性随机 ---------- */
+  function prand(i) {                    // mulberry32 固定种子流
+    var t = (i + 0x6D2B79F5) | 0;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  var STARS = [];
+  for (var i = 0; i < 110; i++) {
+    STARS.push({ x: prand(i) * W, y: prand(i + 500) * H, r: 0.6 + prand(i + 900) * 1.6,
+                 tw: prand(i + 1300) * 6.28, sp: 4 + prand(i + 1700) * 10 });
+  }
+  var SPARKS = [];
+  for (var k = 0; k < 46; k++) {
+    SPARKS.push({ a: prand(k + 2100) * 6.283, v: 120 + prand(k + 2600) * 420,
+                  r: 1.2 + prand(k + 3100) * 2.4, ts: prand(k + 3500) * 0.18 });
+  }
+
+  /* ---------- 工具 ---------- */
   function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function popT(lt, at, dur) {             // pop 进度 0..1（延迟 at 秒）
-    return clamp((lt - at) / (dur || 0.5), 0, 1);
-  }
-  function easeOutBack(p) {
-    var c1 = 1.70158, c3 = c1 + 1;
-    return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
-  }
+  function popT(lt, at, dur) { return clamp((lt - (at || 0)) / (dur || 0.5), 0, 1); }
+  function easeOutBack(p) { var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2); }
   function easeOutCubic(p) { return 1 - Math.pow(1 - p, 3); }
-  function rr(x, y, w, h, r) {             // 圆角矩形路径
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-  function card(x, y, w, h, r, stroke, glow) {
-    ctx.save();
-    rr(x, y, w, h, r);
-    ctx.fillStyle = C.card; ctx.fill();
-    if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 40; }
-    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 5; ctx.stroke(); }
-    ctx.restore();
-  }
-  function dashedRect(x, y, w, h, r, color) {
-    ctx.save();
-    rr(x, y, w, h, r);
-    ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.setLineDash([16, 12]); ctx.stroke();
-    ctx.restore();
-  }
-  function txt(str, x, y, size, weight, color, align, mono) {
-    ctx.fillStyle = color;
-    ctx.textAlign = align || "center";
-    ctx.textBaseline = "alphabetic";
-    ctx.font = (weight || 700) + " " + size + "px " + (mono ? MONO : FONT);
+  function rr(x, y, w, h, r) { ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  function glow(color, blur) { ctx.shadowColor = color; ctx.shadowBlur = blur || 22; }
+  function noGlow() { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; }
+  function txt(str, x, y, size, weight, color, align, mono, serif, spacing) {
+    ctx.fillStyle = color; ctx.textAlign = align || "center"; ctx.textBaseline = "alphabetic";
+    ctx.font = (weight || 700) + " " + size + "px " + (mono ? MONO : (serif ? SERIF : SANS));
+    if (spacing) {                        // 手动字距（HUD 小标）
+      var total = 0;
+      for (var i = 0; i < str.length; i++) total += ctx.measureText(str[i]).width + spacing;
+      var px = (align === "left" ? x : (align === "right" ? x - total + spacing : x - total / 2));
+      for (var j = 0; j < str.length; j++) {
+        ctx.fillText(str[j], px, y); px += ctx.measureText(str[j]).width + spacing;
+      }
+      return total;
+    }
     ctx.fillText(str, x, y);
     return ctx.measureText(str).width;
   }
   function popStr(lt, at) { return easeOutBack(popT(lt, at)); }
-  function popText(str, x, y, size, weight, color, lt, at, mono, align) {
+  function popText(str, x, y, size, weight, color, lt, at, mono, serif, opts) {
     var p = popStr(lt, at);
+    if (p <= 0) return 0;
+    ctx.save();
+    ctx.translate(x, y); ctx.scale(p, p);
+    ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+    var w = txt(str, 0, 0, size, weight, color, (opts && opts.align) || "center", mono, serif);
+    ctx.restore();
+    return w * p;
+  }
+  function underline(x, y, w, lt, at, color) {   // 标题下划线扫入
+    var p = easeOutCubic(popT(lt, at, 0.6));
     if (p <= 0) return;
     ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(p, p);
-    ctx.globalAlpha = clamp(p * 1.6, 0, 1);
-    txt(str, 0, 0, size, weight, color, align || "center", mono);
+    glow(color, 14);
+    ctx.fillStyle = color;
+    ctx.fillRect(x - w / 2, y, w * p, 5);
     ctx.restore();
   }
-  function popCard(x, y, w, h, r, stroke, glow, lt, at, drawInner) {
+  function dashedRect(x, y, w, h, r, color, glowOn) {
+    ctx.save();
+    if (glowOn) glow(color, 16);
+    rr(x, y, w, h, r);
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.setLineDash([14, 11]); ctx.stroke();
+    ctx.restore();
+  }
+  function sparkBurst(cx, cy, lt, at) {          // 成功时刻的琥珀粒子
+    if (lt < at) return;
+    var e = lt - at;
+    if (e > 1.4) return;
+    for (var i = 0; i < SPARKS.length; i++) {
+      var s = SPARKS[i];
+      var p = clamp((e - s.ts) / 1.2, 0, 1);
+      if (p <= 0 || p >= 1) continue;
+      var d = s.v * easeOutCubic(p);
+      ctx.save();
+      ctx.globalAlpha = (1 - p) * 0.9;
+      glow(INK_HI, 10);
+      ctx.fillStyle = INK_HI;
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(s.a) * d, cy + Math.sin(s.a) * d * 0.9 - p * 40, s.r, 0, 6.283);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  /* ---------- 背景与骨架 ---------- */
+  function drawBg(s, shakeX, shakeY) {
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
+    for (var i = 0; i < STARS.length; i++) {   // 缓漂星尘
+      var st = STARS[i];
+      var tw = 0.25 + 0.55 * Math.abs(Math.sin(st.tw + s * st.sp * 0.3));
+      ctx.globalAlpha = tw * 0.5;
+      ctx.fillStyle = INK;
+      var dx = (st.x + s * 2.2) % (W + 40) - 20;
+      ctx.beginPath(); ctx.arc(dx, st.y, st.r, 0, 6.283); ctx.fill();
+    }
+    ctx.restore();
+    var vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.75);
+    vg.addColorStop(0, "rgba(5,6,8,0)");
+    vg.addColorStop(1, "rgba(2,3,4,.8)");
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  }
+  function hudChrome(s, sceneIdx) {              // 四角 HUD（参照参考片）
+    var hud = HUDS[sceneIdx];
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    txt(hud[0], 64, 96, 24, 700, DIM, "left", false, false, 2);
+    txt("分布式锁 · WATCHDOG", W - 64, 96, 24, 700, DIM, "right", false, false, 2);
+    txt(hud[1], 64, H - 44, 22, 700, DIM, "left", true, false, 1);
+    var mm = Math.floor(s / 60), ss = Math.floor(s % 60);
+    txt(("0" + mm).slice(-2) + ":" + ("0" + ss).slice(-2) + " / 01:02", W - 64, H - 44,
+        22, 700, DIM, "right", true, false, 1);
+    ctx.restore();
+  }
+  function captionBar(s) {
+    var fi = 0;
+    for (var j = 0; j < CAPTIONS.length; j++) if (s >= CAPTIONS[j][0]) fi = j;
+    var capIn = easeOutCubic(clamp((s - CAPTIONS[fi][0]) / 0.3, 0, 1));
+    ctx.save();
+    ctx.globalAlpha = capIn;
+    rr(70, 1655, 940, 150, 10);
+    ctx.fillStyle = "rgba(8,9,12,.88)"; ctx.fill();
+    ctx.strokeStyle = "rgba(217,169,78,.25)"; ctx.lineWidth = 2; ctx.stroke();
+    var msg = CAPTIONS[fi][1];
+    ctx.font = "600 44px " + SERIF;
+    var segs = [];
+    if (ctx.measureText(msg).width > 860) {      // 粗分两行
+      var mid = msg.length >> 1;
+      segs = [msg.slice(0, mid), msg.slice(mid)];
+    } else segs = [msg];
+    for (var k = 0; k < segs.length; k++) {
+      txt(segs[k], 540, 1722 + k * 56 - (segs.length - 1) * 28, 44, 600, PAPER, "center", false, true);
+    }
+    ctx.restore();
+  }
+  function progressBar(s) {
+    ctx.fillStyle = "rgba(217,169,78,.15)"; ctx.fillRect(0, 0, W, 8);
+    ctx.save(); glow(INK, 12); ctx.fillStyle = INK;
+    ctx.fillRect(0, 0, W * clamp(s / TOTAL, 0, 1), 8); ctx.restore();
+  }
+
+  /* ---------- 场景组件（琥珀化） ---------- */
+  function pod(x, y, w, h, lt, at, opts) {
     var p = popStr(lt, at);
     if (p <= 0) return;
     ctx.save();
     var cx = x + w / 2, cy = y + h / 2;
     ctx.translate(cx, cy); ctx.scale(p, p); ctx.translate(-cx, -cy);
     ctx.globalAlpha = clamp(p * 1.6, 0, 1);
-    card(x, y, w, h, r, stroke, glow);
-    if (drawInner) drawInner();
+    rr(x, y, w, h, 18);
+    ctx.fillStyle = "#0a0b0f"; ctx.fill();
+    if (opts.glow) { glow(opts.stroke, 26); }
+    ctx.strokeStyle = opts.stroke; ctx.lineWidth = 3; ctx.stroke();
+    noGlow();
+    txt("🖥️", x + w / 2, y + 124, 80, 400, PAPER);
+    txt(opts.name, x + w / 2, y + 208, 44, 800, "#cfc4ad");
+    txt(opts.state, x + w / 2, y + 276, 34, 700, opts.stateColor || "#8b8676");
+    if (opts.ttlFrac != null) {
+      var bw = w - 72, bx = x + 36, by = y + 318;
+      rr(bx, by, bw, 30, 8); ctx.fillStyle = "#141310"; ctx.fill();
+      if (opts.ttlFrac > 0.005) {
+        ctx.save();
+        if (opts.ttlGlow) glow(opts.ttlColor, 16);
+        rr(bx, by, bw * clamp(opts.ttlFrac, 0, 1), 30, 8);
+        ctx.fillStyle = opts.ttlColor; ctx.fill();
+        ctx.restore();
+      }
+      txt(opts.ttlLabel || "锁 TTL 剩余", x + w / 2, by + 72, 28, 600, "#8b8676");
+    }
+    if (opts.taskFrac != null) {
+      var ty = opts.ttlFrac != null ? y + 458 : y + 318;
+      txt("任务进度", x + 36, ty + 22, 28, 600, "#8b8676", "left");
+      var tbw = w - 72;
+      rr(x + 36, ty + 38, tbw, 22, 6); ctx.fillStyle = "#141310"; ctx.fill();
+      ctx.save(); glow(INK, 12);
+      rr(x + 36, ty + 38, tbw * clamp(opts.taskFrac, 0, 1), 22, 6);
+      ctx.fillStyle = INK; ctx.fill(); ctx.restore();
+    }
     ctx.restore();
   }
-  function flash(lt, at, decay) {          // 返回当前红闪 alpha
-    if (lt < at) return 0;
-    var e = (lt - at) / (decay || 0.9);
-    return e >= 1 ? 0 : (1 - e) * 0.55;
-  }
 
-  /* ---------- 场景 ---------- */
-  function s1(lt) {                        // 0–3.5 钩子
-    var p0 = popStr(lt, 0);
-    if (p0 > 0) {                          // 徽标
+  /* ---------- S1 钩子 0–3.5 ---------- */
+  function s1(lt) {
+    var p0 = popStr(lt, 0.05);
+    if (p0 > 0) {
       ctx.save();
       ctx.globalAlpha = clamp(p0 * 1.6, 0, 1);
-      var bw = 500, bh = 84, bx = (W - bw) / 2, by = 520;
+      var bw = 560, bh = 84, bx = (W - bw) / 2, by = 505;
       ctx.translate(bx + bw / 2, by + bh / 2); ctx.scale(p0, p0); ctx.translate(-(bx + bw / 2), -(by + bh / 2));
-      rr(bx, by, bw, bh, 18); ctx.fillStyle = C.am; ctx.fill();
-      txt("真实 P0 踩坑复盘", W / 2, by + 60, 44, 900, "#0a0e17");
+      rr(bx, by, bw, bh, 8);
+      ctx.strokeStyle = INK; ctx.lineWidth = 2; ctx.stroke();
+      txt("真实 P0 踩坑复盘", W / 2, by + 58, 42, 800, INK_HI, "center", false, false, 6);
       ctx.restore();
     }
-    var lines = [["你的分布式锁", C.tx], ["会在长任务中途", C.rd], ["被人抢走", C.tx]];
+    var lines = [["你的分布式锁", PAPER], ["会在长任务中途", RED], ["被人抢走", PAPER]];
     for (var i = 0; i < lines.length; i++) {
-      popText(lines[i][0], W / 2, 700 + i * 135, 96, 900, lines[i][1], lt, 0.15 + i * 0.12);
+      var y = 690 + i * 138;
+      popText(lines[i][0], W / 2, y, 94, 900, lines[i][1], lt, 0.2 + i * 0.14, false, true);
     }
-    var pl = popStr(lt, 0.55);
+    underline(W / 2, 715, 420, lt, 0.7, INK);
+    var pl = popStr(lt, 0.7);
     if (pl > 0) {
       ctx.save();
       ctx.globalAlpha = clamp(pl * 1.6, 0, 1);
-      ctx.translate(W / 2, 1245);
-      var sway = lt > 1.2 ? Math.sin((lt - 1.2) * 11) * 0.22 * Math.max(0, 1 - (lt - 1.2) / 1.6) : 0;
+      ctx.translate(W / 2, 1290);
+      var sway = lt > 1.4 ? Math.sin((lt - 1.4) * 10) * 0.2 * Math.max(0, 1 - (lt - 1.4) / 1.5) : 0;
       ctx.rotate(sway); ctx.scale(pl, pl);
-      txt("🔓", 0, 50, 150, 400, C.tx);
+      glow("rgba(217,169,78,.6)", 30);
+      txt("🔓", 0, 46, 140, 400, PAPER);
       ctx.restore();
     }
   }
 
-  /* Pod 卡片（S2/S3 用） */
-  function pod(x, y, w, h, lt, at, opts) {
-    popCard(x, y, w, h, 32, opts.stroke, opts.glow, lt, at, function () {
-      txt("🖥️", x + w / 2, y + 130, 84, 400, C.tx);
-      txt(opts.name, x + w / 2, y + 215, 44, 800, "#c9d4e3");
-      txt(opts.state, x + w / 2, y + 285, 36, 700, opts.stateColor || C.sub);
-      if (opts.ttlFrac != null) {          // TTL 条
-        var bw = w - 72, bx = x + 36, by = y + 330;
-        rr(bx, by, bw, 34, 17); ctx.fillStyle = "#1d2736"; ctx.fill();
-        rr(bx, by, bw * clamp(opts.ttlFrac, 0, 1), 34, 17);
-        ctx.fillStyle = opts.ttlColor || C.am; ctx.fill();
-        txt(opts.ttlLabel || "锁 TTL 剩余", x + w / 2, by + 78, 30, 600, C.sub);
-      }
-      if (opts.taskFrac != null) {
-        var ty = opts.ttlFrac != null ? y + 480 : y + 330;
-        txt("任务进度", x + 36, ty + 24, 30, 600, C.sub, "left");
-        var tbw = w - 72;
-        rr(x + 36, ty + 40, tbw, 26, 13); ctx.fillStyle = "#1d2736"; ctx.fill();
-        rr(x + 36, ty + 40, tbw * clamp(opts.taskFrac, 0, 1), 26, 13);
-        ctx.fillStyle = C.gr; ctx.fill();
-      }
-    });
-  }
-
-  function s2(lt) {                        // 3.5–12 没有看门狗
-    popText("没有看门狗的世界", W / 2, 320, 64, 900, C.tx, lt, 0.1);
+  /* ---------- S2 痛点 3.5–12 ---------- */
+  function s2(lt) {
+    popText("没有看门狗的世界", W / 2, 330, 62, 900, PAPER, lt, 0.1, false, true);
+    underline(W / 2, 355, 430, lt, 0.35, INK);
     var steal = lt >= 5.4;
-    pod(140, 400, 350, 660, lt, 0.25, {
-      name: "Pod A",
-      state: steal ? "锁没了 😱" : "持锁 🔒 处理任务…",
-      stateColor: steal ? C.rd : C.sub,
-      stroke: steal ? C.bd : C.gr,
-      glow: steal ? null : "rgba(61,220,132,.25)",
+    pod(140, 420, 350, 620, lt, 0.25, {
+      name: "Pod A", stroke: steal ? "rgba(217,169,78,.2)" : INK,
+      glow: !steal,
+      state: steal ? "锁没了" : "持锁 🔒 处理任务…",
+      stateColor: steal ? RED : "#8b8676",
       ttlFrac: 1 - clamp((lt - 0.7) / 4.7, 0, 1),
-      ttlColor: steal ? C.rd : C.am,
+      ttlColor: steal ? RED : INK, ttlGlow: !steal,
       taskFrac: lt < 0.4 ? 0 : clamp((lt - 0.4) / 7.4, 0, 1) * 0.88
     });
-    pod(590, 400, 350, 660, lt, 0.45, {
-      name: "Pod B",
+    pod(590, 420, 350, 620, lt, 0.45, {
+      name: "Pod B", stroke: steal ? RED : "rgba(217,169,78,.2)",
+      glow: steal,
       state: steal ? "抢到锁 🔒 开跑" : "排队等待…",
-      stateColor: steal ? C.gr : C.sub,
-      stroke: steal ? C.rd : C.bd,
-      glow: steal ? "rgba(255,71,87,.3)" : null
+      stateColor: steal ? RED : "#8b8676"
     });
-    if (steal) { popText("⚠️ TTL 到期，锁被抢走", W / 2, 1220, 66, 900, C.rd, lt, 5.6); }
-    if (steal) { popText("两个 Pod 同时在跑！", W / 2, 1310, 66, 900, C.rd, lt, 5.75); }
+    if (steal) {
+      popText("⚠ TTL 到期，锁被抢走", W / 2, 1200, 62, 900, RED, lt, 5.6, false, true);
+      popText("两个 Pod 同时在跑！", W / 2, 1288, 62, 900, RED, lt, 5.75, false, true);
+    }
   }
 
-  function s3(lt) {                        // 12–22 看门狗
-    popText("解法：", W / 2 - 175, 320, 64, 900, C.tx, lt, 0.1, false, "right");
-    popText("看门狗 🐕", W / 2 - 155, 320, 64, 900, C.gr, lt, 0.1, false, "left");
-    var bob = Math.sin(lt * 3.3) * 8;
-    popCard(360, 400, 360, 700, 32, C.gr, "rgba(61,220,132,.25)", lt, 0.25, function () {
-      txt("🖥️", 540, 530, 84, 400, C.tx);
-      txt("Pod A", 540, 615, 44, 800, "#c9d4e3");
-      txt("持锁 🔒", 540, 685, 36, 700, C.sub);
-      txt("🐕", 540, 775 + bob, 84, 400, C.tx);
-      var cyc = (lt - 0.6) % 1.9;          // TTL 排空循环
+  /* ---------- S3 解法 12–22 ---------- */
+  function s3(lt) {
+    popText("解法：看门狗 🐕", W / 2, 330, 62, 900, INK_HI, lt, 0.1, false, true);
+    underline(W / 2, 355, 430, lt, 0.35, INK);
+    var bob = Math.sin(lt * 3.2) * 9;
+    var tilt = Math.sin(lt * 2.1) * 0.06;      // 狗牌轻晃
+    var p = popStr(lt, 0.25);
+    if (p > 0) {
+      ctx.save();
+      ctx.translate(540, 400 + 350); ctx.scale(p, p); ctx.translate(-540, -(400 + 350));
+      rr(360, 400, 360, 700, 18);
+      ctx.fillStyle = "#0a0b0f"; ctx.fill();
+      glow(INK, 24); ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.stroke(); noGlow();
+      txt("🖥️", 540, 524, 80, 400, PAPER);
+      txt("Pod A", 540, 608, 44, 800, "#cfc4ad");
+      txt("持锁 🔒", 540, 676, 34, 700, "#8b8676");
+      ctx.save(); ctx.translate(540, 762 + bob); ctx.rotate(tilt);
+      glow("rgba(255,210,125,.7)", 26);
+      txt("🐕", 0, 30, 84, 400, PAPER); ctx.restore();
+      var cyc = (lt - 0.6) % 1.9;
       var frac = 1 - clamp(cyc / 1.9, 0, 1) * 0.92;
       var bw = 288, bx = 396, by = 800;
-      rr(bx, by, bw, 34, 17); ctx.fillStyle = "#1d2736"; ctx.fill();
-      rr(bx, by, bw * frac, 34, 17); ctx.fillStyle = C.gr; ctx.fill();
-      txt("每 TTL/3 自动续期", 540, by + 78, 30, 600, C.sub);
-      if (cyc < 0.55) {                    // +TTL 飘字
-        var a = 1 - cyc / 0.55;
-        ctx.save(); ctx.globalAlpha = a;
-        txt("+TTL ✨", 620, by - 30 - cyc * 160, 40, 900, C.gr);
+      rr(bx, by, bw, 30, 8); ctx.fillStyle = "#141310"; ctx.fill();
+      ctx.save(); glow(INK, 14);
+      rr(bx, by, bw * frac, 30, 8); ctx.fillStyle = INK; ctx.fill(); ctx.restore();
+      txt("每 TTL/3 自动续期", 540, by + 72, 28, 600, "#8b8676");
+      if (cyc < 0.6) {
+        var a = 1 - cyc / 0.6;
+        ctx.save(); ctx.globalAlpha = a; glow(INK_HI, 14);
+        txt("+TTL", 640, by - 26 - cyc * 150, 38, 900, INK_HI, "left", true);
         ctx.restore();
       }
       var ty = 950;
-      txt("任务进度", 396, ty + 24, 30, 600, C.sub, "left");
-      rr(396, ty + 40, 288, 26, 13); ctx.fillStyle = "#1d2736"; ctx.fill();
-      rr(396, ty + 40, 288 * clamp((lt - 0.4) / 7.5, 0, 1), 26, 13); ctx.fillStyle = C.gr; ctx.fill();
-    });
-    popText("✅ 长任务安全跑完，锁稳稳在手", W / 2, 1240, 60, 900, C.gr, lt, 8);
+      txt("任务进度", 396, ty + 22, 28, 600, "#8b8676", "left");
+      rr(396, ty + 38, 288, 22, 6); ctx.fillStyle = "#141310"; ctx.fill();
+      ctx.save(); glow(INK, 12);
+      rr(396, ty + 38, 288 * clamp((lt - 0.4) / 7.5, 0, 1), 22, 6);
+      ctx.fillStyle = INK; ctx.fill(); ctx.restore();
+      ctx.restore();
+    }
+    popText("✓ 长任务安全跑完，锁稳稳在手", W / 2, 1230, 56, 800, INK_HI, lt, 8, false, true);
+    sparkBurst(540, 620, lt, 8.05);
   }
 
-  function s4(lt) {                        // 22–36 嵌套 P0
-    popText("但是——", 300, 300, 60, 900, C.tx, lt, 0.08, false, "right");
-    popText("差点被自己人坑了", 320, 300, 60, 900, C.am, lt, 0.08, false, "left");
-    var bx = 110, by = 360, bw = 860, bh = 560;
+  /* ---------- S4 踩坑 22–36 ---------- */
+  function s4(lt) {
+    popText("但是——差点被自己人坑了", W / 2, 310, 58, 900, INK_HI, lt, 0.08, false, true);
+    underline(W / 2, 335, 520, lt, 0.3, INK);
+    var bx = 110, by = 380, bw = 860, bh = 540;
     var pBox = popStr(lt, 0.25);
     if (pBox > 0) {
       ctx.save();
       var cx = bx + bw / 2, cyb = by + bh / 2;
       ctx.translate(cx, cyb); ctx.scale(pBox, pBox); ctx.translate(-cx, -cyb);
       ctx.globalAlpha = clamp(pBox * 1.6, 0, 1);
-      rr(bx, by, bw, bh, 28); ctx.fillStyle = C.darker; ctx.fill();
-      dashedRect(bx + 24, by + 20, bw - 48, bh - 40, 20, C.gr);
-      var lx = bx + 60, ly = by + 90, lh = 62;
-      txt('if (tryLock("settle")) {', lx, ly, 36, 800, C.mono, "left", true);
-      txt("// 外层：拿锁+🐕", bx + bw - 56, ly, 30, 600, C.dim, "right");
-      dashedRect(bx + 100, ly + 24, bw - 200, 244, 16, C.cy);
-      txt('if (tryLock("settle")) {', lx + 50, ly + 84, 34, 800, C.mono, "left", true);
-      txt("…子步骤…", lx + 50, ly + 146, 32, 600, C.dim, "left");
+      rr(bx, by, bw, bh, 14); ctx.fillStyle = "#0a0b0f"; ctx.fill();
+      dashedRect(bx + 22, by + 18, bw - 44, bh - 36, 10, "rgba(217,169,78,.75)", true);
+      var lx = bx + 56, ly = by + 84, lh = 58;
+      txt('if (tryLock("settle")) {', lx, ly, 34, 800, "#e8d9b8", "left", true);
+      txt("// 外层：拿锁+🐕", bx + bw - 52, ly, 27, 600, "#8b8676", "right");
+      dashedRect(bx + 96, ly + 22, bw - 192, 232, 10, "rgba(217,169,78,.5)", false);
+      txt('if (tryLock("settle")) {', lx + 44, ly + 80, 32, 800, "#e8d9b8", "left", true);
+      txt("…子步骤…", lx + 44, ly + 140, 30, 600, "#8b8676", "left");
       var dead = lt >= 3;
-      txt('unlock("settle");', lx + 50, ly + 208, 34, 800, dead ? C.dim : C.cy, "left", true);
+      txt('unlock("settle");', lx + 44, ly + 200, 32, 800, dead ? "#6f6858" : "#e8d9b8", "left", true);
       if (dead) {
         ctx.save();
         var w1 = ctx.measureText('unlock("settle");').width;
-        ctx.strokeStyle = C.rd; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.moveTo(lx + 44, ly + 196); ctx.lineTo(lx + 52 + w1, ly + 196); ctx.stroke();
+        ctx.strokeStyle = RED; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(lx + 40, ly + 188); ctx.lineTo(lx + 48 + w1, ly + 188); ctx.stroke();
         ctx.restore();
-        txt("// ← 看门狗停了 🐕✝", lx + 50 + 300, ly + 208, 30, 700, C.rd, "left");
+        txt("// ← 看门狗停了", lx + 44 + 300, ly + 200, 27, 700, RED, "left");
       } else {
-        txt("// 重入 -1", lx + 50 + 300, ly + 208, 30, 600, C.dim, "left");
+        txt("// 重入 -1", lx + 44 + 300, ly + 200, 27, 600, "#8b8676", "left");
       }
-      txt("}", lx + 50, ly + 252, 34, 800, C.mono, "left", true);
-      txt("…外层还要跑 10 分钟…", lx, ly + 316, 32, 600, C.dim, "left");
-      txt("}", lx, ly + 378, 36, 800, C.mono, "left", true);
+      txt("}", lx + 44, ly + 244, 32, 800, "#e8d9b8", "left", true);
+      txt("…外层还要跑 10 分钟…", lx, ly + 306, 30, 600, "#8b8676", "left");
+      txt("}", lx, ly + 366, 34, 800, "#e8d9b8", "left", true);
       ctx.restore();
     }
     var lost = lt >= 8.2;
-    popCard(190, 1030, 700, 110, 26, lost ? C.rd : C.rd, lost ? "rgba(255,71,87,.3)" : null,
-            lt, 0.4, function () {
+    var p2 = popStr(lt, 0.4);
+    if (p2 > 0) {
+      ctx.save();
+      var c2x = 540, c2y = 1075;
+      ctx.translate(c2x, c2y); ctx.scale(p2, p2); ctx.translate(-c2x, -c2y);
+      rr(190, c2y - 50, 700, 100, 12);
+      ctx.fillStyle = "#0a0b0f"; ctx.fill();
+      ctx.strokeStyle = lost ? RED : "rgba(217,169,78,.5)"; ctx.lineWidth = 3; ctx.stroke();
       txt(lost ? "🔓 锁已被 Pod B 抢走" : "🐕 已被停掉 · TTL 无人续期…",
-          540, 1102, 40, 800, lost ? C.rd : C.sub);
-    });
-    var ps = popStr(lt, 8);                // P0 图章
+          540, c2y + 16, 38, 800, lost ? RED : "#9a927e");
+      ctx.restore();
+    }
+    var ps = popStr(lt, 8);
     if (ps > 0) {
       ctx.save();
-      ctx.translate(870, 420); ctx.rotate(-0.14); ctx.scale(ps, ps);
-      ctx.globalAlpha = clamp(ps * 1.5, 0, 1);
-      rr(-170, -80, 340, 160, 24);
-      ctx.fillStyle = "rgba(255,71,87,.12)"; ctx.fill();
-      ctx.strokeStyle = C.rd; ctx.lineWidth = 12; ctx.stroke();
-      txt("P0", 0, 42, 130, 900, C.rd);
+      ctx.translate(880, 430); ctx.rotate(-0.16); ctx.scale(ps, ps);
+      rr(-165, -78, 330, 156, 14);
+      ctx.fillStyle = "rgba(255,77,77,.1)"; ctx.fill();
+      glow("rgba(255,77,77,.6)", 24);
+      ctx.strokeStyle = RED; ctx.lineWidth = 11; ctx.stroke(); noGlow();
+      txt("P0", 0, 40, 124, 900, RED);
       ctx.restore();
     }
     if (lt >= 8.6) {
-      popText("内层 unlock 停了狗", W / 2, 1260, 64, 900, C.rd, lt, 8.6);
-      popText("外层临界区裸奔，锁被抢", W / 2, 1350, 64, 900, C.rd, lt, 8.75);
+      popText("内层 unlock 停了狗", W / 2, 1250, 60, 900, RED, lt, 8.6, false, true);
+      popText("外层临界区裸奔，锁被抢", W / 2, 1336, 60, 900, RED, lt, 8.75, false, true);
     }
   }
 
-  function s5(lt) {                        // 36–48 深度计数
-    popText("修复：", W / 2 - 205, 320, 64, 900, C.tx, lt, 0.08, false, "right");
-    popText("重入深度计数", W / 2 - 185, 320, 64, 900, C.gr, lt, 0.08, false, "left");
-    var nums = [["2", "外层+内层", 0.2, C.gr], ["1", "内层只递减\n狗还在 🐕", 2.2, C.gr], ["0", "归零才停狗\n✅ 正确释放", 4.4, C.dim]];
-    var xs = [140, 400, 660];
+  /* ---------- S5 修复 36–48 ---------- */
+  function s5(lt) {
+    popText("修复：重入深度计数", W / 2, 320, 62, 900, INK_HI, lt, 0.08, false, true);
+    underline(W / 2, 345, 430, lt, 0.3, INK);
+    var nums = [["2", "外层+内层", 0.2, INK], ["1", "内层只递减\n狗还在 🐕", 2.2, INK], ["0", "归零才停狗\n✓ 正确释放", 4.4, "rgba(217,169,78,.45)"]];
+    var xs = [120, 400, 680];
     for (var i = 0; i < 3; i++) {
       (function (i) {
-        var n = nums[i], size = 280;
-        popCard(xs[i], 430, size, size, 40, n[3], null, lt, n[2], function () {
-          txt(n[0], xs[i] + size / 2, 430 + 150, 120, 900, C.tx);
-          var parts = n[1].split("\n");
-          for (var k = 0; k < parts.length; k++) {
-            txt(parts[k], xs[i] + size / 2, 430 + 205 + k * 40, 30, 600, C.sub);
-          }
-        });
-        if (i < 2) popText("→", xs[i] + size + 30, 600, 80, 400, C.dim, lt, i === 0 ? 1.6 : 3.8);
+        var n = nums[i], size = 260;
+        var p = popStr(lt, n[2]);
+        if (p <= 0) return;
+        ctx.save();
+        var cx = xs[i] + size / 2, cy = 450 + size / 2;
+        ctx.translate(cx, cy); ctx.scale(p, p); ctx.translate(-cx, -cy);
+        ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+        rr(xs[i], 450, size, size, 16);
+        ctx.fillStyle = "#0a0b0f"; ctx.fill();
+        ctx.strokeStyle = n[3]; ctx.lineWidth = 3; ctx.stroke();
+        txt(n[0], cx, 450 + 140, 112, 900, PAPER);
+        var parts = n[1].split("\n");
+        for (var k2 = 0; k2 < parts.length; k2++) {
+          txt(parts[k2], cx, 450 + 200 + k2 * 38, 28, 600, "#8b8676");
+        }
+        ctx.restore();
+        if (i < 2) popText("→", xs[i] + size + 32, 605, 76, 400, DIM, lt, i === 0 ? 1.6 : 3.8);
       })(i);
     }
-    popCard(90, 880, 900, 120, 20, C.bd, null, lt, 5.2, function () {
-      ctx.save(); ctx.translate(540, 962); ctx.scale(1, 1);
-      ctx.font = "700 42px " + MONO;
-      var seg = [["depth--", C.cy], ["; if (depth == ", C.mono], ["0", C.am], [") stopWatchdog();", C.mono]];
-      var total = seg.reduce(function (a, s) { return a + ctx.measureText(s[0]).width; }, 0);
-      var px = -total / 2;
-      seg.forEach(function (s) {
-        ctx.fillStyle = s[1]; ctx.textAlign = "left"; ctx.fillText(s[0], px, 0);
-        px += ctx.measureText(s[0]).width;
+    var pc = popStr(lt, 5.2);
+    if (pc > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(pc * 1.6, 0, 1);
+      rr(90, 900, 900, 116, 10); ctx.fillStyle = "#0a0b0f"; ctx.fill();
+      ctx.strokeStyle = "rgba(217,169,78,.4)"; ctx.lineWidth = 2; ctx.stroke();
+      ctx.font = "700 40px " + MONO;
+      var seg = [["depth--", INK_HI], ["; if (depth == ", "#e8d9b8"], ["0", INK_HI], [") stopWatchdog();", "#e8d9b8"]];
+      var total = seg.reduce(function (a, s2m) { return a + ctx.measureText(s2m[0]).width; }, 0);
+      var px = 540 - total / 2;
+      seg.forEach(function (sm) {
+        ctx.fillStyle = sm[1]; ctx.textAlign = "left"; ctx.fillText(sm[0], px, 968);
+        px += ctx.measureText(sm[0]).width;
       });
       ctx.restore();
-    });
-    popText("嵌套的内层 finally，再也不会误杀看门狗", W / 2, 1130, 54, 800, C.gr, lt, 6);
+    }
+    popText("嵌套的内层 finally，再也不会误杀看门狗", W / 2, 1120, 50, 800, INK_HI, lt, 6, false, true);
+    sparkBurst(540, 580, lt, 6.2);
   }
 
-  function s6(lt) {                        // 48–58 清单
-    popText("上线前检查清单 📋", W / 2, 320, 64, 900, C.tx, lt, 0.08);
+  /* ---------- S6 清单 48–58 ---------- */
+  function s6(lt) {
+    popText("上线前检查清单", W / 2, 320, 62, 900, PAPER, lt, 0.08, false, true);
+    underline(W / 2, 345, 380, lt, 0.3, INK);
     var items = [
       ["1", "长任务必开看门狗", "任务时长可能超过 TTL 的，都要开", 0.3],
       ["2", "嵌套加锁：内层只递减，归零才停", "重入语义必须配对，finally 也不例外", 1.5],
@@ -323,27 +474,42 @@
     ];
     for (var i = 0; i < 3; i++) {
       (function (it) {
-        popCard(90, 400 + i * 250, 900, 210, 28, C.bd, null, lt, it[3], function () {
-          var y0 = 400 + i * 250;
-          ctx.save();
-          rr(134, y0 + 62, 76, 76, 38); ctx.fillStyle = C.gr; ctx.fill();
-          txt(it[0], 172, y0 + 114, 44, 900, "#0a0e17");
-          txt(it[1], 240, y0 + 100, 42, 800, "#eef2f8", "left");
-          txt(it[2], 240, y0 + 158, 31, 600, C.sub, "left");
-          ctx.restore();
-        });
+        var p = popStr(lt, it[3]);
+        if (p <= 0) return;
+        ctx.save();
+        var y0 = 410 + i * 250, cx = 540, cy = y0 + 105;
+        ctx.translate(cx, cy); ctx.scale(p, p); ctx.translate(-cx, -cy);
+        ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+        rr(90, y0, 900, 210, 12); ctx.fillStyle = "#0a0b0f"; ctx.fill();
+        ctx.strokeStyle = "rgba(217,169,78,.35)"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.save(); glow(INK, 14);
+        ctx.beginPath(); ctx.arc(178, y0 + 105, 38, 0, 6.283);
+        ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+        txt(it[0], 178, y0 + 122, 44, 900, INK_HI);
+        txt(it[1], 252, y0 + 92, 40, 800, PAPER, "left");
+        txt(it[2], 252, y0 + 148, 30, 600, "#8b8676", "left");
+        ctx.restore();
       })(items[i]);
     }
   }
 
-  function s7(lt) {                        // 58–62.5 CTA
-    popText("📌", W / 2, 560, 110, 400, C.tx, lt, 0);
-    popText("收藏这篇", W / 2 - 165, 780, 88, 900, C.am, lt, 0.2, false, "right");
-    popText("长任务上线前过一遍", W / 2 + 175, 900, 88, 900, C.tx, lt, 0.2, false, "left");
-    popCard(140, 1060, 800, 150, 24, C.bd, null, lt, 0.6, function () {
-      txt("评论区聊聊：你们的服务，锁的续期谁在做？👇", 540, 1152, 42, 800, "#c9d4e3");
-    });
-    popText("star-site-components · 七组件 · 开源", W / 2, 1330, 34, 700, C.dim, lt, 1);
+  /* ---------- S7 CTA 58–62.5 ---------- */
+  function s7(lt) {
+    popText("📌", W / 2, 590, 104, 400, PAPER, lt, 0);
+    popText("收藏这篇", W / 2 - 160, 780, 86, 900, INK_HI, lt, 0.2, false, true, { align: "right" });
+    popText("长任务上线前过一遍", W / 2 + 170, 900, 86, 900, PAPER, lt, 0.2, false, true, { align: "left" });
+    underline(W / 2, 925, 500, lt, 0.7, INK);
+    var p = popStr(lt, 0.6);
+    if (p > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+      rr(140, 1060, 800, 150, 10); ctx.fillStyle = "#0a0b0f"; ctx.fill();
+      ctx.strokeStyle = "rgba(217,169,78,.4)"; ctx.lineWidth = 2; ctx.stroke();
+      txt("评论区聊聊：你们的服务，锁的续期谁在做？", 540, 1148, 40, 800, "#cfc4ad");
+      ctx.restore();
+    }
+    popText("star-site-components · 七组件 · 开源", W / 2, 1330, 32, 700, "#8b8676", lt, 1, false, false, { });
+    sparkBurst(540, 560, lt, 0.35);
   }
 
   var SCENES = [
@@ -354,32 +520,34 @@
   ];
 
   function render(s) {
-    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
-    for (var i = 0; i < SCENES.length; i++) {
-      if (s >= SCENES[i].from && s < SCENES[i].to) { SCENES[i].draw(s - SCENES[i].from); break; }
+    var shakeX = 0, shakeY = 0;
+    if ((s >= 8.9 && s < 9.7) || (s >= 30.0 && s < 30.7)) {   // 危险时刻屏震
+      var e = s >= 30 ? s - 30.0 : s - 8.9;
+      var amp = 14 * Math.max(0, 1 - e / 0.7);
+      shakeX = Math.sin(s * 71) * amp; shakeY = Math.cos(s * 83) * amp;
     }
-    var fi = 0;
-    for (var j = 0; j < CAPTIONS.length; j++) if (s >= CAPTIONS[j][0]) fi = j;
-    var capIn = clamp((s - CAPTIONS[fi][0]) / 0.25, 0, 1);   // 字幕淡入
+    drawBg(s, shakeX, shakeY);
     ctx.save();
-    ctx.globalAlpha = capIn;
-    rr(60, 1660, 960, 150, 28);
-    ctx.fillStyle = "rgba(13,17,26,.92)"; ctx.fill();
-    ctx.strokeStyle = C.bd; ctx.lineWidth = 2; ctx.stroke();
-    var msg = CAPTIONS[fi][1];
-    ctx.font = "700 42px " + FONT;
-    if (ctx.measureText(msg).width > 880) msg = msg.slice(0, 21) + "\n" + msg.slice(21);
-    var segs = msg.split("\n");
-    for (var k = 0; k < segs.length; k++) {
-      txt(segs[k], 540, 1723 + k * 56 - (segs.length - 1) * 28, 42, 700, "#eef2f8");
+    ctx.translate(shakeX, shakeY);
+    var idx = 0;
+    for (var i = 0; i < SCENE_BOUNDS.length; i++) {
+      if (s >= SCENE_BOUNDS[i][0] && s < SCENE_BOUNDS[i][1]) { idx = i; break; }
     }
+    var from = SCENE_BOUNDS[idx][0];
+    var fadeIn = clamp((s - from) / 0.35, 0, 1);              // 章节转场淡入
+    ctx.save();
+    ctx.globalAlpha = fadeIn;
+    var sc = 1 + 0.02 * (1 - easeOutCubic(fadeIn));           // 1.02 → 1.00 微缩
+    ctx.translate(W / 2, H / 2 - 80); ctx.scale(sc, sc); ctx.translate(-W / 2, -(H / 2 - 80));
+    SCENES[idx].draw(s - from);
     ctx.restore();
-    rr(0, 0, W * clamp(s / TOTAL, 0, 1), 10, 5);             // 进度条
-    ctx.fillStyle = C.gr; ctx.fill();
-    txt("star-site-components", W / 2, 1878, 28, 600, C.dim);
+    hudChrome(s, idx);
+    captionBar(s);
+    ctx.restore();
+    progressBar(s);
   }
 
-  /* ---------- 确定性帧导出（不依赖 rAF/合成器——节流环境下的可靠出帧通道） ---------- */
+  /* ---------- 确定性帧导出（不依赖 rAF——节流环境可靠出帧） ---------- */
   window.__snap = function (n0, n1) {
     var out = [];
     for (var i = n0; i < n1 && i < Math.ceil(TOTAL * 25); i++) {
@@ -389,31 +557,16 @@
     return out;
   };
 
-  /* ---------- 启动 + 自录 + 回传 ---------- */
+  /* ---------- 实时预览（本地浏览器点 ▶；出片走 __snap） ---------- */
   document.getElementById("go").addEventListener("click", function () {
     document.getElementById("start").style.display = "none";
     var stat = document.getElementById("stat");
-    var mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
-      .filter(function (m) { return MediaRecorder.isTypeSupported(m); })[0];
-    var stream = cv.captureStream(25);
-    var rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
-    var chunks = [];
-    rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
-    rec.onstop = function () {
-      var blob = new Blob(chunks, { type: "video/webm" });
-      stat.textContent = "uploading " + (blob.size / 1048576).toFixed(1) + "MB…";
-      fetch("http://127.0.0.1:9902/upload", { method: "POST", body: blob, mode: "cors" })
-        .then(function (r) { stat.textContent = "done " + r.status; })
-        .catch(function (e) { stat.textContent = "upload fail: " + e; });
-    };
-    rec.start(1000);
     var t0 = performance.now();
     (function loop(now) {
       var s = (now - t0) / 1000;
       render(Math.min(s, TOTAL));
       stat.textContent = s.toFixed(1) + "s";
       if (s < TOTAL + TAIL) requestAnimationFrame(loop);
-      else if (rec.state !== "inactive") rec.stop();
     })(t0);
   });
 })();
