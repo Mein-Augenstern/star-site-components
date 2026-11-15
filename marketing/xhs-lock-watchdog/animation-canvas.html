@@ -22,7 +22,7 @@
 <body>
 <canvas id="cv" width="1080" height="1920"></canvas>
 <audio id="bgm" src="mix.m4a" preload="auto"></audio>
-<div id="start"><button id="go">▶</button><p>点击开始（预览含配乐；出片走 __snap）</p></div>
+<div id="start"><button id="go">▶</button><p>动画预览（出片工具）<br>带声音的成片请打开 preview.html</p></div>
 <div id="stat"></div>
 <script>
 (function () {
@@ -703,12 +703,21 @@
     document.getElementById("start").style.display = "none";
     var stat = document.getElementById("stat");
     var bgm = document.getElementById("bgm");
-    try { bgm.currentTime = 0; bgm.play().catch(function () {}); } catch (_) {}
+    var audioOk = true;                      // 配乐加载失败时如实提示（出片工具≠播放器）
+    try {
+      bgm.currentTime = 0;
+      bgm.play().catch(function () {
+        audioOk = false;
+        stat.textContent = "🔇 预览无声：本地服务未启动 —— 带声音的成片请看 preview.html";
+      });
+    } catch (_) { audioOk = false; }
     var t0 = Date.now();
     var busy = false;                        // 上一帧未画完则跳过本 tick（主线程减负，
     var timer = setInterval(function () {    // 防止渲染饱和导致媒体被 webview 暂停）
       var s = (Date.now() - t0) / 1000;
-      stat.textContent = Math.min(s, TOTAL).toFixed(1) + "s";
+      stat.textContent = audioOk
+        ? Math.min(s, TOTAL).toFixed(1) + "s"
+        : "🔇 预览无声 —— 成片请看 preview.html";
       if (busy || document.hidden) return;
       busy = true;
       try {
