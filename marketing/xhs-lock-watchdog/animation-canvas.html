@@ -654,12 +654,19 @@
     var bgm = document.getElementById("bgm");
     try { bgm.currentTime = 0; bgm.play().catch(function () {}); } catch (_) {}
     var t0 = Date.now();
-    var timer = setInterval(function () {
+    var busy = false;                        // 上一帧未画完则跳过本 tick（主线程减负，
+    var timer = setInterval(function () {    // 防止渲染饱和导致媒体被 webview 暂停）
       var s = (Date.now() - t0) / 1000;
-      render(Math.min(s, TOTAL));
-      stat.textContent = s.toFixed(1) + "s";
+      stat.textContent = Math.min(s, TOTAL).toFixed(1) + "s";
+      if (busy || document.hidden) return;
+      busy = true;
+      try {
+        render(Math.min(s, TOTAL));
+      } finally {
+        busy = false;
+      }
       if (s >= TOTAL + TAIL) { clearInterval(timer); try { bgm.pause(); } catch (_) {} }
-    }, 40);
+    }, 66);
   });
 })();
 </script>
