@@ -5,8 +5,10 @@
 <title>分布式锁看门狗 · 琥珀影院版（集群分布式）</title>
 <style>
   * { margin:0; padding:0; }
-  html,body { background:#050608; }
-  canvas { display:block; }
+  html,body { background:#050608; height:100%; display:flex; align-items:center;
+    justify-content:center; overflow:hidden; }
+  /* 自适应任意面板大小：画布等比缩放居中，永不出框 */
+  canvas { display:block; max-width:100vw; max-height:100vh; width:auto; height:auto; }
   #start { position:fixed; inset:0; z-index:9; background:#050608; display:flex;
     flex-direction:column; align-items:center; justify-content:center; gap:40px;
     font-family:-apple-system,"PingFang SC",sans-serif; }
@@ -19,7 +21,8 @@
 </head>
 <body>
 <canvas id="cv" width="1080" height="1920"></canvas>
-<div id="start"><button id="go">▶</button><p>点击开始（预览；出片走 __snap）</p></div>
+<audio id="bgm" src="mix.m4a" preload="auto"></audio>
+<div id="start"><button id="go">▶</button><p>点击开始（预览含配乐；出片走 __snap）</p></div>
 <div id="stat"></div>
 <script>
 (function () {
@@ -89,7 +92,7 @@
   function glow(color, blur) { ctx.shadowColor = color; ctx.shadowBlur = blur || 22; }
   function noGlow() { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; }
   function txt(str, x, y, size, weight, color, align, mono, serif, spacing) {
-    ctx.fillStyle = color; ctx.textAlign = align || "center"; ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = color; ctx.textAlign = (typeof align === "string") ? align : "center"; ctx.textBaseline = "alphabetic";
     ctx.font = (weight || 700) + " " + size + "px " + (mono ? MONO : (serif ? SERIF : SANS));
     if (spacing) {
       var total = 0;
@@ -178,6 +181,14 @@
         22, 700, DIM, "right", true, false, 1);
     ctx.restore();
   }
+  function splitCaption(msg) {             // 超宽字幕断行：断点不落在标点/空格
+    ctx.font = "600 44px " + SERIF;
+    if (ctx.measureText(msg).width <= 860) return [msg];
+    var mid = Math.ceil(msg.length / 2);
+    var PUNCT = "，。：——！？、·…；";
+    while (mid > 4 && (PUNCT.indexOf(msg.charAt(mid)) !== -1 || msg.charAt(mid) === " ")) mid--;
+    return [msg.slice(0, mid), msg.slice(mid)];
+  }
   function captionBar(s) {
     var fi = 0;
     for (var j = 0; j < CAPTIONS.length; j++) if (s >= CAPTIONS[j][0]) fi = j;
@@ -187,11 +198,7 @@
     rr(70, 1655, 940, 150, 10);
     ctx.fillStyle = "rgba(8,9,12,.88)"; ctx.fill();
     ctx.strokeStyle = "rgba(217,169,78,.25)"; ctx.lineWidth = 2; ctx.stroke();
-    var msg = CAPTIONS[fi][1];
-    ctx.font = "600 44px " + SERIF;
-    var segs = ctx.measureText(msg).width > 860
-      ? [msg.slice(0, Math.ceil(msg.length / 2)), msg.slice(Math.ceil(msg.length / 2))]
-      : [msg];
+    var segs = splitCaption(CAPTIONS[fi][1]);
     for (var k = 0; k < segs.length; k++) {
       txt(segs[k], 540, 1722 + k * 56 - (segs.length - 1) * 28, 44, 600, PAPER, "center", false, true);
     }
@@ -341,7 +348,7 @@
 
   /* ---------- S2 痛点 3.5–12：四实例竞抢，TTL 过期跨实例被抢 ---------- */
   function s2(lt) {
-    popText("没有看门狗的世界", W / 2, 300, 62, 900, PAPER, lt, 0.1, false, true);
+    popText("没有看门狗的世界", W / 2, 300, 62, 900, PAPER, lt, 0.1, true);
     underline(W / 2, 325, 430, lt, 0.35, INK);
 
     var expired = lt >= 5.2;                 // TTL 到期
@@ -383,7 +390,7 @@
 
   /* ---------- S3 解法 12–22：看门狗续期，全集群恰一 ---------- */
   function s3(lt) {
-    popText("解法：看门狗 🐕", W / 2, 300, 62, 900, INK_HI, lt, 0.1, false, true);
+    popText("解法：看门狗 🐕", W / 2, 300, 62, 900, INK_HI, lt, 0.1, true);
     underline(W / 2, 325, 430, lt, 0.35, INK);
 
     var cyc = (lt - 0.6) % 1.9;
@@ -421,7 +428,7 @@
 
   /* ---------- S4 踩坑 22–36 ---------- */
   function s4(lt) {
-    popText("但是——差点被自己人坑了", W / 2, 300, 58, 900, INK_HI, lt, 0.08, false, true);
+    popText("但是——差点被自己人坑了", W / 2, 300, 58, 900, INK_HI, lt, 0.08, true);
     underline(W / 2, 325, 520, lt, 0.3, INK);
     var bx = 110, by = 370, bw = 860, bh = 520;
     var pBox = popStr(lt, 0.25);
@@ -494,7 +501,7 @@
 
   /* ---------- S5 修复 36–48 ---------- */
   function s5(lt) {
-    popText("修复：重入深度计数", W / 2, 320, 62, 900, INK_HI, lt, 0.08, false, true);
+    popText("修复：重入深度计数", W / 2, 320, 62, 900, INK_HI, lt, 0.08, true);
     underline(W / 2, 345, 430, lt, 0.3, INK);
     var nums = [["2", "外层+内层", 0.2, INK], ["1", "内层只递减\n狗还在 🐕", 2.2, INK], ["0", "归零才停狗\n✓ 正确释放", 4.4, "rgba(217,169,78,.45)"]];
     var xs = [120, 400, 680];
@@ -525,9 +532,14 @@
       ctx.globalAlpha = clamp(pc * 1.6, 0, 1);
       rr(90, 900, 900, 116, 10); ctx.fillStyle = CARD; ctx.fill();
       ctx.strokeStyle = "rgba(217,169,78,.4)"; ctx.lineWidth = 2; ctx.stroke();
-      ctx.font = "700 40px " + MONO;
       var seg = [["depth--", INK_HI], ["; if (depth == ", "#e8d9b8"], ["0", INK_HI], [") stopWatchdog();", "#e8d9b8"]];
-      var total = seg.reduce(function (a, sm) { return a + ctx.measureText(sm[0]).width; }, 0);
+      var fsz = 40;                            // 代码行自适应缩字号，永不超卡片
+      function totalAt(sz) {
+        ctx.font = "700 " + sz + "px " + MONO;
+        return seg.reduce(function (a, sm) { return a + ctx.measureText(sm[0]).width; }, 0);
+      }
+      var total = totalAt(fsz);
+      if (total > 840) { fsz = Math.floor(fsz * 840 / total); total = totalAt(fsz); }
       var px = 540 - total / 2;
       seg.forEach(function (sm) {
         ctx.fillStyle = sm[1]; ctx.textAlign = "left"; ctx.fillText(sm[0], px, 968);
@@ -541,7 +553,7 @@
 
   /* ---------- S6 清单 48–58 ---------- */
   function s6(lt) {
-    popText("上线前检查清单", W / 2, 320, 62, 900, PAPER, lt, 0.08, false, true);
+    popText("上线前检查清单", W / 2, 320, 62, 900, PAPER, lt, 0.08, true);
     underline(W / 2, 345, 380, lt, 0.3, INK);
     var items = [
       ["1", "长任务必开看门狗", "任务时长可能超过 TTL 的，都要开", 0.3],
@@ -639,12 +651,14 @@
   document.getElementById("go").addEventListener("click", function () {
     document.getElementById("start").style.display = "none";
     var stat = document.getElementById("stat");
+    var bgm = document.getElementById("bgm");
+    try { bgm.currentTime = 0; bgm.play().catch(function () {}); } catch (_) {}
     var t0 = Date.now();
     var timer = setInterval(function () {
       var s = (Date.now() - t0) / 1000;
       render(Math.min(s, TOTAL));
       stat.textContent = s.toFixed(1) + "s";
-      if (s >= TOTAL + TAIL) clearInterval(timer);
+      if (s >= TOTAL + TAIL) { clearInterval(timer); try { bgm.pause(); } catch (_) {} }
     }, 40);
   });
 })();

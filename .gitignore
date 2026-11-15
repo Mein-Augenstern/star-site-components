@@ -8,3 +8,5 @@ target/
 .DS_Store
 dependency-reduced-pom.xml
 .mimosa/
+marketing/xhs-lock-watchdog/frames/
+marketing/xhs-lock-watchdog/mix.wav
