@@ -347,7 +347,7 @@
         txt("🖥️", CX[p1], 1324, 30, 400, PAPER);
         txt("Pod " + "ABCD"[p1], CX[p1], 1366, 24, 800, WARM);
       }
-      txt("集群里的 4 台实例 —— 故事从这里开始", 540, 1444, 26, 600, SUB);
+      txt("4 台实例，都在执行同一个 tryLock() —— 故事从这里开始", 540, 1444, 26, 600, SUB);
       ctx.restore();
     }
   }
@@ -388,6 +388,24 @@
         });
       })(i);
     }
+    // 代码层原理：竞争的真相就是所有实例都在跑同一段 tryLock
+    var pc = popStr(lt, 1.3);
+    if (pc > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(pc * 1.6, 0, 1) * 0.96;
+      var cardH = expired ? 192 : 142;
+      rr(90, 940, 900, cardH, 10); ctx.fillStyle = CARD; ctx.fill();
+      ctx.strokeStyle = expired ? "rgba(255,77,77,.55)" : "rgba(217,169,78,.4)";
+      ctx.lineWidth = 2; ctx.stroke();
+      txt('if (tryLock("settle", TTL)) {', 120, 988, 28, 800, "#e8d9b8", "left", true);
+      txt('// 四台实例同时在跑这一行', 960, 988, 24, 600, SUB, "right");
+      txt('doLongTask();', 160, 1032, 28, 800, "#e8d9b8", "left", true);
+      txt('// 只有赢的那台真正执行', 960, 1032, 24, 600, SUB, "right");
+      if (expired) {
+        txt('} // TTL 到期无人续期 → 锁自动释放', 120, 1092, 28, 800, RED, "left", true);
+      }
+      ctx.restore();
+    }
     if (stolen) {
       popText("⚠ A 和 C 同时在跑", W / 2, 1180, 62, 900, RED, lt, 6.5, true);
       popText("集群互斥失效！", W / 2, 1268, 62, 900, RED, lt, 6.65, true);
@@ -427,8 +445,20 @@
         });
       })(i);
     }
-    popText("每 TTL/3 一次续期 —— TTL 永不过期", W / 2, 1010, 42, 700, WARM, lt, 2.2, true);
-    popText("✓ 集群里只有 A 在跑，锁稳稳在手", W / 2, 1150, 56, 900, INK_HI, lt, 8, true);
+    // 代码层原理：看门狗就是一段定时重入——重入即刷新 TTL
+    var pc3 = popStr(lt, 2.0);
+    if (pc3 > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(pc3 * 1.6, 0, 1) * 0.96;
+      rr(90, 940, 900, 204, 10); ctx.fillStyle = CARD; ctx.fill();
+      ctx.strokeStyle = "rgba(217,169,78,.4)"; ctx.lineWidth = 2; ctx.stroke();
+      txt('// 看门狗：拿到锁自动启动，每 TTL/3 续一次', 120, 984, 24, 600, SUB, "left");
+      txt('watchdog.scheduleAtFixedRate(() ->', 120, 1030, 28, 800, "#e8d9b8", "left", true);
+      txt('    tryLock("settle"),   // 重入 → TTL 刷新 ✓', 120, 1076, 28, 800, "#e8d9b8", "left", true);
+      txt('}, TTL/3, TTL/3);', 120, 1122, 28, 800, "#e8d9b8", "left", true);
+      ctx.restore();
+    }
+    popText("✓ 集群里只有 A 在跑，锁稳稳在手", W / 2, 1200, 56, 900, INK_HI, lt, 8, true);
     sparkBurst(540, 560, lt, 8.2);
   }
 
