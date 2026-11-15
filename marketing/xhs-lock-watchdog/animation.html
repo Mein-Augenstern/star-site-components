@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>分布式锁看门狗 · 小红书竖版</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:1080px; height:1920px; overflow:hidden; background:#0a0e17;
+    font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; }
+  #stage { position:relative; width:1080px; height:1920px; }
+
+  /* ---- 常驻骨架：进度条 + 字幕条 + 品牌角标 ---- */
+  #progress { position:absolute; top:0; left:0; height:10px; width:0%;
+    background:linear-gradient(90deg,#3ddc84,#4cc9f0); z-index:50; }
+  #caption { position:absolute; bottom:96px; left:50%; transform:translateX(-50%);
+    width:960px; min-height:150px; display:flex; align-items:center; justify-content:center;
+    background:rgba(13,17,26,.92); border:2px solid #2a3548; border-radius:28px;
+    padding:24px 36px; z-index:50; font-size:44px; line-height:1.4; font-weight:700;
+    color:#eef2f8; text-align:center; opacity:0; transition:opacity .25s; }
+  #caption.show { opacity:1; }
+  #brand { position:absolute; bottom:26px; width:100%; text-align:center; z-index:50;
+    font-size:28px; color:#5b6b84; letter-spacing:2px; }
+
+  /* ---- 场景容器 ---- */
+  .scene { position:absolute; inset:0; padding:120px 80px 300px; display:flex;
+    flex-direction:column; align-items:center; justify-content:center; gap:40px;
+    opacity:0; visibility:hidden; transition:opacity .4s; }
+  .scene.active { opacity:1; visibility:visible; }
+
+  .big { font-weight:900; color:#f5f7fa; text-align:center; }
+  .green { color:#3ddc84; } .red { color:#ff4757; } .cyan { color:#4cc9f0; } .amber { color:#ffc048; }
+
+  /* 入场动效：从下淡入 + 轻微上移（.in 由 JS 按节拍添加） */
+  .pop { opacity:0; transform:translateY(60px) scale(.94); }
+  .in .pop { animation:pop .5s cubic-bezier(.2,.9,.3,1.2) forwards; }
+  @keyframes pop { to { opacity:1; transform:translateY(0) scale(1); } }
+  .stamp { opacity:0; transform:scale(2.4) rotate(-14deg); }
+  .in .stamp { animation:stamp .45s cubic-bezier(.2,.8,.3,1.1) forwards; }
+  @keyframes stamp { to { opacity:1; transform:scale(1) rotate(-8deg); } }
+
+  /* ---- S1 钩子 ---- */
+  #s1 .line { font-size:96px; line-height:1.35; }
+  #s1 .lock { font-size:150px; display:inline-block; }
+  .in #s1 .lock, .in .shake { animation:shake .55s ease-in-out 3; }
+  @keyframes shake { 0%,100%{transform:rotate(0)} 25%{transform:rotate(-14deg)} 75%{transform:rotate(14deg)} }
+  #s1 .badge { font-size:44px; color:#0a0e17; background:#ffc048; border-radius:16px;
+    padding:10px 30px; font-weight:900; letter-spacing:4px; }
+
+  /* ---- Pod 卡片（S2/S3/S4 通用） ---- */
+  .pods { display:flex; gap:60px; align-items:stretch; }
+  .pod { width:360px; background:#141a26; border:3px solid #2a3548; border-radius:32px;
+    padding:44px 36px; display:flex; flex-direction:column; align-items:center; gap:26px; }
+  .pod.win { border-color:#3ddc84; box-shadow:0 0 60px rgba(61,220,132,.25); }
+  .pod.steal { border-color:#ff4757; box-shadow:0 0 60px rgba(255,71,87,.3); }
+  .pod .face { font-size:84px; }
+  .pod .name { font-size:44px; font-weight:800; color:#c9d4e3; }
+  .pod .state { font-size:36px; font-weight:700; color:#8b9bb4; min-height:52px; }
+  .ttlwrap { width:100%; }
+  .ttlbar { height:34px; background:#1d2736; border-radius:17px; overflow:hidden; }
+  .ttlfill { height:100%; width:100%; border-radius:17px;
+    background:linear-gradient(90deg,#ffc048,#ff8f3d); }
+  .ttllabel { font-size:30px; color:#8b9bb4; margin-top:12px; text-align:center; }
+  .task { width:100%; font-size:30px; color:#8b9bb4; }
+  .taskbar { height:26px; background:#1d2736; border-radius:13px; overflow:hidden; margin-top:10px; }
+  .taskfill { height:100%; width:0%; background:linear-gradient(90deg,#4cc9f0,#3ddc84); }
+
+  .flash { position:absolute; inset:0; background:rgba(255,71,87,.28); opacity:0;
+    pointer-events:none; z-index:40; }
+  .in .flash.hit { animation:flash .9s ease-out 1; }
+  @keyframes flash { 0%{opacity:0} 15%{opacity:1} 100%{opacity:0} }
+  .verdict { font-size:72px; font-weight:900; text-align:center; opacity:0; }
+  .in .verdict.late { animation:pop .45s ease-out forwards; animation-delay:var(--d,0s); }
+
+  /* ---- S3 看门狗 ---- */
+  .dog { font-size:84px; display:inline-block; }
+  .in .dog.work { animation:work 1.9s ease-in-out infinite; }
+  @keyframes work { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-16px)} }
+  .renew { position:absolute; font-size:40px; font-weight:900; color:#3ddc84; opacity:0; }
+  .in .renew.go { animation:floatup 1.9s ease-out infinite; }
+  @keyframes floatup { 0%{opacity:0; transform:translateY(0)} 15%{opacity:1}
+    100%{opacity:0; transform:translateY(-90px)} }
+  /* TTL 回弹循环：1.6s 排空 → 瞬时回满 */
+  .in #s3 .ttlfill { animation:renewcycle 1.9s linear infinite; }
+  @keyframes renewcycle { 0%{width:100%} 84%{width:8%} 84.1%{width:100%} 100%{width:92%} }
+
+  /* ---- S4 嵌套代码框 ---- */
+  .nest { width:860px; background:#111722; border:3px solid #2a3548; border-radius:28px;
+    padding:40px; font-size:38px; font-weight:700; color:#c9d4e3; line-height:2; }
+  .nest .outer { border:3px dashed #3ddc84; border-radius:20px; padding:24px 28px; margin-bottom:8px; }
+  .nest .inner { border:3px dashed #4cc9f0; border-radius:16px; padding:16px 24px; margin:14px 0 14px 60px; }
+  .nest .kw { color:#ff8f3d; } .nest .fn { color:#4cc9f0; } .nest .cm { color:#5b6b84; font-size:32px; }
+  .nest .dead { text-decoration:line-through; color:#5b6b84; }
+  .p0stamp { position:absolute; right:100px; top:340px; font-size:150px; font-weight:900;
+    color:#ff4757; border:10px solid #ff4757; border-radius:24px; padding:8px 40px;
+    background:rgba(255,71,87,.12); }
+
+  /* ---- S5 深度计数 ---- */
+  .counter { display:flex; align-items:center; gap:50px; }
+  .cbox { width:300px; height:300px; border-radius:40px; background:#141a26;
+    border:6px solid #3ddc84; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; font-weight:900; color:#f5f7fa; }
+  .cbox .num { font-size:130px; line-height:1; }
+  .cbox .lab { font-size:36px; color:#8b9bb4; margin-top:14px; }
+  .arrow { font-size:90px; color:#5b6b84; }
+  .stepline { font-family:"SF Mono",Menlo,monospace; font-size:40px; color:#c9d4e3;
+    background:#111722; border:2px solid #2a3548; border-radius:20px; padding:26px 40px; }
+  .stepline .fn { color:#4cc9f0; } .stepline .num { color:#ffc048; }
+
+  /* ---- S6 清单 ---- */
+  .checks { display:flex; flex-direction:column; gap:34px; width:900px; }
+  .check { display:flex; align-items:center; gap:30px; background:#141a26;
+    border:3px solid #2a3548; border-radius:28px; padding:38px 42px; }
+  .check .no { flex:none; width:76px; height:76px; border-radius:50%; background:#3ddc84;
+    color:#0a0e17; font-size:44px; font-weight:900; display:flex; align-items:center;
+    justify-content:center; }
+  .check .tx { font-size:44px; font-weight:800; color:#eef2f8; line-height:1.45; }
+  .check .tx small { display:block; font-size:32px; color:#8b9bb4; font-weight:600; margin-top:6px; }
+
+  /* ---- S7 CTA ---- */
+  #s7 .save { font-size:88px; font-weight:900; }
+  #s7 .ask { font-size:50px; color:#c9d4e3; background:#141a26; border:3px solid #2a3548;
+    border-radius:24px; padding:30px 46px; }
+  #s7 .pin { font-size:110px; }
+
+  /* ---- 启动遮罩 ---- */
+  #start { position:absolute; inset:0; z-index:99; background:#0a0e17; display:flex;
+    flex-direction:column; align-items:center; justify-content:center; gap:50px; }
+  #start button { width:260px; height:260px; border-radius:50%; border:6px solid #3ddc84;
+    background:rgba(61,220,132,.12); font-size:110px; color:#3ddc84; cursor:pointer; }
+  #start p { font-size:44px; color:#8b9bb4; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="progress"></div>
+  <div class="flash" id="flashA"></div>
+  <div class="flash" id="flashB"></div>
+
+  <!-- S1 钩子 0-3.5s -->
+  <section class="scene" id="s1">
+    <div class="badge pop">真实 P0 踩坑复盘</div>
+    <div class="big line pop" style="animation-delay:.15s">你的分布式锁<br><span class="red">会在长任务中途</span><br>被人抢走</div>
+    <div class="pop" style="animation-delay:.5s"><span class="lock">🔓</span></div>
+  </section>
+
+  <!-- S2 痛点 3.5-12s：没有看门狗 -->
+  <section class="scene" id="s2">
+    <div class="big pop" style="font-size:64px">没有看门狗的世界</div>
+    <div class="pods">
+      <div class="pod win pop" id="podA" style="animation-delay:.25s">
+        <div class="face">🖥️</div><div class="name">Pod A</div>
+        <div class="state" id="podAState">持锁 🔒 处理任务…</div>
+        <div class="ttlwrap"><div class="ttlbar"><div class="ttlfill" id="ttl2"></div></div>
+          <div class="ttllabel">锁 TTL 剩余</div></div>
+        <div class="task">任务进度<div class="taskbar"><div class="taskfill" id="task2" style="transition:width 8s linear"></div></div></div>
+      </div>
+      <div class="pod pop" id="podB" style="animation-delay:.45s">
+        <div class="face">🖥️</div><div class="name">Pod B</div>
+        <div class="state" id="podBState">排队等待…</div>
+      </div>
+    </div>
+    <div class="verdict late red" id="v2" style="--d:5.4s">⚠️ TTL 到期，锁被抢走<br>两个 Pod 同时在跑！</div>
+  </section>
+
+  <!-- S3 解法 12-22s：看门狗续期 -->
+  <section class="scene" id="s3">
+    <div class="big pop" style="font-size:64px">解法：<span class="green">看门狗 🐕</span> 自动续期</div>
+    <div class="pods">
+      <div class="pod win pop" style="animation-delay:.25s">
+        <div class="face">🖥️</div><div class="name">Pod A</div>
+        <div class="state">持锁 🔒 <span class="dog work">🐕</span></div>
+        <div class="ttlwrap" style="position:relative">
+          <span class="renew go" style="right:30px;top:-20px">+TTL ✨</span>
+          <div class="ttlbar"><div class="ttlfill"></div></div>
+          <div class="ttllabel">每 TTL/3 自动续期</div>
+        </div>
+        <div class="task">任务进度<div class="taskbar"><div class="taskfill" id="task3" style="transition:width 7.5s linear"></div></div></div>
+      </div>
+    </div>
+    <div class="verdict late green" style="--d:8s">✅ 长任务安全跑完，锁稳稳在手</div>
+  </section>
+
+  <!-- S4 P0 踩坑 22-36s -->
+  <section class="scene" id="s4">
+    <div class="big pop" style="font-size:60px">但是——<span class="amber">差点被自己人坑了</span></div>
+    <div class="nest pop" style="animation-delay:.25s">
+      <div class="outer" id="outer">
+        <span class="kw">if</span> (<span class="fn">tryLock</span>(<span class="string">"settle"</span>)) {   <span class="cm">// 外层：拿锁 + 看门狗启动 🐕</span>
+        <div class="inner" id="inner">
+          <span class="kw">if</span> (<span class="fn">tryLock</span>(<span class="string">"settle"</span>)) { <span class="cm">// 内层重入</span><br>
+          &nbsp;&nbsp;<span class="cm">…子步骤…</span><br>
+          &nbsp;&nbsp;<span class="fn unlock">unlock</span>(<span class="string">"settle"</span>);  <span class="cm" id="bugCm">// ← 这一下把看门狗停了！</span>
+          }<br>
+        </div>
+        <span class="cm">…外层还要跑 10 分钟…</span>
+        }
+      </div>
+    </div>
+    <div class="pod steal pop" id="pod4" style="animation-delay:.4s;width:700px;flex-direction:row;justify-content:space-around">
+      <div class="state" id="state4" style="font-size:40px">🐕 已被停掉 · TTL 无人续期…</div>
+    </div>
+    <div class="p0stamp stamp" style="animation-delay:8s">P0</div>
+    <div class="verdict late red" style="--d:8.6s">内层 unlock 停了狗<br>外层临界区裸奔，锁被抢</div>
+  </section>
+
+  <!-- S5 修复 36-48s -->
+  <section class="scene" id="s5">
+    <div class="big pop" style="font-size:64px">修复：<span class="green">重入深度计数</span></div>
+    <div class="counter">
+      <div class="cbox pop" style="animation-delay:.2s"><div class="num">2</div><div class="lab">外层+内层</div></div>
+      <div class="arrow pop" style="animation-delay:1.6s">→</div>
+      <div class="cbox pop" style="animation-delay:2.2s"><div class="num">1</div><div class="lab">内层只递减<br>狗还在 🐕</div></div>
+      <div class="arrow pop" style="animation-delay:3.8s">→</div>
+      <div class="cbox pop" style="animation-delay:4.4s;border-color:#5b6b84"><div class="num">0</div><div class="lab">归零才停狗<br>✅ 正确释放</div></div>
+    </div>
+    <div class="stepline pop" style="animation-delay:5.2s"><span class="fn">depth--</span>; <span class="fn">if</span> (depth == <span class="num">0</span>) <span class="fn">stopWatchdog</span>();</div>
+    <div class="verdict late green" style="--d:6s">嵌套作用域的内层 finally，再也不会误杀看门狗</div>
+  </section>
+
+  <!-- S6 清单 48-58s -->
+  <section class="scene" id="s6">
+    <div class="big pop" style="font-size:64px">上线前检查清单 📋</div>
+    <div class="checks">
+      <div class="check pop" style="animation-delay:.3s"><div class="no">1</div>
+        <div class="tx">长任务必开看门狗<small>任务时长可能超过 TTL 的，都要开</small></div></div>
+      <div class="check pop" style="animation-delay:1.5s"><div class="no">2</div>
+        <div class="tx">嵌套加锁：内层只递减，归零才停<small>重入语义必须配对，finally 也不例外</small></div></div>
+      <div class="check pop" style="animation-delay:2.7s"><div class="no">3</div>
+        <div class="tx">锁不是闸门，幂等才是兜底<small>存储抖动 fail-open 放行，业务幂等扛住双跑</small></div></div>
+    </div>
+  </section>
+
+  <!-- S7 CTA 58-62s -->
+  <section class="scene" id="s7">
+    <div class="pin pop">📌</div>
+    <div class="big save pop" style="animation-delay:.2s"><span class="amber">收藏</span>这篇<br>长任务上线前过一遍</div>
+    <div class="ask pop" style="animation-delay:.6s">评论区聊聊：你们的服务，锁的续期谁在做？👇</div>
+    <div class="pop" style="animation-delay:1s;font-size:36px;color:#5b6b84;letter-spacing:3px">star-site-components · 七组件 · 开源</div>
+  </section>
+
+  <div id="caption"></div>
+  <div id="brand">star-site-components</div>
+  <div id="start"><button id="go">▶</button><p>点击开始（录制用）</p></div>
+</div>
+
+<script>
+(function () {
+  var CAPTIONS = [
+    [0,     "你的分布式锁，会在长任务中途被人抢走"],
+    [3.5,   "没有看门狗：TTL 一到，锁就被别的 Pod 抢走"],
+    [9.2,   "两个 Pod 同时在跑 —— 互斥失效 💥"],
+    [12,    "看门狗：每 TTL/3 帮你自动续期，锁不过期"],
+    [20.5,  "但嵌套加锁时，差点被自己人坑了…"],
+    [25,    "内层 unlock 把看门狗停了 —— 外层还在临界区！"],
+    [31.8,  "P0：外层裸奔超 TTL，锁被抢走"],
+    [36,    "修复：重入深度计数，内层只递减"],
+    [41,    "深度归零才真正停狗 ✅"],
+    [48,    "上线前三件事，缺一不可"],
+    [58,    "收藏这篇 📌 你的锁，谁在续期？评论区聊"]
+  ];
+  var SCENES = [["s1",0],["s2",3.5],["s3",12],["s4",22],["s5",36],["s6",48],["s7",58]];
+  var TOTAL = 62;
+
+  var capEl = document.getElementById("caption");
+  var cur = -1;
+  function setCaption(i) {
+    if (i === cur) return;
+    cur = i;
+    capEl.classList.remove("show");
+    void capEl.offsetWidth;               // 重触发过渡
+    capEl.textContent = CAPTIONS[i][1];
+    capEl.classList.add("show");
+  }
+
+  function start() {
+    document.getElementById("start").style.display = "none";
+    var t0 = performance.now();
+    var fired = {};
+    var scenes = SCENES.map(function (p) {
+      return { el: document.getElementById(p[0]), t: p[1] };
+    });
+    var marks = [                          // 一次性视觉节拍（scene 内 pop 已由 .in 驱动）
+      { t: 8.7,  f: function () { document.getElementById("flashA").classList.add("in");
+                                 document.getElementById("flashA").classList.add("hit");
+                                 document.getElementById("podA").classList.remove("win");
+                                 document.getElementById("podB").classList.add("steal");
+                                 document.getElementById("podAState").textContent = "锁没了 😱";
+                                 document.getElementById("podBState").textContent = "抢到锁 🔒 开跑"; } },
+      { t: 3.9,  f: function () { document.getElementById("task2").style.width = "88%"; } },
+      { t: 12.4, f: function () { document.getElementById("task3").style.width = "100%"; } },
+      { t: 22.4, f: function () { document.getElementById("flashB").classList.add("in"); } },
+      { t: 25.0, f: function () { document.getElementById("bugCm").classList.add("dead");
+                                 document.getElementById("bugCm").textContent = "// 看门狗停了 🐕✝"; } },
+      { t: 30.2, f: function () { document.getElementById("state4").textContent = "🔓 锁已被 Pod B 抢走"; } }
+    ];
+    function tick(now) {
+      var s = (now - t0) / 1000;
+      document.getElementById("progress").style.width = Math.min(100, s / TOTAL * 100) + "%";
+      for (var i = 0; i < CAPTIONS.length; i++) if (s >= CAPTIONS[i][0]) setCaption(i);
+      scenes.forEach(function (p, idx) {
+        var next = scenes[idx + 1] ? scenes[idx + 1].t : TOTAL + 1;
+        var on = s >= p.t && s < next;
+        p.el.classList.toggle("active", on);
+        if (on && !fired[p.el.id]) { fired[p.el.id] = true; p.el.classList.add("in"); }
+      });
+      marks.forEach(function (m, idx) { if (!fired["m" + idx] && s >= m.t) { fired["m" + idx] = true; m.f(); } });
+      if (s < TOTAL + 0.5) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+  document.getElementById("go").addEventListener("click", start);
+})();
+</script>
+</body>
+</html>

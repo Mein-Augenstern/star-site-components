@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>分布式锁看门狗 · Canvas 自录版</title>
+<style>
+  * { margin:0; padding:0; }
+  html,body { background:#0a0e17; }
+  canvas { display:block; }
+  /* 启动遮罩不进视频：captureStream 只采画布 */
+  #start { position:fixed; inset:0; z-index:9; background:#0a0e17; display:flex;
+    flex-direction:column; align-items:center; justify-content:center; gap:40px;
+    font-family:-apple-system,"PingFang SC",sans-serif; }
+  #start button { width:220px; height:220px; border-radius:50%; border:6px solid #3ddc84;
+    background:rgba(61,220,132,.12); font-size:96px; color:#3ddc84; cursor:pointer; }
+  #start p { font-size:36px; color:#8b9bb4; }
+  #stat { position:fixed; top:12px; right:16px; z-index:9; color:#3ddc84;
+    font-size:24px; font-family:Menlo,monospace; }
+</style>
+</head>
+<body>
+<canvas id="cv" width="1080" height="1920"></canvas>
+<div id="start"><button id="go">▶</button><p>点击开始（画布自录 + 回传）</p></div>
+<div id="stat"></div>
+<script>
+(function () {
+  "use strict";
+  var W = 1080, H = 1920;
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var TOTAL = 62.5, TAIL = 1.0;               // 录到 63.5s
+  var C = { bg:"#0a0e17", card:"#141a26", bd:"#2a3548", gr:"#3ddc84", rd:"#ff4757",
+            cy:"#4cc9f0", am:"#ffc048", tx:"#f5f7fa", sub:"#8b9bb4", mono:"#c9d4e3",
+            darker:"#111722", dim:"#5b6b84" };
+  var FONT = '-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif';
+  var MONO = 'Menlo,monospace';
+
+  var CAPTIONS = [
+    [0,    "你的分布式锁，会在长任务中途被人抢走"],
+    [3.5,  "没有看门狗：TTL 一到，锁就被别的 Pod 抢走"],
+    [9.2,  "两个 Pod 同时在跑 —— 互斥失效 💥"],
+    [12,   "看门狗：每 TTL/3 帮你自动续期，锁不过期"],
+    [20.5, "但嵌套加锁时，差点被自己人坑了…"],
+    [25,   "内层 unlock 把看门狗停了 —— 外层还在临界区！"],
+    [31.8, "P0：外层裸奔超 TTL，锁被抢走"],
+    [36,   "修复：重入深度计数，内层只递减"],
+    [41,   "深度归零才真正停狗 ✅"],
+    [48,   "上线前三件事，缺一不可"],
+    [58,   "收藏这篇 📌 你的锁，谁在续期？评论区聊"]
+  ];
+
+  /* ---------- 小工具 ---------- */
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function popT(lt, at, dur) {             // pop 进度 0..1（延迟 at 秒）
+    return clamp((lt - at) / (dur || 0.5), 0, 1);
+  }
+  function easeOutBack(p) {
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+  }
+  function easeOutCubic(p) { return 1 - Math.pow(1 - p, 3); }
+  function rr(x, y, w, h, r) {             // 圆角矩形路径
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function card(x, y, w, h, r, stroke, glow) {
+    ctx.save();
+    rr(x, y, w, h, r);
+    ctx.fillStyle = C.card; ctx.fill();
+    if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 40; }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 5; ctx.stroke(); }
+    ctx.restore();
+  }
+  function dashedRect(x, y, w, h, r, color) {
+    ctx.save();
+    rr(x, y, w, h, r);
+    ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.setLineDash([16, 12]); ctx.stroke();
+    ctx.restore();
+  }
+  function txt(str, x, y, size, weight, color, align, mono) {
+    ctx.fillStyle = color;
+    ctx.textAlign = align || "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = (weight || 700) + " " + size + "px " + (mono ? MONO : FONT);
+    ctx.fillText(str, x, y);
+    return ctx.measureText(str).width;
+  }
+  function popStr(lt, at) { return easeOutBack(popT(lt, at)); }
+  function popText(str, x, y, size, weight, color, lt, at, mono, align) {
+    var p = popStr(lt, at);
+    if (p <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(p, p);
+    ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+    txt(str, 0, 0, size, weight, color, align || "center", mono);
+    ctx.restore();
+  }
+  function popCard(x, y, w, h, r, stroke, glow, lt, at, drawInner) {
+    var p = popStr(lt, at);
+    if (p <= 0) return;
+    ctx.save();
+    var cx = x + w / 2, cy = y + h / 2;
+    ctx.translate(cx, cy); ctx.scale(p, p); ctx.translate(-cx, -cy);
+    ctx.globalAlpha = clamp(p * 1.6, 0, 1);
+    card(x, y, w, h, r, stroke, glow);
+    if (drawInner) drawInner();
+    ctx.restore();
+  }
+  function flash(lt, at, decay) {          // 返回当前红闪 alpha
+    if (lt < at) return 0;
+    var e = (lt - at) / (decay || 0.9);
+    return e >= 1 ? 0 : (1 - e) * 0.55;
+  }
+
+  /* ---------- 场景 ---------- */
+  function s1(lt) {                        // 0–3.5 钩子
+    var p0 = popStr(lt, 0);
+    if (p0 > 0) {                          // 徽标
+      ctx.save();
+      ctx.globalAlpha = clamp(p0 * 1.6, 0, 1);
+      var bw = 500, bh = 84, bx = (W - bw) / 2, by = 520;
+      ctx.translate(bx + bw / 2, by + bh / 2); ctx.scale(p0, p0); ctx.translate(-(bx + bw / 2), -(by + bh / 2));
+      rr(bx, by, bw, bh, 18); ctx.fillStyle = C.am; ctx.fill();
+      txt("真实 P0 踩坑复盘", W / 2, by + 60, 44, 900, "#0a0e17");
+      ctx.restore();
+    }
+    var lines = [["你的分布式锁", C.tx], ["会在长任务中途", C.rd], ["被人抢走", C.tx]];
+    for (var i = 0; i < lines.length; i++) {
+      popText(lines[i][0], W / 2, 700 + i * 135, 96, 900, lines[i][1], lt, 0.15 + i * 0.12);
+    }
+    var pl = popStr(lt, 0.55);
+    if (pl > 0) {
+      ctx.save();
+      ctx.globalAlpha = clamp(pl * 1.6, 0, 1);
+      ctx.translate(W / 2, 1245);
+      var sway = lt > 1.2 ? Math.sin((lt - 1.2) * 11) * 0.22 * Math.max(0, 1 - (lt - 1.2) / 1.6) : 0;
+      ctx.rotate(sway); ctx.scale(pl, pl);
+      txt("🔓", 0, 50, 150, 400, C.tx);
+      ctx.restore();
+    }
+  }
+
+  /* Pod 卡片（S2/S3 用） */
+  function pod(x, y, w, h, lt, at, opts) {
+    popCard(x, y, w, h, 32, opts.stroke, opts.glow, lt, at, function () {
+      txt("🖥️", x + w / 2, y + 130, 84, 400, C.tx);
+      txt(opts.name, x + w / 2, y + 215, 44, 800, "#c9d4e3");
+      txt(opts.state, x + w / 2, y + 285, 36, 700, opts.stateColor || C.sub);
+      if (opts.ttlFrac != null) {          // TTL 条
+        var bw = w - 72, bx = x + 36, by = y + 330;
+        rr(bx, by, bw, 34, 17); ctx.fillStyle = "#1d2736"; ctx.fill();
+        rr(bx, by, bw * clamp(opts.ttlFrac, 0, 1), 34, 17);
+        ctx.fillStyle = opts.ttlColor || C.am; ctx.fill();
+        txt(opts.ttlLabel || "锁 TTL 剩余", x + w / 2, by + 78, 30, 600, C.sub);
+      }
+      if (opts.taskFrac != null) {
+        var ty = opts.ttlFrac != null ? y + 480 : y + 330;
+        txt("任务进度", x + 36, ty + 24, 30, 600, C.sub, "left");
+        var tbw = w - 72;
+        rr(x + 36, ty + 40, tbw, 26, 13); ctx.fillStyle = "#1d2736"; ctx.fill();
+        rr(x + 36, ty + 40, tbw * clamp(opts.taskFrac, 0, 1), 26, 13);
+        ctx.fillStyle = C.gr; ctx.fill();
+      }
+    });
+  }
+
+  function s2(lt) {                        // 3.5–12 没有看门狗
+    popText("没有看门狗的世界", W / 2, 320, 64, 900, C.tx, lt, 0.1);
+    var steal = lt >= 5.4;
+    pod(140, 400, 350, 660, lt, 0.25, {
+      name: "Pod A",
+      state: steal ? "锁没了 😱" : "持锁 🔒 处理任务…",
+      stateColor: steal ? C.rd : C.sub,
+      stroke: steal ? C.bd : C.gr,
+      glow: steal ? null : "rgba(61,220,132,.25)",
+      ttlFrac: 1 - clamp((lt - 0.7) / 4.7, 0, 1),
+      ttlColor: steal ? C.rd : C.am,
+      taskFrac: lt < 0.4 ? 0 : clamp((lt - 0.4) / 7.4, 0, 1) * 0.88
+    });
+    pod(590, 400, 350, 660, lt, 0.45, {
+      name: "Pod B",
+      state: steal ? "抢到锁 🔒 开跑" : "排队等待…",
+      stateColor: steal ? C.gr : C.sub,
+      stroke: steal ? C.rd : C.bd,
+      glow: steal ? "rgba(255,71,87,.3)" : null
+    });
+    if (steal) { popText("⚠️ TTL 到期，锁被抢走", W / 2, 1220, 66, 900, C.rd, lt, 5.6); }
+    if (steal) { popText("两个 Pod 同时在跑！", W / 2, 1310, 66, 900, C.rd, lt, 5.75); }
+  }
+
+  function s3(lt) {                        // 12–22 看门狗
+    popText("解法：", W / 2 - 175, 320, 64, 900, C.tx, lt, 0.1, false, "right");
+    popText("看门狗 🐕", W / 2 - 155, 320, 64, 900, C.gr, lt, 0.1, false, "left");
+    var bob = Math.sin(lt * 3.3) * 8;
+    popCard(360, 400, 360, 700, 32, C.gr, "rgba(61,220,132,.25)", lt, 0.25, function () {
+      txt("🖥️", 540, 530, 84, 400, C.tx);
+      txt("Pod A", 540, 615, 44, 800, "#c9d4e3");
+      txt("持锁 🔒", 540, 685, 36, 700, C.sub);
+      txt("🐕", 540, 775 + bob, 84, 400, C.tx);
+      var cyc = (lt - 0.6) % 1.9;          // TTL 排空循环
+      var frac = 1 - clamp(cyc / 1.9, 0, 1) * 0.92;
+      var bw = 288, bx = 396, by = 800;
+      rr(bx, by, bw, 34, 17); ctx.fillStyle = "#1d2736"; ctx.fill();
+      rr(bx, by, bw * frac, 34, 17); ctx.fillStyle = C.gr; ctx.fill();
+      txt("每 TTL/3 自动续期", 540, by + 78, 30, 600, C.sub);
+      if (cyc < 0.55) {                    // +TTL 飘字
+        var a = 1 - cyc / 0.55;
+        ctx.save(); ctx.globalAlpha = a;
+        txt("+TTL ✨", 620, by - 30 - cyc * 160, 40, 900, C.gr);
+        ctx.restore();
+      }
+      var ty = 950;
+      txt("任务进度", 396, ty + 24, 30, 600, C.sub, "left");
+      rr(396, ty + 40, 288, 26, 13); ctx.fillStyle = "#1d2736"; ctx.fill();
+      rr(396, ty + 40, 288 * clamp((lt - 0.4) / 7.5, 0, 1), 26, 13); ctx.fillStyle = C.gr; ctx.fill();
+    });
+    popText("✅ 长任务安全跑完，锁稳稳在手", W / 2, 1240, 60, 900, C.gr, lt, 8);
+  }
+
+  function s4(lt) {                        // 22–36 嵌套 P0
+    popText("但是——", 300, 300, 60, 900, C.tx, lt, 0.08, false, "right");
+    popText("差点被自己人坑了", 320, 300, 60, 900, C.am, lt, 0.08, false, "left");
+    var bx = 110, by = 360, bw = 860, bh = 560;
+    var pBox = popStr(lt, 0.25);
+    if (pBox > 0) {
+      ctx.save();
+      var cx = bx + bw / 2, cyb = by + bh / 2;
+      ctx.translate(cx, cyb); ctx.scale(pBox, pBox); ctx.translate(-cx, -cyb);
+      ctx.globalAlpha = clamp(pBox * 1.6, 0, 1);
+      rr(bx, by, bw, bh, 28); ctx.fillStyle = C.darker; ctx.fill();
+      dashedRect(bx + 24, by + 20, bw - 48, bh - 40, 20, C.gr);
+      var lx = bx + 60, ly = by + 90, lh = 62;
+      txt('if (tryLock("settle")) {', lx, ly, 36, 800, C.mono, "left", true);
+      txt("// 外层：拿锁+🐕", bx + bw - 56, ly, 30, 600, C.dim, "right");
+      dashedRect(bx + 100, ly + 24, bw - 200, 244, 16, C.cy);
+      txt('if (tryLock("settle")) {', lx + 50, ly + 84, 34, 800, C.mono, "left", true);
+      txt("…子步骤…", lx + 50, ly + 146, 32, 600, C.dim, "left");
+      var dead = lt >= 3;
+      txt('unlock("settle");', lx + 50, ly + 208, 34, 800, dead ? C.dim : C.cy, "left", true);
+      if (dead) {
+        ctx.save();
+        var w1 = ctx.measureText('unlock("settle");').width;
+        ctx.strokeStyle = C.rd; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(lx + 44, ly + 196); ctx.lineTo(lx + 52 + w1, ly + 196); ctx.stroke();
+        ctx.restore();
+        txt("// ← 看门狗停了 🐕✝", lx + 50 + 300, ly + 208, 30, 700, C.rd, "left");
+      } else {
+        txt("// 重入 -1", lx + 50 + 300, ly + 208, 30, 600, C.dim, "left");
+      }
+      txt("}", lx + 50, ly + 252, 34, 800, C.mono, "left", true);
+      txt("…外层还要跑 10 分钟…", lx, ly + 316, 32, 600, C.dim, "left");
+      txt("}", lx, ly + 378, 36, 800, C.mono, "left", true);
+      ctx.restore();
+    }
+    var lost = lt >= 8.2;
+    popCard(190, 1030, 700, 110, 26, lost ? C.rd : C.rd, lost ? "rgba(255,71,87,.3)" : null,
+            lt, 0.4, function () {
+      txt(lost ? "🔓 锁已被 Pod B 抢走" : "🐕 已被停掉 · TTL 无人续期…",
+          540, 1102, 40, 800, lost ? C.rd : C.sub);
+    });
+    var ps = popStr(lt, 8);                // P0 图章
+    if (ps > 0) {
+      ctx.save();
+      ctx.translate(870, 420); ctx.rotate(-0.14); ctx.scale(ps, ps);
+      ctx.globalAlpha = clamp(ps * 1.5, 0, 1);
+      rr(-170, -80, 340, 160, 24);
+      ctx.fillStyle = "rgba(255,71,87,.12)"; ctx.fill();
+      ctx.strokeStyle = C.rd; ctx.lineWidth = 12; ctx.stroke();
+      txt("P0", 0, 42, 130, 900, C.rd);
+      ctx.restore();
+    }
+    if (lt >= 8.6) {
+      popText("内层 unlock 停了狗", W / 2, 1260, 64, 900, C.rd, lt, 8.6);
+      popText("外层临界区裸奔，锁被抢", W / 2, 1350, 64, 900, C.rd, lt, 8.75);
+    }
+  }
+
+  function s5(lt) {                        // 36–48 深度计数
+    popText("修复：", W / 2 - 205, 320, 64, 900, C.tx, lt, 0.08, false, "right");
+    popText("重入深度计数", W / 2 - 185, 320, 64, 900, C.gr, lt, 0.08, false, "left");
+    var nums = [["2", "外层+内层", 0.2, C.gr], ["1", "内层只递减\n狗还在 🐕", 2.2, C.gr], ["0", "归零才停狗\n✅ 正确释放", 4.4, C.dim]];
+    var xs = [140, 400, 660];
+    for (var i = 0; i < 3; i++) {
+      (function (i) {
+        var n = nums[i], size = 280;
+        popCard(xs[i], 430, size, size, 40, n[3], null, lt, n[2], function () {
+          txt(n[0], xs[i] + size / 2, 430 + 150, 120, 900, C.tx);
+          var parts = n[1].split("\n");
+          for (var k = 0; k < parts.length; k++) {
+            txt(parts[k], xs[i] + size / 2, 430 + 205 + k * 40, 30, 600, C.sub);
+          }
+        });
+        if (i < 2) popText("→", xs[i] + size + 30, 600, 80, 400, C.dim, lt, i === 0 ? 1.6 : 3.8);
+      })(i);
+    }
+    popCard(90, 880, 900, 120, 20, C.bd, null, lt, 5.2, function () {
+      ctx.save(); ctx.translate(540, 962); ctx.scale(1, 1);
+      ctx.font = "700 42px " + MONO;
+      var seg = [["depth--", C.cy], ["; if (depth == ", C.mono], ["0", C.am], [") stopWatchdog();", C.mono]];
+      var total = seg.reduce(function (a, s) { return a + ctx.measureText(s[0]).width; }, 0);
+      var px = -total / 2;
+      seg.forEach(function (s) {
+        ctx.fillStyle = s[1]; ctx.textAlign = "left"; ctx.fillText(s[0], px, 0);
+        px += ctx.measureText(s[0]).width;
+      });
+      ctx.restore();
+    });
+    popText("嵌套的内层 finally，再也不会误杀看门狗", W / 2, 1130, 54, 800, C.gr, lt, 6);
+  }
+
+  function s6(lt) {                        // 48–58 清单
+    popText("上线前检查清单 📋", W / 2, 320, 64, 900, C.tx, lt, 0.08);
+    var items = [
+      ["1", "长任务必开看门狗", "任务时长可能超过 TTL 的，都要开", 0.3],
+      ["2", "嵌套加锁：内层只递减，归零才停", "重入语义必须配对，finally 也不例外", 1.5],
+      ["3", "锁不是闸门，幂等才是兜底", "存储抖动 fail-open 放行，业务幂等扛住双跑", 2.7]
+    ];
+    for (var i = 0; i < 3; i++) {
+      (function (it) {
+        popCard(90, 400 + i * 250, 900, 210, 28, C.bd, null, lt, it[3], function () {
+          var y0 = 400 + i * 250;
+          ctx.save();
+          rr(134, y0 + 62, 76, 76, 38); ctx.fillStyle = C.gr; ctx.fill();
+          txt(it[0], 172, y0 + 114, 44, 900, "#0a0e17");
+          txt(it[1], 240, y0 + 100, 42, 800, "#eef2f8", "left");
+          txt(it[2], 240, y0 + 158, 31, 600, C.sub, "left");
+          ctx.restore();
+        });
+      })(items[i]);
+    }
+  }
+
+  function s7(lt) {                        // 58–62.5 CTA
+    popText("📌", W / 2, 560, 110, 400, C.tx, lt, 0);
+    popText("收藏这篇", W / 2 - 165, 780, 88, 900, C.am, lt, 0.2, false, "right");
+    popText("长任务上线前过一遍", W / 2 + 175, 900, 88, 900, C.tx, lt, 0.2, false, "left");
+    popCard(140, 1060, 800, 150, 24, C.bd, null, lt, 0.6, function () {
+      txt("评论区聊聊：你们的服务，锁的续期谁在做？👇", 540, 1152, 42, 800, "#c9d4e3");
+    });
+    popText("star-site-components · 七组件 · 开源", W / 2, 1330, 34, 700, C.dim, lt, 1);
+  }
+
+  var SCENES = [
+    { from: 0, to: 3.5, draw: s1 }, { from: 3.5, to: 12, draw: s2 },
+    { from: 12, to: 22, draw: s3 }, { from: 22, to: 36, draw: s4 },
+    { from: 36, to: 48, draw: s5 }, { from: 48, to: 58, draw: s6 },
+    { from: 58, to: TOTAL + 1, draw: s7 }
+  ];
+
+  function render(s) {
+    ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+    for (var i = 0; i < SCENES.length; i++) {
+      if (s >= SCENES[i].from && s < SCENES[i].to) { SCENES[i].draw(s - SCENES[i].from); break; }
+    }
+    var fi = 0;
+    for (var j = 0; j < CAPTIONS.length; j++) if (s >= CAPTIONS[j][0]) fi = j;
+    var capIn = clamp((s - CAPTIONS[fi][0]) / 0.25, 0, 1);   // 字幕淡入
+    ctx.save();
+    ctx.globalAlpha = capIn;
+    rr(60, 1660, 960, 150, 28);
+    ctx.fillStyle = "rgba(13,17,26,.92)"; ctx.fill();
+    ctx.strokeStyle = C.bd; ctx.lineWidth = 2; ctx.stroke();
+    var msg = CAPTIONS[fi][1];
+    ctx.font = "700 42px " + FONT;
+    if (ctx.measureText(msg).width > 880) msg = msg.slice(0, 21) + "\n" + msg.slice(21);
+    var segs = msg.split("\n");
+    for (var k = 0; k < segs.length; k++) {
+      txt(segs[k], 540, 1723 + k * 56 - (segs.length - 1) * 28, 42, 700, "#eef2f8");
+    }
+    ctx.restore();
+    rr(0, 0, W * clamp(s / TOTAL, 0, 1), 10, 5);             // 进度条
+    ctx.fillStyle = C.gr; ctx.fill();
+    txt("star-site-components", W / 2, 1878, 28, 600, C.dim);
+  }
+
+  /* ---------- 确定性帧导出（不依赖 rAF/合成器——节流环境下的可靠出帧通道） ---------- */
+  window.__snap = function (n0, n1) {
+    var out = [];
+    for (var i = n0; i < n1 && i < Math.ceil(TOTAL * 25); i++) {
+      render(i / 25);
+      out.push(cv.toDataURL("image/png"));
+    }
+    return out;
+  };
+
+  /* ---------- 启动 + 自录 + 回传 ---------- */
+  document.getElementById("go").addEventListener("click", function () {
+    document.getElementById("start").style.display = "none";
+    var stat = document.getElementById("stat");
+    var mime = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]
+      .filter(function (m) { return MediaRecorder.isTypeSupported(m); })[0];
+    var stream = cv.captureStream(25);
+    var rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+    var chunks = [];
+    rec.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+    rec.onstop = function () {
+      var blob = new Blob(chunks, { type: "video/webm" });
+      stat.textContent = "uploading " + (blob.size / 1048576).toFixed(1) + "MB…";
+      fetch("http://127.0.0.1:9902/upload", { method: "POST", body: blob, mode: "cors" })
+        .then(function (r) { stat.textContent = "done " + r.status; })
+        .catch(function (e) { stat.textContent = "upload fail: " + e; });
+    };
+    rec.start(1000);
+    var t0 = performance.now();
+    (function loop(now) {
+      var s = (now - t0) / 1000;
+      render(Math.min(s, TOTAL));
+      stat.textContent = s.toFixed(1) + "s";
+      if (s < TOTAL + TAIL) requestAnimationFrame(loop);
+      else if (rec.state !== "inactive") rec.stop();
+    })(t0);
+  });
+})();
+</script>
+</body>
+</html>
