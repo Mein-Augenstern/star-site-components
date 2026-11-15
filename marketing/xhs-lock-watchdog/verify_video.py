@@ -35,7 +35,8 @@ SIL_MIN_DUR = 2.0            # G5: 静音判定时长
 SIL_OK_HEAD, SIL_OK_TAIL = 2.0, 3.0
 
 def sh(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+    # 安全：参数列表形式 + 显式 shell=False——cmd 元素不经 shell 解析，无拼接注入面
+    return subprocess.run(cmd, capture_output=True, text=True, shell=False)
 
 def die(msg):
     print(f"FAIL  {msg}")
@@ -154,9 +155,13 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(2)
     import os
-    # 输入校验（防路径穿越/误用）：只接受本地真实存在的 .mp4 常规文件
+    # 输入校验（三重防穿越/防注入）：realpath 解析 + .mp4 后缀白名单 +
+    # 拒绝 shell 元字符；subprocess 全程参数列表 + shell=False
     p = os.path.realpath(sys.argv[1])
     if not p.endswith(".mp4") or not os.path.isfile(p):
         print(f"FAIL  输入必须是本地存在的 .mp4 文件: {sys.argv[1]}")
+        sys.exit(2)
+    if re.search(r'[;|&$`<>()\\\n]', p):
+        print(f"FAIL  路径含非法字符: {sys.argv[1]}")
         sys.exit(2)
     main(p)
